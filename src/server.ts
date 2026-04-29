@@ -146,6 +146,7 @@ server.listen(PORT, () => {
 
 // ─── Frontend ───────────────────────────────────────────────────────────────
 
+
 const FRONTEND_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -156,19 +157,30 @@ const FRONTEND_HTML = `<!DOCTYPE html>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #0f1117;
-    --surface: #1a1d27;
-    --surface-2: #252836;
-    --border: #2a2d3a;
-    --text: #e2e8f0;
+    --bg: #0d0f15;
+    --surface: #161923;
+    --surface-2: #1f2330;
+    --border: #2a2f3e;
+    --border-strong: #3a4055;
+    --text: #f1f5f9;
+    --text-2: #cbd5e1;
     --muted: #64748b;
+    --muted-2: #475569;
     --green: #22c55e;
+    --green-bg: #052e16;
     --amber: #f59e0b;
+    --amber-bg: #2d1f00;
     --red: #ef4444;
+    --red-bg: #3b0d0d;
     --blue: #3b82f6;
+    --blue-bg: #0c1e3a;
     --purple: #a855f7;
+    --purple-bg: #2a0e3a;
     --teal: #14b8a6;
-    --font: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --teal-bg: #062c28;
+    --yellow: #eab308;
+    --yellow-bg: #2d2400;
+    --font: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
   }
 
   body {
@@ -192,26 +204,18 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
   header h1 {
     font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    color: var(--text);
   }
 
-  header .model {
-    color: var(--muted);
-    font-size: 11px;
-  }
-
-  header .status {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--muted);
-  }
+  header .model { color: var(--muted); font-size: 11px; }
+  header .status { margin-left: auto; font-size: 11px; color: var(--muted); }
 
   .main {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0;
+    grid-template-columns: minmax(360px, 1fr) minmax(560px, 1.5fr);
     height: calc(100vh - 53px);
   }
 
@@ -223,13 +227,15 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     border-right: 1px solid var(--border);
     padding: 24px;
     gap: 12px;
+    background: var(--bg);
   }
 
   .input-pane label {
     font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     color: var(--muted);
+    font-weight: 600;
   }
 
   textarea {
@@ -237,16 +243,18 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 14px;
+    padding: 16px;
     color: var(--text);
     font-family: var(--font);
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.7;
     resize: none;
     outline: none;
+    transition: border-color 0.15s;
   }
 
   textarea:focus { border-color: var(--blue); }
+  textarea::placeholder { color: var(--muted-2); }
 
   .input-actions {
     display: flex;
@@ -259,27 +267,19 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     color: white;
     border: none;
     border-radius: 6px;
-    padding: 10px 20px;
+    padding: 10px 22px;
     font-family: var(--font);
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.03em;
     cursor: pointer;
     transition: opacity 0.15s;
   }
-
   button.primary:hover:not(:disabled) { opacity: 0.85; }
   button.primary:disabled { opacity: 0.4; cursor: default; }
 
-  .hint {
-    color: var(--muted);
-    font-size: 11px;
-  }
-
-  .char-count {
-    margin-left: auto;
-    color: var(--muted);
-    font-size: 11px;
-  }
+  .hint { color: var(--muted); font-size: 11px; }
+  .char-count { margin-left: auto; color: var(--muted); font-size: 11px; }
 
   /* ─── Right: results ─── */
 
@@ -288,238 +288,302 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
 
   .results-pane > .empty {
     color: var(--muted);
     font-size: 12px;
-    margin-top: 40px;
+    margin-top: 60px;
     text-align: center;
   }
+
+  /* ─── Dimension card ─── */
 
   .dim-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    align-items: center;
+    border-radius: 10px;
+    padding: 16px 18px;
+    transition: border-color 0.2s, opacity 0.2s;
+  }
+
+  .dim-card.pending { opacity: 0.55; }
+  .dim-card.done { border-color: var(--border-strong); }
+  .dim-card.failed { border-color: var(--red); }
+
+  .dim-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .dim-name {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-2);
+  }
+
+  .dim-meta {
+    display: flex;
     gap: 12px;
-    transition: border-color 0.2s;
+    font-size: 11px;
+    color: var(--muted);
   }
 
-  .dim-card.pending {
-    opacity: 0.55;
+  .dim-meta .latency { font-variant-numeric: tabular-nums; }
+
+  .dim-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
   }
 
-  .dim-card.done {
-    border-color: var(--green);
+  .opt {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-size: 12px;
+    color: var(--muted-2);
+    background: transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+    font-weight: 500;
   }
 
-  .dim-card.failed {
-    border-color: var(--red);
-    opacity: 0.85;
+  /* Selected option — strongly highlighted, with per-dim color theme */
+  .opt.selected {
+    color: var(--text);
+    font-weight: 600;
+    border-width: 1px;
   }
 
-  .dim-card .dim-name {
+  /* task_class colors */
+  .opt.selected[data-dim="task_class"][data-val="chat"]     { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  .opt.selected[data-dim="task_class"][data-val="draft"]    { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
+  .opt.selected[data-dim="task_class"][data-val="code"]     { background: #166534; border-color: #4ade80; color: #ffffff; }
+  .opt.selected[data-dim="task_class"][data-val="research"] { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
+  .opt.selected[data-dim="task_class"][data-val="unknown"]  { background: #b91c1c; border-color: #f87171; color: #ffffff; }
+
+  /* needs_memory colors */
+  .opt.selected[data-dim="needs_memory"][data-val="none"]      { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  .opt.selected[data-dim="needs_memory"][data-val="recent"]    { background: #0f766e; border-color: #2dd4bf; color: #ffffff; }
+  .opt.selected[data-dim="needs_memory"][data-val="session"]   { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
+  .opt.selected[data-dim="needs_memory"][data-val="long_term"] { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
+
+  /* tools_required colors */
+  .opt.selected[data-dim="tools_required"][data-val="true"]  { background: #b45309; border-color: #fbbf24; color: #ffffff; }
+  .opt.selected[data-dim="tools_required"][data-val="false"] { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+
+  /* suggested_model colors */
+  .opt.selected[data-dim="suggested_model"][data-val="local_fast"]      { background: #166534; border-color: #4ade80; color: #ffffff; }
+  .opt.selected[data-dim="suggested_model"][data-val="local_slow"]      { background: #854d0e; border-color: #facc15; color: #ffffff; }
+  .opt.selected[data-dim="suggested_model"][data-val="billed_mini"]     { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
+  .opt.selected[data-dim="suggested_model"][data-val="billed_frontier"] { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
+
+  /* security colors */
+  .opt.selected[data-dim="security"][data-val="clean"]            { background: #166534; border-color: #4ade80; color: #ffffff; }
+  .opt.selected[data-dim="security"][data-val="suspicious"]       { background: #b45309; border-color: #fbbf24; color: #ffffff; }
+  .opt.selected[data-dim="security"][data-val="prompt_injection"] { background: #b91c1c; border-color: #f87171; color: #ffffff; font-weight: 700; }
+
+  /* Confidence bar */
+  .conf-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .conf-label {
     font-size: 10px;
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    margin-bottom: 4px;
-  }
-
-  .dim-card .dim-value {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .dim-card .dim-value .pending-text {
-    color: var(--muted);
-    font-style: italic;
-    font-weight: 400;
-  }
-
-  .dim-card .dim-value .failed-text {
-    color: var(--red);
-    font-size: 12px;
-  }
-
-  .pill {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  /* per-dim coloring */
-  .pill.tc-chat     { background: #1e293b; color: #94a3b8; }
-  .pill.tc-draft    { background: #1e3a5f; color: #60a5fa; }
-  .pill.tc-code     { background: #1a2e1a; color: #4ade80; }
-  .pill.tc-research { background: #2d1f3d; color: #c084fc; }
-  .pill.tc-unknown  { background: #2d1f1f; color: #f87171; }
-
-  .pill.mem-none      { background: #1e293b; color: #64748b; }
-  .pill.mem-recent    { background: #1f2d2d; color: #2dd4bf; }
-  .pill.mem-session   { background: #1e3a5f; color: #60a5fa; }
-  .pill.mem-long_term { background: #2d1f3d; color: #c084fc; }
-
-  .pill.tools-on  { background: rgba(245, 158, 11, 0.18); color: var(--amber); }
-  .pill.tools-off { background: #1e293b; color: #475569; }
-
-  .pill.sm-local_fast       { background: #14291f; color: var(--green); }
-  .pill.sm-local_slow       { background: #2d2900; color: #d4c000; }
-  .pill.sm-billed_mini      { background: #1e2d4f; color: var(--blue); }
-  .pill.sm-billed_frontier  { background: #2d1f3d; color: var(--purple); }
-
-  .pill.sec-clean             { background: #14291f; color: var(--green); }
-  .pill.sec-suspicious        { background: #2d200a; color: var(--amber); }
-  .pill.sec-prompt_injection  { background: #2d0f0f; color: var(--red); font-weight: 600; }
-
-  .pill.rt-local_fast       { background: #14291f; color: var(--green); }
-  .pill.rt-local_slow       { background: #2d2900; color: #d4c000; }
-  .pill.rt-billed_mini      { background: #1e2d4f; color: var(--blue); }
-  .pill.rt-billed_frontier  { background: #2d1f3d; color: var(--purple); }
-  .pill.rt-reject           { background: #2d0f0f; color: var(--red); font-weight: 600; }
-  .pill.rt-fallback         { background: #2d1f1f; color: var(--red); }
-
-  .conf-block {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    min-width: 56px;
+    min-width: 78px;
   }
 
   .conf-track {
-    width: 56px;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
+    flex: 1;
+    height: 6px;
+    background: var(--surface-2);
+    border-radius: 3px;
     overflow: hidden;
   }
 
   .conf-fill {
     height: 100%;
-    border-radius: 2px;
-    transition: width 0.3s ease;
+    border-radius: 3px;
+    transition: width 0.3s ease, background-color 0.3s;
+    width: 0;
   }
 
   .conf-num {
-    font-size: 11px;
-    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    min-width: 38px;
+    text-align: right;
   }
 
-  .latency-block {
+  .conf-num.low  { color: var(--red); }
+  .conf-num.mid  { color: var(--amber); }
+  .conf-num.high { color: var(--green); }
+
+  .pending-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     color: var(--muted);
-    font-size: 11px;
-    min-width: 48px;
-    text-align: right;
+    font-size: 12px;
+    font-style: italic;
   }
 
   .spinner {
     display: inline-block;
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
     border: 1.5px solid var(--border);
     border-top-color: var(--blue);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .failed-state {
+    color: var(--red);
+    font-size: 12px;
+    font-weight: 500;
   }
 
   /* ─── Aggregate / route ─── */
 
   .aggregate {
-    margin-top: 8px;
-    padding: 16px;
+    margin-top: 12px;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 2px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  .aggregate.escalated { border-color: var(--amber); }
+  .aggregate.rejected  { border-color: var(--red); }
+  .aggregate.fallback  { border-color: var(--red); }
+
+  .agg-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-2);
+    margin-bottom: 14px;
+  }
+
+  .agg-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .agg-stat .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .agg-stat .value {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    line-height: 1.1;
+  }
+
+  .agg-stat .value.low  { color: var(--red); }
+  .agg-stat .value.mid  { color: var(--amber); }
+  .agg-stat .value.high { color: var(--green); }
+
+  .agg-stat .sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .route-section {
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
 
-  .aggregate.escalated {
-    border-color: var(--amber);
-  }
-
-  .aggregate.rejected {
-    border-color: var(--red);
-  }
-
-  .aggregate.fallback {
-    border-color: var(--red);
-  }
-
-  .aggregate .label {
+  .route-label {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
   }
 
-  .aggregate .conf-row {
-    display: flex;
-    gap: 24px;
-    align-items: center;
-  }
-
-  .aggregate .conf-row .item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-  }
-
-  .aggregate .conf-row .label {
-    margin: 0;
-  }
-
-  .aggregate .val { font-weight: 500; }
-  .aggregate .val.low { color: var(--red); }
-  .aggregate .val.mid { color: var(--amber); }
-  .aggregate .val.high { color: var(--green); }
-
-  .aggregate .route-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
+  .route-pill {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 6px;
     font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid;
   }
 
-  .aggregate .route-arrow {
-    color: var(--muted);
-  }
+  .route-pill[data-route="local_fast"]       { background: #166534; border-color: #4ade80; color: #ffffff; }
+  .route-pill[data-route="local_slow"]       { background: #854d0e; border-color: #facc15; color: #ffffff; }
+  .route-pill[data-route="billed_mini"]      { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
+  .route-pill[data-route="billed_frontier"]  { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
+  .route-pill[data-route="reject"]           { background: #b91c1c; border-color: #f87171; color: #ffffff; }
+  .route-pill[data-route="fallback"]         { background: #4b1818; border-color: #f87171; color: #ffffff; }
 
-  .aggregate .escalation-note {
-    font-size: 11px;
+  .escalation-note {
+    font-size: 12px;
     color: var(--amber);
-  }
-
-  .aggregate .meta {
     display: flex;
-    gap: 12px;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .flags-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+
+  .flag {
+    padding: 4px 10px;
+    border-radius: 4px;
     font-size: 11px;
-    color: var(--muted);
-  }
-
-  .aggregate .meta .flag {
-    padding: 1px 6px;
-    border-radius: 3px;
     background: var(--surface-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
   }
 
-  .aggregate .meta .flag.on { color: var(--amber); background: rgba(245, 158, 11, 0.1); }
+  .flag.on {
+    background: var(--amber-bg);
+    color: var(--amber);
+    border-color: var(--amber);
+  }
+
+  .flag.confirm {
+    background: var(--red-bg);
+    color: var(--red);
+    border-color: var(--red);
+    font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -532,10 +596,9 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
 <div class="main">
 
-  <!-- ─── Left: input ─── -->
   <div class="input-pane">
     <label for="prompt">Request</label>
-    <textarea id="prompt" placeholder="Enter a request to classify…&#10;&#10;Cmd/Ctrl+Enter to submit." autofocus></textarea>
+    <textarea id="prompt" placeholder="Enter a request to classify…&#10;&#10;Press Cmd/Ctrl+Enter to submit." autofocus></textarea>
     <div class="input-actions">
       <button class="primary" id="submit-btn" onclick="submitClassify()">Classify</button>
       <span class="hint">Cmd/Ctrl+Enter</span>
@@ -543,7 +606,6 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- ─── Right: live results ─── -->
   <div class="results-pane" id="results">
     <div class="empty">Submit a request to see the live classification.</div>
   </div>
@@ -552,20 +614,12 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
 <script>
   const DIMENSIONS = [
-    'task_class',
-    'needs_memory',
-    'tools_required',
-    'suggested_model',
-    'security',
+    { key: 'task_class',      label: 'task class',      options: ['chat', 'draft', 'code', 'research', 'unknown'] },
+    { key: 'needs_memory',    label: 'needs memory',    options: ['none', 'recent', 'session', 'long_term'] },
+    { key: 'tools_required',  label: 'tools required',  options: ['true', 'false'] },
+    { key: 'suggested_model', label: 'suggested model', options: ['local_fast', 'local_slow', 'billed_mini', 'billed_frontier'] },
+    { key: 'security',        label: 'security',        options: ['clean', 'suspicious', 'prompt_injection'] },
   ];
-
-  const PILL_PREFIX = {
-    task_class: 'tc-',
-    needs_memory: 'mem-',
-    tools_required: '',
-    suggested_model: 'sm-',
-    security: 'sec-',
-  };
 
   const prompt = document.getElementById('prompt');
   const submitBtn = document.getElementById('submit-btn');
@@ -597,38 +651,35 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     return 'var(--green)';
   }
 
-  function pillClass(dim, value) {
-    if (dim === 'tools_required') {
-      return value ? 'tools-on' : 'tools-off';
-    }
-    return PILL_PREFIX[dim] + value;
-  }
-
-  function pillLabel(dim, value) {
-    if (dim === 'tools_required') return value ? 'yes' : 'no';
-    return String(value).replace(/_/g, ' ');
-  }
-
   function buildSkeleton() {
     results.innerHTML = '';
-    DIMENSIONS.forEach(dim => {
+    DIMENSIONS.forEach(({ key, label, options }) => {
       const card = document.createElement('div');
       card.className = 'dim-card pending';
-      card.id = 'card-' + dim;
+      card.id = 'card-' + key;
+
+      const optsHtml = options.map(opt => \`
+        <div class="opt" data-dim="\${key}" data-val="\${opt}">\${opt.replace(/_/g, ' ')}</div>
+      \`).join('');
+
       card.innerHTML = \`
-        <div>
-          <div class="dim-name">\${dim.replace(/_/g, ' ')}</div>
-          <div class="dim-value"><span class="pending-text"><span class="spinner"></span> waiting…</span></div>
+        <div class="dim-header">
+          <div class="dim-name">\${label}</div>
+          <div class="dim-meta">
+            <span class="latency">—</span>
+          </div>
         </div>
-        <div class="conf-block">
-          <div class="conf-track"><div class="conf-fill" style="width:0"></div></div>
-          <div class="conf-num">—</div>
+        <div class="dim-options">\${optsHtml}</div>
+        <div class="conf-row">
+          <span class="conf-label">confidence</span>
+          <div class="conf-track"><div class="conf-fill"></div></div>
+          <span class="conf-num">—</span>
         </div>
-        <div class="latency-block">—</div>
+        <div class="pending-state" style="margin-top:8px"><span class="spinner"></span> waiting for classifier…</div>
       \`;
       results.appendChild(card);
     });
-    // aggregate placeholder
+
     const agg = document.createElement('div');
     agg.className = 'aggregate';
     agg.id = 'aggregate';
@@ -641,30 +692,41 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     if (!card) return;
     card.classList.remove('pending');
 
-    const valueEl = card.querySelector('.dim-value');
+    const latEl = card.querySelector('.latency');
     const fillEl = card.querySelector('.conf-fill');
     const numEl = card.querySelector('.conf-num');
-    const latEl = card.querySelector('.latency-block');
+    const pendingEl = card.querySelector('.pending-state');
+
+    if (pendingEl) pendingEl.remove();
+    latEl.textContent = latency_ms + 'ms';
 
     if (!data) {
       card.classList.add('failed');
-      valueEl.innerHTML = '<span class="failed-text">classifier failed</span>';
+      const fail = document.createElement('div');
+      fail.className = 'failed-state';
+      fail.textContent = '✕ classifier failed';
+      fail.style.marginTop = '8px';
+      card.appendChild(fail);
       numEl.textContent = '—';
-      latEl.textContent = latency_ms + 'ms';
       return;
     }
 
     card.classList.add('done');
-    const cls = pillClass(dim, data.value);
-    const lbl = pillLabel(dim, data.value);
-    valueEl.innerHTML = \`<span class="pill \${cls}">\${lbl}</span>\`;
 
+    // Highlight selected option
+    const valStr = String(data.value);
+    card.querySelectorAll('.opt').forEach(opt => {
+      if (opt.getAttribute('data-val') === valStr) {
+        opt.classList.add('selected');
+      }
+    });
+
+    // Confidence bar + number
     const pct = Math.round(data.confidence * 100);
     fillEl.style.width = pct + '%';
     fillEl.style.background = confColor(data.confidence);
     numEl.textContent = pct + '%';
-    numEl.style.color = confColor(data.confidence);
-    latEl.textContent = latency_ms + 'ms';
+    numEl.className = 'conf-num ' + confClass(data.confidence);
   }
 
   function renderAggregate(complete) {
@@ -679,11 +741,13 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     if (!c) {
       agg.classList.add('fallback');
       agg.innerHTML = \`
-        <div class="label">Result</div>
-        <div style="color:var(--red);font-size:13px">Classification failed — using fallback route</div>
-        <div class="route-row">
-          <span class="route-arrow">→</span>
-          <span class="pill rt-\${r.route}">\${r.route.replace(/_/g, ' ')}</span>
+        <div class="agg-header">Classification result</div>
+        <div style="color:var(--red);font-size:13px;margin-bottom:14px">
+          ✕ Classification failed — using fallback route
+        </div>
+        <div class="route-section">
+          <div class="route-label">Final route</div>
+          <div><span class="route-pill" data-route="\${r.route}">\${r.route.replace(/_/g, ' ')}</span></div>
         </div>
       \`;
       return;
@@ -695,27 +759,42 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     const avgPct = Math.round(c.average_confidence * 100);
     const minPct = Math.round(c.min_confidence * 100);
 
-    let escalationNote = '';
+    let escalation = '';
     if (r.escalated && r.escalation_reason) {
-      escalationNote = \`<div class="escalation-note">↑ escalated: \${r.escalation_reason.replace(/_/g, ' ')}</div>\`;
+      escalation = \`<div class="escalation-note">⚠ Escalated to frontier — reason: \${r.escalation_reason.replace(/_/g, ' ')}</div>\`;
+    }
+
+    const flags = [];
+    flags.push(\`<span class="flag \${r.tools_required ? 'on' : ''}">tools: \${r.tools_required ? 'yes' : 'no'}</span>\`);
+    flags.push(\`<span class="flag">memory: \${r.memory_scope.replace(/_/g, ' ')}</span>\`);
+    if (r.requires_confirmation) {
+      flags.push(\`<span class="flag confirm">⚠ requires user confirmation</span>\`);
     }
 
     agg.innerHTML = \`
-      <div class="label">Aggregate</div>
-      <div class="conf-row">
-        <div class="item"><span class="label">avg</span><span class="val \${confClass(c.average_confidence)}">\${avgPct}%</span></div>
-        <div class="item"><span class="label">min</span><span class="val \${confClass(c.min_confidence)}">\${minPct}%</span></div>
-        <div class="item"><span class="label">total</span><span class="val">\${complete.total_latency_ms}ms</span></div>
+      <div class="agg-header">Aggregate confidence</div>
+      <div class="agg-stats">
+        <div class="agg-stat">
+          <div class="label">average</div>
+          <div class="value \${confClass(c.average_confidence)}">\${avgPct}%</div>
+          <div class="sub">across all 5 classifiers</div>
+        </div>
+        <div class="agg-stat">
+          <div class="label">minimum</div>
+          <div class="value \${confClass(c.min_confidence)}">\${minPct}%</div>
+          <div class="sub">lowest single classifier</div>
+        </div>
+        <div class="agg-stat">
+          <div class="label">total latency</div>
+          <div class="value">\${complete.total_latency_ms}<span style="font-size:14px;color:var(--muted)">ms</span></div>
+          <div class="sub">wall-clock time</div>
+        </div>
       </div>
-      <div class="route-row">
-        <span class="route-arrow">→</span>
-        <span class="pill rt-\${r.route}">\${r.route.replace(/_/g, ' ')}</span>
-        \${r.requires_confirmation ? '<span class="meta"><span class="flag on">requires confirmation</span></span>' : ''}
-      </div>
-      \${escalationNote}
-      <div class="meta">
-        <span class="flag \${r.tools_required ? 'on' : ''}">tools: \${r.tools_required ? 'yes' : 'no'}</span>
-        <span class="flag">memory: \${r.memory_scope.replace(/_/g, ' ')}</span>
+      <div class="route-section">
+        <div class="route-label">Final route</div>
+        <div><span class="route-pill" data-route="\${r.route}">\${r.route.replace(/_/g, ' ')}</span></div>
+        \${escalation}
+        <div class="flags-row">\${flags.join('')}</div>
       </div>
     \`;
   }
