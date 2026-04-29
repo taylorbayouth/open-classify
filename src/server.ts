@@ -2,7 +2,7 @@
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { randomUUID } from "crypto";
 import { loadConfig } from "./config.js";
-import { classify } from "./classify.js";
+import { classify, type SubEvent } from "./classify.js";
 import { computeRoute } from "./route.js";
 import { buildTrace } from "./trace.js";
 import { InputEnvelopeSchema, type Trace } from "./schema.js";
@@ -11,17 +11,9 @@ const PORT = Number(process.env.PORT ?? 3000);
 const MAX_TRACES = 500;
 
 const config = loadConfig();
-type AugmentedTrace = Trace & { _user_input: string; _new?: boolean };
+type AugmentedTrace = Trace & { _user_input: string };
 
 const traces: AugmentedTrace[] = [];
-const sseClients = new Set<ServerResponse>();
-
-function broadcast(trace: AugmentedTrace): void {
-  const data = `data: ${JSON.stringify(trace)}\n\n`;
-  for (const client of sseClients) {
-    client.write(data);
-  }
-}
 
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -40,7 +32,7 @@ function json(res: ServerResponse, status: number, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
-async function handleClassify(
+async function handleClassifyStream(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
@@ -62,52 +54,57 @@ async function handleClassify(
     user_input: body.user_input.trim(),
   });
 
-  const classifyResult = await classify(envelope, config.classifier);
-  const routeDecision = computeRoute(classifyResult.classification, config);
+  res.writeHead(200, {
+    "Content-Type": "application/x-ndjson",
+    "Cache-Control": "no-cache",
+    "Access-Control-Allow-Origin": "*",
+    "Transfer-Encoding": "chunked",
+  });
 
+  // Send a "started" event with the request ID
+  res.write(
+    JSON.stringify({ type: "started", request_id: envelope.request_id, classifier_model: config.classifier.model }) +
+      "\n"
+  );
+
+  const onEvent = (event: SubEvent): void => {
+    res.write(JSON.stringify(event) + "\n");
+  };
+
+  const result = await classify(envelope, config.classifier, onEvent);
+  const routeDecision = computeRoute(result.classification, config);
+
+  // Final aggregate event
+  res.write(
+    JSON.stringify({
+      type: "complete",
+      classification: result.classification,
+      route_decision: routeDecision,
+      total_latency_ms: result.latency_ms,
+      sub_latencies: result.sub_latencies,
+      fallback_used: result.fallback_used,
+    }) + "\n"
+  );
+
+  // Persist trace for /traces
   const trace: AugmentedTrace = {
     ...buildTrace({
       request_id: envelope.request_id,
       user_input: envelope.user_input,
       classifier_model: config.classifier.model,
-      classifier_latency_ms: classifyResult.latency_ms,
-      sub_latencies: classifyResult.classification ? classifyResult.sub_latencies : null,
-      classifier_output: classifyResult.classification,
-      validation_status: classifyResult.validation_status,
+      classifier_latency_ms: result.latency_ms,
+      sub_latencies: result.classification ? result.sub_latencies : null,
+      classifier_output: result.classification,
+      validation_status: result.validation_status,
       route_decision: routeDecision,
-      fallback_used: classifyResult.fallback_used,
+      fallback_used: result.fallback_used,
     }),
     _user_input: envelope.user_input,
-    _new: true,
   };
-
   traces.unshift(trace);
   if (traces.length > MAX_TRACES) traces.pop();
-  broadcast(trace);
 
-  json(res, 200, {
-    classification: classifyResult.classification,
-    route_decision: routeDecision,
-    sub_latencies: classifyResult.sub_latencies,
-  });
-}
-
-function handleStream(res: ServerResponse): void {
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-    "Access-Control-Allow-Origin": "*",
-  });
-  res.write(":\n\n");
-
-  for (const t of [...traces].reverse()) {
-    const { _new: _, ...rest } = t;
-    res.write(`data: ${JSON.stringify(rest)}\n\n`);
-  }
-
-  sseClients.add(res);
-  res.on("close", () => sseClients.delete(res));
+  res.end();
 }
 
 function handleFrontend(res: ServerResponse): void {
@@ -129,9 +126,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (method === "POST" && url === "/classify") {
-    await handleClassify(req, res);
-  } else if (method === "GET" && url === "/stream") {
-    handleStream(res);
+    await handleClassifyStream(req, res);
   } else if (method === "GET" && url === "/traces") {
     json(res, 200, traces);
   } else if (method === "GET" && (url === "/" || url === "/index.html")) {
@@ -145,7 +140,7 @@ server.listen(PORT, () => {
   console.log(`llm-harness running at http://localhost:${PORT}`);
   console.log(`Classifier model: ${config.classifier.model}`);
   console.log(
-    `Note: 5 parallel calls per classification. For Ollama, run with OLLAMA_NUM_PARALLEL=5 (or higher).`
+    `Note: 5 parallel sub-classifier calls per classification. For Ollama, use OLLAMA_NUM_PARALLEL=5.`
   );
 });
 
@@ -163,6 +158,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
   :root {
     --bg: #0f1117;
     --surface: #1a1d27;
+    --surface-2: #252836;
     --border: #2a2d3a;
     --text: #e2e8f0;
     --muted: #64748b;
@@ -172,7 +168,6 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     --blue: #3b82f6;
     --purple: #a855f7;
     --teal: #14b8a6;
-    --pink: #ec4899;
     --font: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   }
 
@@ -180,21 +175,19 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     background: var(--bg);
     color: var(--text);
     font-family: var(--font);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
   }
 
   header {
-    padding: 14px 20px;
+    padding: 14px 24px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 16px;
-    position: sticky;
-    top: 0;
     background: var(--bg);
-    z-index: 10;
   }
 
   header h1 {
@@ -204,266 +197,393 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     text-transform: uppercase;
   }
 
-  #count { color: var(--muted); font-size: 11px; }
-
-  #status { margin-left: auto; font-size: 11px; display: flex; align-items: center; gap: 6px; }
-  #status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-  #status-dot.connected { background: var(--green); }
-  #status-dot.error { background: var(--red); }
-
-  .input-bar {
-    padding: 10px 20px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .input-bar input[type="text"] {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--text);
-    font-family: var(--font);
-    font-size: 12px;
-    outline: none;
-  }
-
-  .input-bar input[type="text"]:focus { border-color: var(--blue); }
-
-  .input-bar button {
-    background: var(--blue);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font-family: var(--font);
+  header .model {
+    color: var(--muted);
     font-size: 11px;
-    cursor: pointer;
-    white-space: nowrap;
   }
 
-  .input-bar button:hover { opacity: 0.85; }
-  .input-bar button:disabled { opacity: 0.4; cursor: default; }
-
-  .table-wrap { overflow-x: auto; padding: 0 20px 20px; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 16px;
-    table-layout: fixed;
+  header .status {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
   }
 
-  thead th {
-    text-align: left;
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    height: calc(100vh - 53px);
+  }
+
+  /* ─── Left: input ─── */
+
+  .input-pane {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    padding: 24px;
+    gap: 12px;
+  }
+
+  .input-pane label {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
   }
 
-  tbody tr {
-    border-bottom: 1px solid var(--border);
+  textarea {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
   }
 
-  tbody tr:hover { background: var(--surface); }
+  textarea:focus { border-color: var(--blue); }
 
-  tbody tr.new-row { animation: flash 0.6s ease-out; }
-  @keyframes flash { from { background: rgba(59, 130, 246, 0.15); } to { background: transparent; } }
-
-  td {
-    padding: 8px;
-    vertical-align: middle;
+  .input-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
 
-  .input-cell {
-    width: 22%;
+  button.primary {
+    background: var(--blue);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
   }
 
-  .input-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: help;
+  button.primary:hover:not(:disabled) { opacity: 0.85; }
+  button.primary:disabled { opacity: 0.4; cursor: default; }
+
+  .hint {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .char-count {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  /* ─── Right: results ─── */
+
+  .results-pane {
+    padding: 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .results-pane > .empty {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 40px;
+    text-align: center;
+  }
+
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    transition: border-color 0.2s;
+  }
+
+  .dim-card.pending {
+    opacity: 0.55;
+  }
+
+  .dim-card.done {
+    border-color: var(--green);
+  }
+
+  .dim-card.failed {
+    border-color: var(--red);
+    opacity: 0.85;
+  }
+
+  .dim-card .dim-name {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+
+  .dim-card .dim-value {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .dim-card .dim-value .pending-text {
+    color: var(--muted);
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  .dim-card .dim-value .failed-text {
+    color: var(--red);
+    font-size: 12px;
   }
 
   .pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 7px;
+    display: inline-block;
+    padding: 2px 8px;
     border-radius: 4px;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 500;
-    white-space: nowrap;
   }
 
-  /* Task class */
-  .tc-chat     { background: #1e293b; color: #94a3b8; }
-  .tc-draft    { background: #1e3a5f; color: #60a5fa; }
-  .tc-code     { background: #1a2e1a; color: #4ade80; }
-  .tc-research { background: #2d1f3d; color: #c084fc; }
-  .tc-unknown  { background: #2d1f1f; color: #f87171; }
+  /* per-dim coloring */
+  .pill.tc-chat     { background: #1e293b; color: #94a3b8; }
+  .pill.tc-draft    { background: #1e3a5f; color: #60a5fa; }
+  .pill.tc-code     { background: #1a2e1a; color: #4ade80; }
+  .pill.tc-research { background: #2d1f3d; color: #c084fc; }
+  .pill.tc-unknown  { background: #2d1f1f; color: #f87171; }
 
-  /* Memory */
-  .mem-none      { background: #1e293b; color: #64748b; }
-  .mem-recent    { background: #1f2d2d; color: #2dd4bf; }
-  .mem-session   { background: #1e3a5f; color: #60a5fa; }
-  .mem-long_term { background: #2d1f3d; color: #c084fc; }
+  .pill.mem-none      { background: #1e293b; color: #64748b; }
+  .pill.mem-recent    { background: #1f2d2d; color: #2dd4bf; }
+  .pill.mem-session   { background: #1e3a5f; color: #60a5fa; }
+  .pill.mem-long_term { background: #2d1f3d; color: #c084fc; }
 
-  /* Tools */
-  .tools-on  { background: rgba(245, 158, 11, 0.18); color: var(--amber); }
-  .tools-off { background: #1e293b; color: #475569; }
+  .pill.tools-on  { background: rgba(245, 158, 11, 0.18); color: var(--amber); }
+  .pill.tools-off { background: #1e293b; color: #475569; }
 
-  /* Suggested model */
-  .sm-local_fast       { background: #14291f; color: var(--green); }
-  .sm-local_slow       { background: #2d2900; color: #a3a300; }
-  .sm-billed_mini      { background: #1e2d4f; color: var(--blue); }
-  .sm-billed_frontier  { background: #2d1f3d; color: var(--purple); }
+  .pill.sm-local_fast       { background: #14291f; color: var(--green); }
+  .pill.sm-local_slow       { background: #2d2900; color: #d4c000; }
+  .pill.sm-billed_mini      { background: #1e2d4f; color: var(--blue); }
+  .pill.sm-billed_frontier  { background: #2d1f3d; color: var(--purple); }
 
-  /* Security */
-  .sec-clean             { background: #14291f; color: var(--green); }
-  .sec-suspicious        { background: #2d200a; color: var(--amber); }
-  .sec-prompt_injection  { background: #2d0f0f; color: var(--red); font-weight: 600; }
+  .pill.sec-clean             { background: #14291f; color: var(--green); }
+  .pill.sec-suspicious        { background: #2d200a; color: var(--amber); }
+  .pill.sec-prompt_injection  { background: #2d0f0f; color: var(--red); font-weight: 600; }
 
-  /* Route */
-  .rt-local_fast       { background: #14291f; color: var(--green); }
-  .rt-local_slow       { background: #2d2900; color: #a3a300; }
-  .rt-billed_mini      { background: #1e2d4f; color: var(--blue); }
-  .rt-billed_frontier  { background: #2d1f3d; color: var(--purple); }
-  .rt-reject           { background: #2d0f0f; color: var(--red); font-weight: 600; }
-  .rt-fallback         { background: #2d1f1f; color: var(--red); }
+  .pill.rt-local_fast       { background: #14291f; color: var(--green); }
+  .pill.rt-local_slow       { background: #2d2900; color: #d4c000; }
+  .pill.rt-billed_mini      { background: #1e2d4f; color: var(--blue); }
+  .pill.rt-billed_frontier  { background: #2d1f3d; color: var(--purple); }
+  .pill.rt-reject           { background: #2d0f0f; color: var(--red); font-weight: 600; }
+  .pill.rt-fallback         { background: #2d1f1f; color: var(--red); }
 
-  .dim-with-conf {
+  .conf-block {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    align-items: flex-start;
+    align-items: flex-end;
+    gap: 4px;
+    min-width: 56px;
+  }
+
+  .conf-track {
+    width: 56px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .conf-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
   }
 
   .conf-num {
-    font-size: 9px;
+    font-size: 11px;
     color: var(--muted);
   }
 
-  .conf-num.low { color: var(--red); }
-  .conf-num.mid { color: var(--amber); }
+  .latency-block {
+    color: var(--muted);
+    font-size: 11px;
+    min-width: 48px;
+    text-align: right;
+  }
 
-  .agg-conf {
+  .spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ─── Aggregate / route ─── */
+
+  .aggregate {
+    margin-top: 8px;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 10px;
+  }
+
+  .aggregate.escalated {
+    border-color: var(--amber);
+  }
+
+  .aggregate.rejected {
+    border-color: var(--red);
+  }
+
+  .aggregate.fallback {
+    border-color: var(--red);
+  }
+
+  .aggregate .label {
     font-size: 10px;
-  }
-  .agg-conf .label { color: var(--muted); font-size: 9px; }
-  .agg-conf .val { font-weight: 500; }
-  .agg-conf .val.low { color: var(--red); }
-  .agg-conf .val.mid { color: var(--amber); }
-  .agg-conf .val.high { color: var(--green); }
-
-  .escalated {
-    font-size: 9px;
-    color: var(--amber);
-    margin-top: 2px;
-  }
-
-  .latency { color: var(--muted); font-size: 11px; }
-  .latency.slow { color: var(--amber); }
-  .latency.very-slow { color: var(--red); }
-
-  .time { color: var(--muted); font-size: 10px; white-space: nowrap; }
-
-  .fallback-badge { font-size: 10px; color: var(--red); margin-left: 4px; }
-
-  #empty {
-    padding: 60px 0;
-    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     color: var(--muted);
+  }
+
+  .aggregate .conf-row {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+
+  .aggregate .conf-row .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 12px;
   }
+
+  .aggregate .conf-row .label {
+    margin: 0;
+  }
+
+  .aggregate .val { font-weight: 500; }
+  .aggregate .val.low { color: var(--red); }
+  .aggregate .val.mid { color: var(--amber); }
+  .aggregate .val.high { color: var(--green); }
+
+  .aggregate .route-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+  }
+
+  .aggregate .route-arrow {
+    color: var(--muted);
+  }
+
+  .aggregate .escalation-note {
+    font-size: 11px;
+    color: var(--amber);
+  }
+
+  .aggregate .meta {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .aggregate .meta .flag {
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .aggregate .meta .flag.on { color: var(--amber); background: rgba(245, 158, 11, 0.1); }
 </style>
 </head>
 <body>
 
 <header>
   <h1>LLM Harness</h1>
-  <span id="count">0 traces</span>
-  <div id="status">
-    <div id="status-dot"></div>
-    <span id="status-text">connecting…</span>
-  </div>
+  <span class="model" id="model-name">—</span>
+  <span class="status" id="status">ready</span>
 </header>
 
-<div class="input-bar">
-  <input type="text" id="input" placeholder="Enter a request to classify…" autocomplete="off" />
-  <button id="submit-btn" onclick="submitClassify()">Classify</button>
-</div>
+<div class="main">
 
-<div class="table-wrap">
-  <div id="empty">No traces yet — submit a request above or POST to /classify</div>
-  <table id="table" style="display:none">
-    <thead>
-      <tr>
-        <th style="width:7%">Time</th>
-        <th class="input-cell">Input</th>
-        <th>Task</th>
-        <th>Memory</th>
-        <th>Tools</th>
-        <th>Model</th>
-        <th>Security</th>
-        <th>Conf</th>
-        <th>Route</th>
-        <th>ms</th>
-      </tr>
-    </thead>
-    <tbody id="tbody"></tbody>
-  </table>
+  <!-- ─── Left: input ─── -->
+  <div class="input-pane">
+    <label for="prompt">Request</label>
+    <textarea id="prompt" placeholder="Enter a request to classify…&#10;&#10;Cmd/Ctrl+Enter to submit." autofocus></textarea>
+    <div class="input-actions">
+      <button class="primary" id="submit-btn" onclick="submitClassify()">Classify</button>
+      <span class="hint">Cmd/Ctrl+Enter</span>
+      <span class="char-count" id="char-count">0 chars</span>
+    </div>
+  </div>
+
+  <!-- ─── Right: live results ─── -->
+  <div class="results-pane" id="results">
+    <div class="empty">Submit a request to see the live classification.</div>
+  </div>
+
 </div>
 
 <script>
-  let traceCount = 0;
+  const DIMENSIONS = [
+    'task_class',
+    'needs_memory',
+    'tools_required',
+    'suggested_model',
+    'security',
+  ];
 
-  const input = document.getElementById('input');
+  const PILL_PREFIX = {
+    task_class: 'tc-',
+    needs_memory: 'mem-',
+    tools_required: '',
+    suggested_model: 'sm-',
+    security: 'sec-',
+  };
+
+  const prompt = document.getElementById('prompt');
   const submitBtn = document.getElementById('submit-btn');
-  const tbody = document.getElementById('tbody');
-  const table = document.getElementById('table');
-  const empty = document.getElementById('empty');
-  const countEl = document.getElementById('count');
-  const statusDot = document.getElementById('status-dot');
-  const statusText = document.getElementById('status-text');
+  const charCount = document.getElementById('char-count');
+  const results = document.getElementById('results');
+  const statusEl = document.getElementById('status');
+  const modelName = document.getElementById('model-name');
 
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') submitClassify();
+  prompt.addEventListener('input', () => {
+    charCount.textContent = prompt.value.length + ' chars';
   });
 
-  async function submitClassify() {
-    const val = input.value.trim();
-    if (!val) return;
-    submitBtn.disabled = true;
-    try {
-      await fetch('/classify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_input: val }),
-      });
-      input.value = '';
-    } catch(e) {
-      console.error(e);
-    } finally {
-      submitBtn.disabled = false;
-      input.focus();
+  prompt.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitClassify();
     }
-  }
-
-  function fmtTime(iso) {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
+  });
 
   function confClass(c) {
     if (c < 0.5) return 'low';
@@ -471,90 +591,191 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     return 'high';
   }
 
-  function dimWithConf(value, conf, pillClass) {
-    const cc = confClass(conf);
-    return \`<div class="dim-with-conf">
-      <span class="pill \${pillClass}">\${value.toString().replace(/_/g,' ')}</span>
-      <span class="conf-num \${cc}">\${Math.round(conf * 100)}%</span>
-    </div>\`;
+  function confColor(c) {
+    if (c < 0.5) return 'var(--red)';
+    if (c < 0.7) return 'var(--amber)';
+    return 'var(--green)';
   }
 
-  function aggConf(c) {
-    return \`<div class="agg-conf">
-      <span><span class="label">avg </span><span class="val \${confClass(c.average_confidence)}">\${Math.round(c.average_confidence * 100)}%</span></span>
-      <span><span class="label">min </span><span class="val \${confClass(c.min_confidence)}">\${Math.round(c.min_confidence * 100)}%</span></span>
-    </div>\`;
-  }
-
-  function latencyCell(ms) {
-    const cls = ms > 15000 ? 'very-slow' : ms > 8000 ? 'slow' : '';
-    return \`<span class="latency \${cls}">\${ms}</span>\`;
-  }
-
-  function addRow(trace, animate) {
-    const c = trace.classifier_output;
-    const r = trace.route_decision;
-    const isFallback = trace.fallback_used;
-    const inputText = trace._user_input || '(redacted)';
-
-    const row = document.createElement('tr');
-    if (animate) row.classList.add('new-row');
-
-    let escalation = '';
-    if (r.escalated && r.escalation_reason) {
-      escalation = \`<div class="escalated">↑ \${r.escalation_reason.replace(/_/g,' ')}</div>\`;
+  function pillClass(dim, value) {
+    if (dim === 'tools_required') {
+      return value ? 'tools-on' : 'tools-off';
     }
+    return PILL_PREFIX[dim] + value;
+  }
+
+  function pillLabel(dim, value) {
+    if (dim === 'tools_required') return value ? 'yes' : 'no';
+    return String(value).replace(/_/g, ' ');
+  }
+
+  function buildSkeleton() {
+    results.innerHTML = '';
+    DIMENSIONS.forEach(dim => {
+      const card = document.createElement('div');
+      card.className = 'dim-card pending';
+      card.id = 'card-' + dim;
+      card.innerHTML = \`
+        <div>
+          <div class="dim-name">\${dim.replace(/_/g, ' ')}</div>
+          <div class="dim-value"><span class="pending-text"><span class="spinner"></span> waiting…</span></div>
+        </div>
+        <div class="conf-block">
+          <div class="conf-track"><div class="conf-fill" style="width:0"></div></div>
+          <div class="conf-num">—</div>
+        </div>
+        <div class="latency-block">—</div>
+      \`;
+      results.appendChild(card);
+    });
+    // aggregate placeholder
+    const agg = document.createElement('div');
+    agg.className = 'aggregate';
+    agg.id = 'aggregate';
+    agg.style.display = 'none';
+    results.appendChild(agg);
+  }
+
+  function updateCard(dim, data, latency_ms) {
+    const card = document.getElementById('card-' + dim);
+    if (!card) return;
+    card.classList.remove('pending');
+
+    const valueEl = card.querySelector('.dim-value');
+    const fillEl = card.querySelector('.conf-fill');
+    const numEl = card.querySelector('.conf-num');
+    const latEl = card.querySelector('.latency-block');
+
+    if (!data) {
+      card.classList.add('failed');
+      valueEl.innerHTML = '<span class="failed-text">classifier failed</span>';
+      numEl.textContent = '—';
+      latEl.textContent = latency_ms + 'ms';
+      return;
+    }
+
+    card.classList.add('done');
+    const cls = pillClass(dim, data.value);
+    const lbl = pillLabel(dim, data.value);
+    valueEl.innerHTML = \`<span class="pill \${cls}">\${lbl}</span>\`;
+
+    const pct = Math.round(data.confidence * 100);
+    fillEl.style.width = pct + '%';
+    fillEl.style.background = confColor(data.confidence);
+    numEl.textContent = pct + '%';
+    numEl.style.color = confColor(data.confidence);
+    latEl.textContent = latency_ms + 'ms';
+  }
+
+  function renderAggregate(complete) {
+    const agg = document.getElementById('aggregate');
+    if (!agg) return;
+    agg.style.display = '';
+    agg.className = 'aggregate';
+
+    const c = complete.classification;
+    const r = complete.route_decision;
 
     if (!c) {
-      row.innerHTML = \`
-        <td class="time">\${fmtTime(trace.timestamp)}</td>
-        <td class="input-cell"><div class="input-text" title="\${inputText.replace(/"/g,'&quot;')}">\${inputText}</div></td>
-        <td colspan="6" style="color:var(--red);font-size:11px">classifier_failed</td>
-        <td><span class="pill rt-\${r.route}">\${r.route.replace(/_/g,' ')}</span>\${escalation}</td>
-        <td>\${latencyCell(trace.classifier_latency_ms)}</td>
+      agg.classList.add('fallback');
+      agg.innerHTML = \`
+        <div class="label">Result</div>
+        <div style="color:var(--red);font-size:13px">Classification failed — using fallback route</div>
+        <div class="route-row">
+          <span class="route-arrow">→</span>
+          <span class="pill rt-\${r.route}">\${r.route.replace(/_/g, ' ')}</span>
+        </div>
       \`;
-    } else {
-      row.innerHTML = \`
-        <td class="time">\${fmtTime(trace.timestamp)}</td>
-        <td class="input-cell"><div class="input-text" title="\${inputText.replace(/"/g,'&quot;')}">\${inputText}</div></td>
-        <td>\${dimWithConf(c.task_class, c.confidences.task_class, 'tc-' + c.task_class)}</td>
-        <td>\${dimWithConf(c.needs_memory, c.confidences.needs_memory, 'mem-' + c.needs_memory)}</td>
-        <td>\${dimWithConf(c.tools_required ? 'yes' : 'no', c.confidences.tools_required, c.tools_required ? 'tools-on' : 'tools-off')}</td>
-        <td>\${dimWithConf(c.suggested_model, c.confidences.suggested_model, 'sm-' + c.suggested_model)}</td>
-        <td>\${dimWithConf(c.security, c.confidences.security, 'sec-' + c.security)}</td>
-        <td>\${aggConf(c)}</td>
-        <td><span class="pill rt-\${r.route}">\${r.route.replace(/_/g,' ')}</span>\${escalation}\${isFallback ? '<span class="fallback-badge">↯</span>' : ''}</td>
-        <td>\${latencyCell(trace.classifier_latency_ms)}</td>
-      \`;
+      return;
     }
 
-    tbody.prepend(row);
-    traceCount++;
-    countEl.textContent = traceCount + ' trace' + (traceCount === 1 ? '' : 's');
-    empty.style.display = 'none';
-    table.style.display = '';
+    if (r.route === 'reject') agg.classList.add('rejected');
+    else if (r.escalated) agg.classList.add('escalated');
+
+    const avgPct = Math.round(c.average_confidence * 100);
+    const minPct = Math.round(c.min_confidence * 100);
+
+    let escalationNote = '';
+    if (r.escalated && r.escalation_reason) {
+      escalationNote = \`<div class="escalation-note">↑ escalated: \${r.escalation_reason.replace(/_/g, ' ')}</div>\`;
+    }
+
+    agg.innerHTML = \`
+      <div class="label">Aggregate</div>
+      <div class="conf-row">
+        <div class="item"><span class="label">avg</span><span class="val \${confClass(c.average_confidence)}">\${avgPct}%</span></div>
+        <div class="item"><span class="label">min</span><span class="val \${confClass(c.min_confidence)}">\${minPct}%</span></div>
+        <div class="item"><span class="label">total</span><span class="val">\${complete.total_latency_ms}ms</span></div>
+      </div>
+      <div class="route-row">
+        <span class="route-arrow">→</span>
+        <span class="pill rt-\${r.route}">\${r.route.replace(/_/g, ' ')}</span>
+        \${r.requires_confirmation ? '<span class="meta"><span class="flag on">requires confirmation</span></span>' : ''}
+      </div>
+      \${escalationNote}
+      <div class="meta">
+        <span class="flag \${r.tools_required ? 'on' : ''}">tools: \${r.tools_required ? 'yes' : 'no'}</span>
+        <span class="flag">memory: \${r.memory_scope.replace(/_/g, ' ')}</span>
+      </div>
+    \`;
   }
 
-  function connect() {
-    const es = new EventSource('/stream');
+  async function submitClassify() {
+    const val = prompt.value.trim();
+    if (!val) return;
 
-    es.onopen = () => {
-      statusDot.className = 'connected';
-      statusText.textContent = 'live';
-    };
+    submitBtn.disabled = true;
+    statusEl.textContent = 'classifying…';
+    buildSkeleton();
 
-    es.onmessage = (e) => {
-      const trace = JSON.parse(e.data);
-      addRow(trace, !!trace._new);
-    };
+    try {
+      const response = await fetch('/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_input: val }),
+      });
 
-    es.onerror = () => {
-      statusDot.className = 'error';
-      statusText.textContent = 'reconnecting…';
-    };
+      if (!response.ok) {
+        statusEl.textContent = 'error: ' + response.status;
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let nl;
+        while ((nl = buffer.indexOf('\\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+
+          let event;
+          try { event = JSON.parse(line); } catch { continue; }
+
+          if (event.type === 'started') {
+            modelName.textContent = event.classifier_model;
+          } else if (event.type === 'sub_result') {
+            updateCard(event.dimension, event.data, event.latency_ms);
+          } else if (event.type === 'complete') {
+            renderAggregate(event);
+          }
+        }
+      }
+
+      statusEl.textContent = 'done';
+    } catch(e) {
+      console.error(e);
+      statusEl.textContent = 'error';
+    } finally {
+      submitBtn.disabled = false;
+    }
   }
-
-  connect();
 </script>
 </body>
 </html>`;
