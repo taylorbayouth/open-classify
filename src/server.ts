@@ -460,6 +460,56 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     font-weight: 500;
   }
 
+  .debug-row {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    gap: 8px;
+  }
+
+  .debug-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .debug-toggle:hover { color: var(--text-2); border-color: var(--border-strong); }
+  .debug-toggle.active { color: var(--blue); border-color: var(--blue); }
+
+  .debug-content {
+    margin-top: 10px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--text-2);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 360px;
+    overflow-y: auto;
+    display: none;
+  }
+
+  .debug-content.show { display: block; }
+  .debug-content .label {
+    color: var(--muted);
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
   /* ─── Aggregate / route ─── */
 
   .aggregate {
@@ -676,6 +726,12 @@ const FRONTEND_HTML = `<!DOCTYPE html>
           <span class="conf-num">—</span>
         </div>
         <div class="pending-state" style="margin-top:8px"><span class="spinner"></span> waiting for classifier…</div>
+        <div class="debug-row" style="display:none">
+          <button class="debug-toggle" data-target="raw">raw output</button>
+          <button class="debug-toggle" data-target="prompt">prompt</button>
+        </div>
+        <div class="debug-content" data-kind="raw"></div>
+        <div class="debug-content" data-kind="prompt"></div>
       \`;
       results.appendChild(card);
     });
@@ -687,7 +743,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     results.appendChild(agg);
   }
 
-  function updateCard(dim, data, latency_ms) {
+  function updateCard(dim, data, latency_ms, raw_output, prompt) {
     const card = document.getElementById('card-' + dim);
     if (!card) return;
     card.classList.remove('pending');
@@ -700,13 +756,38 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     if (pendingEl) pendingEl.remove();
     latEl.textContent = latency_ms + 'ms';
 
+    // Populate debug panels
+    const debugRow = card.querySelector('.debug-row');
+    const rawPanel = card.querySelector('.debug-content[data-kind="raw"]');
+    const promptPanel = card.querySelector('.debug-content[data-kind="prompt"]');
+    if (debugRow) debugRow.style.display = '';
+    if (rawPanel) rawPanel.innerHTML = '<div class="label">model raw output</div>' + escapeHtml(raw_output || '(empty)');
+    if (promptPanel) promptPanel.innerHTML = '<div class="label">system prompt</div>' + escapeHtml(prompt || '');
+
+    // Wire toggles
+    card.querySelectorAll('.debug-toggle').forEach(btn => {
+      btn.onclick = () => {
+        const target = btn.getAttribute('data-target');
+        const panel = card.querySelector('.debug-content[data-kind="' + target + '"]');
+        const isOpen = panel.classList.contains('show');
+        // close all panels and toggles in this card first
+        card.querySelectorAll('.debug-content').forEach(p => p.classList.remove('show'));
+        card.querySelectorAll('.debug-toggle').forEach(b => b.classList.remove('active'));
+        if (!isOpen) {
+          panel.classList.add('show');
+          btn.classList.add('active');
+        }
+      };
+    });
+
     if (!data) {
       card.classList.add('failed');
       const fail = document.createElement('div');
       fail.className = 'failed-state';
       fail.textContent = '✕ classifier failed';
       fail.style.marginTop = '8px';
-      card.appendChild(fail);
+      // insert before debug-row so debug stays at the bottom
+      card.insertBefore(fail, debugRow);
       numEl.textContent = '—';
       return;
     }
@@ -727,6 +808,12 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     fillEl.style.background = confColor(data.confidence);
     numEl.textContent = pct + '%';
     numEl.className = 'conf-num ' + confClass(data.confidence);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
   }
 
   function renderAggregate(complete) {
@@ -840,7 +927,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
           if (event.type === 'started') {
             modelName.textContent = event.classifier_model;
           } else if (event.type === 'sub_result') {
-            updateCard(event.dimension, event.data, event.latency_ms);
+            updateCard(event.dimension, event.data, event.latency_ms, event.raw_output, event.prompt);
           } else if (event.type === 'complete') {
             renderAggregate(event);
           }

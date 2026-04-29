@@ -164,6 +164,8 @@ export type SubEvent =
       dimension: DimensionName;
       data: { value: unknown; confidence: number } | null; // null when sub-classifier failed
       latency_ms: number;
+      raw_output: string;
+      prompt: string;
     };
 
 export async function classify(
@@ -178,9 +180,14 @@ export async function classify(
   const wrap = <T extends { confidence: number }>(
     dimension: DimensionName,
     valueKey: keyof T,
+    prompt: string,
     p: Promise<SubResult<T>>
   ): Promise<SubResult<T>> =>
     p.then((r) => {
+      // Always log raw output to stderr for prompt-engineering iteration
+      process.stderr.write(
+        `[classify] ${dimension} (${r.latency_ms}ms) input="${input.replace(/\n/g, " ").slice(0, 80)}" raw=${r.raw}\n`
+      );
       if (onEvent) {
         onEvent({
           type: "sub_result",
@@ -189,17 +196,19 @@ export async function classify(
             ? { value: r.data[valueKey] as unknown, confidence: r.data.confidence }
             : null,
           latency_ms: r.latency_ms,
+          raw_output: r.raw,
+          prompt,
         });
       }
       return r;
     });
 
   const [taskClass, memory, tools, model, security] = await Promise.all([
-    wrap("task_class", "task_class", callSubClassifier(TaskClassResult, PROMPTS.task_class, input, config)),
-    wrap("needs_memory", "needs_memory", callSubClassifier(MemoryResult, PROMPTS.needs_memory, input, config)),
-    wrap("tools_required", "tools_required", callSubClassifier(ToolsResult, PROMPTS.tools_required, input, config)),
-    wrap("suggested_model", "suggested_model", callSubClassifier(ModelResult, PROMPTS.suggested_model, input, config)),
-    wrap("security", "security", callSubClassifier(SecurityResult, PROMPTS.security, input, config)),
+    wrap("task_class", "task_class", PROMPTS.task_class, callSubClassifier(TaskClassResult, PROMPTS.task_class, input, config)),
+    wrap("needs_memory", "needs_memory", PROMPTS.needs_memory, callSubClassifier(MemoryResult, PROMPTS.needs_memory, input, config)),
+    wrap("tools_required", "tools_required", PROMPTS.tools_required, callSubClassifier(ToolsResult, PROMPTS.tools_required, input, config)),
+    wrap("suggested_model", "suggested_model", PROMPTS.suggested_model, callSubClassifier(ModelResult, PROMPTS.suggested_model, input, config)),
+    wrap("security", "security", PROMPTS.security, callSubClassifier(SecurityResult, PROMPTS.security, input, config)),
   ]);
 
   const latency_ms = Date.now() - start;
