@@ -108,6 +108,7 @@ async function main(): Promise<void> {
     user_input: envelope.user_input,
     classifier_model: config.classifier.model,
     classifier_latency_ms: classifyResult.latency_ms,
+    sub_latencies: classifyResult.classification ? classifyResult.sub_latencies : null,
     classifier_output: classifyResult.classification,
     validation_status: classifyResult.validation_status,
     route_decision: routeDecision,
@@ -121,11 +122,10 @@ async function main(): Promise<void> {
   const output = {
     classification: classifyResult.classification,
     route_decision: routeDecision,
+    sub_latencies: classifyResult.sub_latencies,
   };
 
-  console.log(
-    args.pretty ? JSON.stringify(output, null, 2) : JSON.stringify(output)
-  );
+  console.log(args.pretty ? JSON.stringify(output, null, 2) : JSON.stringify(output));
 }
 
 main().catch((err) => {

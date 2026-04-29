@@ -6,12 +6,19 @@ import type { Classification } from "../src/schema.js";
 function base(overrides: Partial<Classification> = {}): Classification {
   return {
     task_class: "chat",
-    needs_fresh_info: false,
-    needs_private_context: false,
-    needs_side_effect_tool: false,
-    risk: "low",
-    confidence: 0.9,
-    reason: "test",
+    needs_memory: "none",
+    tools_required: false,
+    suggested_model: "billed_mini",
+    security: "clean",
+    confidences: {
+      task_class: 0.9,
+      needs_memory: 0.9,
+      tools_required: 0.9,
+      suggested_model: 0.9,
+      security: 0.9,
+    },
+    average_confidence: 0.9,
+    min_confidence: 0.9,
     ...overrides,
   };
 }
@@ -20,68 +27,82 @@ describe("computeRoute", () => {
   it("returns fallback when classification is null", () => {
     const r = computeRoute(null, defaultConfig);
     expect(r.route).toBe("fallback");
-    expect(r.requires_confirmation).toBe(false);
+    expect(r.escalated).toBe(false);
   });
 
-  it("routes side-effect requests to confirm_side_effect", () => {
-    const r = computeRoute(base({ needs_side_effect_tool: true }), defaultConfig);
-    expect(r.route).toBe("confirm_side_effect");
+  it("rejects on prompt_injection regardless of other signals", () => {
+    const r = computeRoute(base({ security: "prompt_injection" }), defaultConfig);
+    expect(r.route).toBe("reject");
+    expect(r.escalated).toBe(true);
+    expect(r.escalation_reason).toBe("prompt_injection");
     expect(r.requires_confirmation).toBe(true);
   });
 
-  it("uses frontier tier for high-risk side effects", () => {
+  it("escalates to billed_frontier when average confidence is low", () => {
     const r = computeRoute(
-      base({ needs_side_effect_tool: true, risk: "high" }),
+      base({ average_confidence: 0.4, suggested_model: "local_fast" }),
       defaultConfig
     );
-    expect(r.route).toBe("confirm_side_effect");
-    expect(r.model_tier).toBe("frontier");
+    expect(r.route).toBe("billed_frontier");
+    expect(r.escalation_reason).toBe("low_confidence");
   });
 
-  it("routes high-risk non-side-effect to frontier with confirmation", () => {
-    const r = computeRoute(base({ risk: "high" }), defaultConfig);
-    expect(r.route).toBe("frontier");
+  it("escalates to billed_frontier when min confidence is low", () => {
+    const r = computeRoute(
+      base({
+        average_confidence: 0.85,
+        min_confidence: 0.2,
+        suggested_model: "local_fast",
+      }),
+      defaultConfig
+    );
+    expect(r.route).toBe("billed_frontier");
+    expect(r.escalation_reason).toBe("low_confidence");
+  });
+
+  it("escalates with confirmation on suspicious security", () => {
+    const r = computeRoute(base({ security: "suspicious" }), defaultConfig);
+    expect(r.route).toBe("billed_frontier");
     expect(r.requires_confirmation).toBe(true);
-    expect(r.model_tier).toBe("frontier");
+    expect(r.escalation_reason).toBe("suspicious");
   });
 
-  it("routes fresh-info requests to web", () => {
-    const r = computeRoute(base({ needs_fresh_info: true }), defaultConfig);
-    expect(r.route).toBe("web");
-    expect(r.requires_web).toBe(true);
+  it("trusts suggested_model when confidence is high and security is clean", () => {
+    const r = computeRoute(base({ suggested_model: "local_fast" }), defaultConfig);
+    expect(r.route).toBe("local_fast");
+    expect(r.escalated).toBe(false);
   });
 
-  it("routes private-context requests to private_context", () => {
-    const r = computeRoute(base({ needs_private_context: true }), defaultConfig);
-    expect(r.route).toBe("private_context");
-    expect(r.requires_private_context).toBe(true);
-  });
-
-  it("routes code tasks to cheap", () => {
-    const r = computeRoute(base({ task_class: "code" }), defaultConfig);
-    expect(r.route).toBe("cheap");
-    expect(r.model_tier).toBe(defaultConfig.routing.code_model_tier);
-  });
-
-  it("routes research tasks to frontier", () => {
-    const r = computeRoute(base({ task_class: "research" }), defaultConfig);
-    expect(r.route).toBe("frontier");
-    expect(r.model_tier).toBe(defaultConfig.routing.research_model_tier);
-  });
-
-  it("side_effect takes priority over fresh_info", () => {
+  it("propagates tools_required and memory_scope to route decision", () => {
     const r = computeRoute(
-      base({ needs_side_effect_tool: true, needs_fresh_info: true }),
+      base({ tools_required: true, needs_memory: "long_term" }),
       defaultConfig
     );
-    expect(r.route).toBe("confirm_side_effect");
-    expect(r.requires_web).toBe(true); // still propagates
+    expect(r.tools_required).toBe(true);
+    expect(r.memory_scope).toBe("long_term");
   });
 
-  it("routes chat to cheap by default", () => {
-    const r = computeRoute(base({ task_class: "chat" }), defaultConfig);
-    expect(r.route).toBe("cheap");
-    expect(r.requires_confirmation).toBe(false);
-    expect(r.requires_web).toBe(false);
+  it("prompt_injection takes priority over low confidence", () => {
+    const r = computeRoute(
+      base({ security: "prompt_injection", average_confidence: 0.3 }),
+      defaultConfig
+    );
+    expect(r.route).toBe("reject");
+    expect(r.escalation_reason).toBe("prompt_injection");
+  });
+
+  it("low confidence takes priority over suspicious", () => {
+    const r = computeRoute(
+      base({ security: "suspicious", average_confidence: 0.3 }),
+      defaultConfig
+    );
+    expect(r.route).toBe("billed_frontier");
+    expect(r.escalation_reason).toBe("low_confidence");
+  });
+
+  it("routes to billed_frontier directly when suggested", () => {
+    const r = computeRoute(base({ suggested_model: "billed_frontier" }), defaultConfig);
+    expect(r.route).toBe("billed_frontier");
+    expect(r.escalated).toBe(false);
   });
 });

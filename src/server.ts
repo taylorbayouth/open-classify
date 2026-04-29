@@ -33,12 +33,11 @@ async function readBody(req: IncomingMessage): Promise<string> {
 }
 
 function json(res: ServerResponse, status: number, data: unknown): void {
-  const body = JSON.stringify(data);
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
   });
-  res.end(body);
+  res.end(JSON.stringify(data));
 }
 
 async function handleClassify(
@@ -72,6 +71,7 @@ async function handleClassify(
       user_input: envelope.user_input,
       classifier_model: config.classifier.model,
       classifier_latency_ms: classifyResult.latency_ms,
+      sub_latencies: classifyResult.classification ? classifyResult.sub_latencies : null,
       classifier_output: classifyResult.classification,
       validation_status: classifyResult.validation_status,
       route_decision: routeDecision,
@@ -85,7 +85,11 @@ async function handleClassify(
   if (traces.length > MAX_TRACES) traces.pop();
   broadcast(trace);
 
-  json(res, 200, { classification: classifyResult.classification, route_decision: routeDecision });
+  json(res, 200, {
+    classification: classifyResult.classification,
+    route_decision: routeDecision,
+    sub_latencies: classifyResult.sub_latencies,
+  });
 }
 
 function handleStream(res: ServerResponse): void {
@@ -95,9 +99,8 @@ function handleStream(res: ServerResponse): void {
     Connection: "keep-alive",
     "Access-Control-Allow-Origin": "*",
   });
-  res.write(":\n\n"); // keep-alive comment
+  res.write(":\n\n");
 
-  // Send existing traces on connect (oldest first, no animation flag)
   for (const t of [...traces].reverse()) {
     const { _new: _, ...rest } = t;
     res.write(`data: ${JSON.stringify(rest)}\n\n`);
@@ -117,7 +120,10 @@ const server = createServer(async (req, res) => {
   const method = req.method ?? "GET";
 
   if (method === "OPTIONS") {
-    res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type" });
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+    });
     res.end();
     return;
   }
@@ -138,6 +144,9 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`llm-harness running at http://localhost:${PORT}`);
   console.log(`Classifier model: ${config.classifier.model}`);
+  console.log(
+    `Note: 5 parallel calls per classification. For Ollama, run with OLLAMA_NUM_PARALLEL=5 (or higher).`
+  );
 });
 
 // ─── Frontend ───────────────────────────────────────────────────────────────
@@ -163,6 +172,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     --blue: #3b82f6;
     --purple: #a855f7;
     --teal: #14b8a6;
+    --pink: #ec4899;
     --font: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   }
 
@@ -170,13 +180,13 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     background: var(--bg);
     color: var(--text);
     font-family: var(--font);
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.5;
     min-height: 100vh;
   }
 
   header {
-    padding: 16px 24px;
+    padding: 14px 20px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
@@ -188,38 +198,21 @@ const FRONTEND_HTML = `<!DOCTYPE html>
   }
 
   header h1 {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    color: var(--text);
     letter-spacing: 0.05em;
     text-transform: uppercase;
   }
 
-  #count {
-    color: var(--muted);
-    font-size: 12px;
-  }
+  #count { color: var(--muted); font-size: 11px; }
 
-  #status {
-    margin-left: auto;
-    font-size: 11px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  #status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-
+  #status { margin-left: auto; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+  #status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
   #status-dot.connected { background: var(--green); }
   #status-dot.error { background: var(--red); }
 
   .input-bar {
-    padding: 12px 24px;
+    padding: 10px 20px;
     border-bottom: 1px solid var(--border);
     display: flex;
     gap: 8px;
@@ -234,14 +227,11 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     padding: 8px 12px;
     color: var(--text);
     font-family: var(--font);
-    font-size: 13px;
+    font-size: 12px;
     outline: none;
-    transition: border-color 0.15s;
   }
 
-  .input-bar input[type="text"]:focus {
-    border-color: var(--blue);
-  }
+  .input-bar input[type="text"]:focus { border-color: var(--blue); }
 
   .input-bar button {
     background: var(--blue);
@@ -250,24 +240,21 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     border-radius: 6px;
     padding: 8px 16px;
     font-family: var(--font);
-    font-size: 12px;
+    font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
-    transition: opacity 0.15s;
   }
 
   .input-bar button:hover { opacity: 0.85; }
   .input-bar button:disabled { opacity: 0.4; cursor: default; }
 
-.table-wrap {
-    overflow-x: auto;
-    padding: 0 24px 24px;
-  }
+  .table-wrap { overflow-x: auto; padding: 0 20px 20px; }
 
   table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 16px;
+    table-layout: fixed;
   }
 
   thead th {
@@ -276,115 +263,114 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    padding: 6px 10px;
+    padding: 6px 8px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
 
   tbody tr {
     border-bottom: 1px solid var(--border);
-    transition: background 0.1s;
   }
 
   tbody tr:hover { background: var(--surface); }
 
-  tbody tr.new-row {
-    animation: flash 0.6s ease-out;
-  }
-
-  @keyframes flash {
-    from { background: rgba(59, 130, 246, 0.15); }
-    to { background: transparent; }
-  }
+  tbody tr.new-row { animation: flash 0.6s ease-out; }
+  @keyframes flash { from { background: rgba(59, 130, 246, 0.15); } to { background: transparent; } }
 
   td {
-    padding: 8px 10px;
+    padding: 8px;
     vertical-align: middle;
-    max-width: 0;
   }
 
-  td.input-cell {
-    max-width: 280px;
-    width: 280px;
+  .input-cell {
+    width: 22%;
   }
 
   .input-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text);
     cursor: help;
   }
 
   .pill {
     display: inline-flex;
     align-items: center;
-    padding: 2px 8px;
+    padding: 2px 7px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     white-space: nowrap;
   }
 
-  .task-chat     { background: #1e293b; color: #94a3b8; }
-  .task-writing  { background: #1e3a5f; color: #60a5fa; }
-  .task-code     { background: #1a2e1a; color: #4ade80; }
-  .task-research { background: #2d1f3d; color: #c084fc; }
-  .task-tool_action { background: #2d2000; color: #fbbf24; }
-  .task-planning { background: #1f2d2d; color: #2dd4bf; }
-  .task-unknown  { background: #2d1f1f; color: #f87171; }
+  /* Task class */
+  .tc-chat     { background: #1e293b; color: #94a3b8; }
+  .tc-draft    { background: #1e3a5f; color: #60a5fa; }
+  .tc-code     { background: #1a2e1a; color: #4ade80; }
+  .tc-research { background: #2d1f3d; color: #c084fc; }
+  .tc-unknown  { background: #2d1f1f; color: #f87171; }
 
-  .risk-low    { background: #14291f; color: var(--green); }
-  .risk-medium { background: #2d200a; color: var(--amber); }
-  .risk-high   { background: #2d0f0f; color: var(--red); }
+  /* Memory */
+  .mem-none      { background: #1e293b; color: #64748b; }
+  .mem-recent    { background: #1f2d2d; color: #2dd4bf; }
+  .mem-session   { background: #1e3a5f; color: #60a5fa; }
+  .mem-long_term { background: #2d1f3d; color: #c084fc; }
 
-  .route-cheap           { background: #14291f; color: var(--green); }
-  .route-default         { background: #1e293b; color: #94a3b8; }
-  .route-frontier        { background: #2d1f3d; color: #c084fc; }
-  .route-web             { background: #1e2d4f; color: #60a5fa; }
-  .route-private_context { background: #1f2d1f; color: var(--teal); }
-  .route-confirm_side_effect { background: #2d200a; color: var(--amber); }
-  .route-reject_or_escalate  { background: #2d0f0f; color: var(--red); }
-  .route-fallback        { background: #2d0f0f; color: var(--red); }
+  /* Tools */
+  .tools-on  { background: rgba(245, 158, 11, 0.18); color: var(--amber); }
+  .tools-off { background: #1e293b; color: #475569; }
 
-  .tier-local    { color: var(--green); }
-  .tier-mini     { color: var(--blue); }
-  .tier-frontier { color: var(--purple); }
+  /* Suggested model */
+  .sm-local_fast       { background: #14291f; color: var(--green); }
+  .sm-local_slow       { background: #2d2900; color: #a3a300; }
+  .sm-billed_mini      { background: #1e2d4f; color: var(--blue); }
+  .sm-billed_frontier  { background: #2d1f3d; color: var(--purple); }
 
-  .flag {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 1px 5px;
-    border-radius: 3px;
+  /* Security */
+  .sec-clean             { background: #14291f; color: var(--green); }
+  .sec-suspicious        { background: #2d200a; color: var(--amber); }
+  .sec-prompt_injection  { background: #2d0f0f; color: var(--red); font-weight: 600; }
+
+  /* Route */
+  .rt-local_fast       { background: #14291f; color: var(--green); }
+  .rt-local_slow       { background: #2d2900; color: #a3a300; }
+  .rt-billed_mini      { background: #1e2d4f; color: var(--blue); }
+  .rt-billed_frontier  { background: #2d1f3d; color: var(--purple); }
+  .rt-reject           { background: #2d0f0f; color: var(--red); font-weight: 600; }
+  .rt-fallback         { background: #2d1f1f; color: var(--red); }
+
+  .dim-with-conf {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+  }
+
+  .conf-num {
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  .conf-num.low { color: var(--red); }
+  .conf-num.mid { color: var(--amber); }
+
+  .agg-conf {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
     font-size: 10px;
   }
+  .agg-conf .label { color: var(--muted); font-size: 9px; }
+  .agg-conf .val { font-weight: 500; }
+  .agg-conf .val.low { color: var(--red); }
+  .agg-conf .val.mid { color: var(--amber); }
+  .agg-conf .val.high { color: var(--green); }
 
-  .flag-on  { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
-  .flag-off { color: #374151; }
-
-  .conf-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .escalated {
+    font-size: 9px;
+    color: var(--amber);
+    margin-top: 2px;
   }
-
-  .conf-track {
-    width: 48px;
-    height: 4px;
-    background: #1e293b;
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .conf-fill {
-    height: 100%;
-    border-radius: 2px;
-    background: var(--blue);
-    transition: width 0.3s;
-  }
-
-  .conf-num { color: var(--muted); font-size: 11px; min-width: 28px; }
 
   .latency { color: var(--muted); font-size: 11px; }
   .latency.slow { color: var(--amber); }
@@ -392,21 +378,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
   .time { color: var(--muted); font-size: 10px; white-space: nowrap; }
 
-  .fallback-badge {
-    font-size: 10px;
-    color: var(--red);
-    margin-left: 4px;
-  }
-
-  .reason-cell {
-    max-width: 200px;
-    color: var(--muted);
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: help;
-  }
+  .fallback-badge { font-size: 10px; color: var(--red); margin-left: 4px; }
 
   #empty {
     padding: 60px 0;
@@ -433,20 +405,20 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 </div>
 
 <div class="table-wrap">
-  <div id="empty">No traces yet — submit a request above or send to POST /classify</div>
+  <div id="empty">No traces yet — submit a request above or POST to /classify</div>
   <table id="table" style="display:none">
     <thead>
       <tr>
-        <th>Time</th>
-        <th style="width:280px">Input</th>
+        <th style="width:7%">Time</th>
+        <th class="input-cell">Input</th>
         <th>Task</th>
-        <th>Flags</th>
-        <th>Risk</th>
+        <th>Memory</th>
+        <th>Tools</th>
+        <th>Model</th>
+        <th>Security</th>
         <th>Conf</th>
         <th>Route</th>
-        <th>Tier</th>
         <th>ms</th>
-        <th>Reason</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -493,38 +465,29 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
 
-  function taskPill(cls) {
-    return \`<span class="pill task-\${cls}">\${cls}</span>\`;
+  function confClass(c) {
+    if (c < 0.5) return 'low';
+    if (c < 0.7) return 'mid';
+    return 'high';
   }
 
-  function riskPill(r) {
-    return \`<span class="pill risk-\${r}">\${r}</span>\`;
+  function dimWithConf(value, conf, pillClass) {
+    const cc = confClass(conf);
+    return \`<div class="dim-with-conf">
+      <span class="pill \${pillClass}">\${value.toString().replace(/_/g,' ')}</span>
+      <span class="conf-num \${cc}">\${Math.round(conf * 100)}%</span>
+    </div>\`;
   }
 
-  function routePill(r) {
-    return \`<span class="pill route-\${r}">\${r.replace(/_/g,' ')}</span>\`;
-  }
-
-  function tierSpan(t) {
-    return \`<span class="tier-\${t}">\${t}</span>\`;
-  }
-
-  function flagCell(freshInfo, privateCtx, sideEffect) {
-    const f = (on, label) => \`<span class="flag \${on ? 'flag-on' : 'flag-off'}">\${label}</span>\`;
-    return f(freshInfo, 'fresh') + ' ' + f(privateCtx, 'priv') + ' ' + f(sideEffect, 'fx');
-  }
-
-  function confCell(c) {
-    const pct = Math.round(c * 100);
-    const color = c >= 0.8 ? '#22c55e' : c >= 0.6 ? '#3b82f6' : '#f59e0b';
-    return \`<div class="conf-bar">
-      <div class="conf-track"><div class="conf-fill" style="width:\${pct}%;background:\${color}"></div></div>
-      <span class="conf-num">\${pct}%</span>
+  function aggConf(c) {
+    return \`<div class="agg-conf">
+      <span><span class="label">avg </span><span class="val \${confClass(c.average_confidence)}">\${Math.round(c.average_confidence * 100)}%</span></span>
+      <span><span class="label">min </span><span class="val \${confClass(c.min_confidence)}">\${Math.round(c.min_confidence * 100)}%</span></span>
     </div>\`;
   }
 
   function latencyCell(ms) {
-    const cls = ms > 1500 ? 'very-slow' : ms > 800 ? 'slow' : '';
+    const cls = ms > 15000 ? 'very-slow' : ms > 8000 ? 'slow' : '';
     return \`<span class="latency \${cls}">\${ms}</span>\`;
   }
 
@@ -532,26 +495,38 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     const c = trace.classifier_output;
     const r = trace.route_decision;
     const isFallback = trace.fallback_used;
+    const inputText = trace._user_input || '(redacted)';
 
     const row = document.createElement('tr');
     if (animate) row.classList.add('new-row');
 
-    const inputTrunc = trace.input_hash; // we don't have original input in trace
-    // We'll store it via a custom field if available
-    const inputText = trace._user_input || '(redacted)';
+    let escalation = '';
+    if (r.escalated && r.escalation_reason) {
+      escalation = \`<div class="escalated">↑ \${r.escalation_reason.replace(/_/g,' ')}</div>\`;
+    }
 
-    row.innerHTML = \`
-      <td class="time">\${fmtTime(trace.timestamp)}</td>
-      <td class="input-cell"><div class="input-text" title="\${inputText.replace(/"/g,'&quot;')}">\${inputText}</div></td>
-      <td>\${c ? taskPill(c.task_class) : '<span class="pill task-unknown">—</span>'}\${isFallback ? '<span class="fallback-badge">↯</span>' : ''}</td>
-      <td>\${c ? flagCell(c.needs_fresh_info, c.needs_private_context, c.needs_side_effect_tool) : '—'}</td>
-      <td>\${c ? riskPill(c.risk) : '—'}</td>
-      <td>\${c ? confCell(c.confidence) : '—'}</td>
-      <td>\${routePill(r.route)}</td>
-      <td>\${tierSpan(r.model_tier)}</td>
-      <td>\${latencyCell(trace.classifier_latency_ms)}</td>
-      <td class="reason-cell" title="\${(c?.reason || '').replace(/"/g,'&quot;')}">\${c?.reason || '—'}</td>
-    \`;
+    if (!c) {
+      row.innerHTML = \`
+        <td class="time">\${fmtTime(trace.timestamp)}</td>
+        <td class="input-cell"><div class="input-text" title="\${inputText.replace(/"/g,'&quot;')}">\${inputText}</div></td>
+        <td colspan="6" style="color:var(--red);font-size:11px">classifier_failed</td>
+        <td><span class="pill rt-\${r.route}">\${r.route.replace(/_/g,' ')}</span>\${escalation}</td>
+        <td>\${latencyCell(trace.classifier_latency_ms)}</td>
+      \`;
+    } else {
+      row.innerHTML = \`
+        <td class="time">\${fmtTime(trace.timestamp)}</td>
+        <td class="input-cell"><div class="input-text" title="\${inputText.replace(/"/g,'&quot;')}">\${inputText}</div></td>
+        <td>\${dimWithConf(c.task_class, c.confidences.task_class, 'tc-' + c.task_class)}</td>
+        <td>\${dimWithConf(c.needs_memory, c.confidences.needs_memory, 'mem-' + c.needs_memory)}</td>
+        <td>\${dimWithConf(c.tools_required ? 'yes' : 'no', c.confidences.tools_required, c.tools_required ? 'tools-on' : 'tools-off')}</td>
+        <td>\${dimWithConf(c.suggested_model, c.confidences.suggested_model, 'sm-' + c.suggested_model)}</td>
+        <td>\${dimWithConf(c.security, c.confidences.security, 'sec-' + c.security)}</td>
+        <td>\${aggConf(c)}</td>
+        <td><span class="pill rt-\${r.route}">\${r.route.replace(/_/g,' ')}</span>\${escalation}\${isFallback ? '<span class="fallback-badge">↯</span>' : ''}</td>
+        <td>\${latencyCell(trace.classifier_latency_ms)}</td>
+      \`;
+    }
 
     tbody.prepend(row);
     traceCount++;
@@ -560,7 +535,6 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     table.style.display = '';
   }
 
-  // SSE connection
   function connect() {
     const es = new EventSource('/stream');
 
@@ -571,8 +545,6 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
     es.onmessage = (e) => {
       const trace = JSON.parse(e.data);
-      // First batch (existing traces) comes without animation
-      const isNew = traceCount > 0 || trace._new;
       addRow(trace, !!trace._new);
     };
 

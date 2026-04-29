@@ -4,3 +4,5 @@ dist/
 *.local
 evals/reports/*.jsonl
 evals/reports/*.json
+.DS_Store
+.claude/settings.local.json

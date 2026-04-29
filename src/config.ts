@@ -1,22 +1,19 @@
 import { readFileSync, existsSync } from "fs";
-import { ModelTier } from "./schema.js";
-import type { z } from "zod";
 
 export interface ClassifierConfig {
   model: string; // format: "provider/model" e.g. "ollama/qwen3:8b" or "openai/gpt-4o-mini"
   timeout_ms: number;
-  confidence_threshold: number;
-  reason_max_chars: number;
-  base_url?: string; // override for ollama or custom endpoints
+  base_url?: string;
   api_key?: string;
 }
 
 export interface RoutingConfig {
-  default_model_tier: z.infer<typeof ModelTier>;
-  high_risk_model_tier: z.infer<typeof ModelTier>;
-  code_model_tier: z.infer<typeof ModelTier>;
-  research_model_tier: z.infer<typeof ModelTier>;
-  planning_model_tier: z.infer<typeof ModelTier>;
+  // If average confidence across the 5 classifiers falls below this, escalate
+  avg_confidence_threshold: number;
+  // If any single classifier confidence falls below this, escalate
+  min_confidence_threshold: number;
+  // Default route when classification fails entirely
+  fallback_route: "local_fast" | "local_slow" | "billed_mini" | "billed_frontier";
 }
 
 export interface HarnessConfig {
@@ -26,18 +23,14 @@ export interface HarnessConfig {
 
 export const defaultConfig: HarnessConfig = {
   classifier: {
-    model: "ollama/gemma2:9b",
-    timeout_ms: 10000,
-    confidence_threshold: 0.65,
-    reason_max_chars: 160,
+    model: "ollama/qwen3:8b",
+    timeout_ms: 15000,
     base_url: "http://localhost:11434/v1",
   },
   routing: {
-    default_model_tier: "mini",
-    high_risk_model_tier: "frontier",
-    code_model_tier: "mini",
-    research_model_tier: "frontier",
-    planning_model_tier: "mini",
+    avg_confidence_threshold: 0.65,
+    min_confidence_threshold: 0.4,
+    fallback_route: "billed_mini",
   },
 };
 
@@ -71,29 +64,23 @@ export function loadConfig(configPath?: string): HarnessConfig {
   }
 
   const config: HarnessConfig = {
-    classifier: {
-      ...defaultConfig.classifier,
-      ...fileConfig.classifier,
-    },
-    routing: {
-      ...defaultConfig.routing,
-      ...fileConfig.routing,
-    },
+    classifier: { ...defaultConfig.classifier, ...fileConfig.classifier },
+    routing: { ...defaultConfig.routing, ...fileConfig.routing },
   };
 
-  // env var overrides
-  if (process.env.HARNESS_MODEL)
-    config.classifier.model = process.env.HARNESS_MODEL;
+  if (process.env.HARNESS_MODEL) config.classifier.model = process.env.HARNESS_MODEL;
   if (process.env.HARNESS_TIMEOUT_MS)
     config.classifier.timeout_ms = Number(process.env.HARNESS_TIMEOUT_MS);
-  if (process.env.HARNESS_CONFIDENCE_THRESHOLD)
-    config.classifier.confidence_threshold = Number(
-      process.env.HARNESS_CONFIDENCE_THRESHOLD
+  if (process.env.HARNESS_BASE_URL) config.classifier.base_url = process.env.HARNESS_BASE_URL;
+  if (process.env.OPENAI_API_KEY) config.classifier.api_key = process.env.OPENAI_API_KEY;
+  if (process.env.HARNESS_AVG_CONFIDENCE_THRESHOLD)
+    config.routing.avg_confidence_threshold = Number(
+      process.env.HARNESS_AVG_CONFIDENCE_THRESHOLD
     );
-  if (process.env.HARNESS_BASE_URL)
-    config.classifier.base_url = process.env.HARNESS_BASE_URL;
-  if (process.env.OPENAI_API_KEY)
-    config.classifier.api_key = process.env.OPENAI_API_KEY;
+  if (process.env.HARNESS_MIN_CONFIDENCE_THRESHOLD)
+    config.routing.min_confidence_threshold = Number(
+      process.env.HARNESS_MIN_CONFIDENCE_THRESHOLD
+    );
 
   return config;
 }

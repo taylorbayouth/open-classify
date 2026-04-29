@@ -7,106 +7,65 @@ export function computeRoute(
 ): RouteDecision {
   const { routing } = config;
 
-  // Classifier failed — safe fallback
+  // Classifier failed entirely → fallback
   if (!classification) {
     return {
       route: "fallback",
-      model_tier: routing.default_model_tier,
       requires_confirmation: false,
-      requires_web: false,
-      requires_private_context: false,
+      tools_required: false,
+      memory_scope: "none",
+      escalated: false,
+      escalation_reason: null,
     };
   }
 
-  const {
-    task_class,
-    needs_side_effect_tool,
-    needs_fresh_info,
-    needs_private_context,
-    risk,
-  } = classification;
+  const c = classification;
 
-  // Side effects always require confirmation regardless of risk
-  if (needs_side_effect_tool) {
+  // Hard reject on prompt injection
+  if (c.security === "prompt_injection") {
     return {
-      route: "confirm_side_effect",
-      model_tier: risk === "high" ? routing.high_risk_model_tier : routing.default_model_tier,
+      route: "reject",
       requires_confirmation: true,
-      requires_web: needs_fresh_info,
-      requires_private_context: needs_private_context,
+      tools_required: c.tools_required,
+      memory_scope: c.needs_memory,
+      escalated: true,
+      escalation_reason: "prompt_injection",
     };
   }
 
-  // High risk without side effects → escalate to frontier and flag
-  if (risk === "high") {
+  // Low confidence → escalate to frontier regardless of suggested_model
+  const lowAvg = c.average_confidence < routing.avg_confidence_threshold;
+  const lowMin = c.min_confidence < routing.min_confidence_threshold;
+  if (lowAvg || lowMin) {
     return {
-      route: "frontier",
-      model_tier: routing.high_risk_model_tier,
+      route: "billed_frontier",
+      requires_confirmation: false,
+      tools_required: c.tools_required,
+      memory_scope: c.needs_memory,
+      escalated: true,
+      escalation_reason: "low_confidence",
+    };
+  }
+
+  // Suspicious → escalate with confirmation
+  if (c.security === "suspicious") {
+    return {
+      route: "billed_frontier",
       requires_confirmation: true,
-      requires_web: needs_fresh_info,
-      requires_private_context: needs_private_context,
+      tools_required: c.tools_required,
+      memory_scope: c.needs_memory,
+      escalated: true,
+      escalation_reason: "suspicious",
     };
   }
 
-  // Fresh info needed
-  if (needs_fresh_info) {
-    return {
-      route: "web",
-      model_tier: routing.research_model_tier,
-      requires_confirmation: false,
-      requires_web: true,
-      requires_private_context: needs_private_context,
-    };
-  }
-
-  // Private context needed
-  if (needs_private_context) {
-    return {
-      route: "private_context",
-      model_tier: routing.default_model_tier,
-      requires_confirmation: false,
-      requires_web: false,
-      requires_private_context: true,
-    };
-  }
-
-  // Task-class specific routing
-  if (task_class === "research") {
-    return {
-      route: "frontier",
-      model_tier: routing.research_model_tier,
-      requires_confirmation: false,
-      requires_web: false,
-      requires_private_context: false,
-    };
-  }
-
-  if (task_class === "planning") {
-    return {
-      route: "cheap",
-      model_tier: routing.planning_model_tier,
-      requires_confirmation: false,
-      requires_web: false,
-      requires_private_context: false,
-    };
-  }
-
-  if (task_class === "code") {
-    return {
-      route: "cheap",
-      model_tier: routing.code_model_tier,
-      requires_confirmation: false,
-      requires_web: false,
-      requires_private_context: false,
-    };
-  }
-
-  // Default: cheap route for chat, writing, unknown
+  // Default: trust the suggested_model
   return {
-    route: "cheap",
-    model_tier: routing.default_model_tier,
+    route: c.suggested_model,
     requires_confirmation: false,
-    requires_web: false,
-    requires_private_context: false,
+    tools_required: c.tools_required,
+    memory_scope: c.needs_memory,
+    escalated: false,
+    escalation_reason: null,
   };
 }

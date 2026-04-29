@@ -1,12 +1,19 @@
 import { createHash } from "crypto";
 import { appendFileSync } from "fs";
-import type { Classification, RouteDecision, Trace, ValidationStatus } from "./schema.js";
+import type {
+  Classification,
+  RouteDecision,
+  Trace,
+  ValidationStatus,
+  SubLatencies,
+} from "./schema.js";
 
 export interface TraceParams {
   request_id: string;
   user_input: string;
   classifier_model: string;
   classifier_latency_ms: number;
+  sub_latencies: SubLatencies | null;
   classifier_output: Classification | null;
   validation_status: ValidationStatus;
   route_decision: RouteDecision;
@@ -19,6 +26,7 @@ export function buildTrace(params: TraceParams): Trace {
     input_hash: createHash("sha256").update(params.user_input).digest("hex"),
     classifier_model: params.classifier_model,
     classifier_latency_ms: params.classifier_latency_ms,
+    sub_latencies: params.sub_latencies,
     classifier_output: params.classifier_output,
     validation_status: params.validation_status,
     route_decision: params.route_decision,
@@ -32,7 +40,6 @@ export function emitTrace(trace: Trace, options?: { file?: string }): void {
   if (options?.file) {
     appendFileSync(options.file, line + "\n", "utf-8");
   } else {
-    // Write to stderr so stdout stays clean for CLI output
     process.stderr.write(line + "\n");
   }
 }
