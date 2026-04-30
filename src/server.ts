@@ -664,7 +664,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
 <script>
   const DIMENSIONS = [
-    { key: 'task_class',      label: 'task class',      options: ['chat', 'draft', 'code', 'research', 'unknown'] },
+    { key: 'task_class',      label: 'task class',      options: ['chat', 'draft', 'code', 'research'] },
     { key: 'needs_memory',    label: 'needs memory',    options: ['none', 'recent', 'session', 'long_term'] },
     { key: 'tools_required',  label: 'tools required',  options: ['true', 'false'] },
     { key: 'suggested_model', label: 'suggested model', options: ['local_fast', 'local_slow', 'billed_mini', 'billed_frontier'] },

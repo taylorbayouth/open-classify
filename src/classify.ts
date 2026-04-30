@@ -21,11 +21,10 @@ const SHARED_SUFFIX =
 const PROMPTS = {
   task_class: `Classify the user input into exactly one task class.
 
-- chat: conversational, casual, definitions, simple explanations
+- chat: conversational, casual, definitions, simple explanations, brainstorming, open-ended discussion
 - draft: drafting, editing, rewriting, or summarizing text content
 - code: writing/debugging/reviewing code, terminal commands, technical implementation
 - research: requires looking up or comparing information from outside the message
-- unknown: cannot confidently classify
 
 ${SHARED_SUFFIX}
 Return: {"task_class": "<value>", "confidence": <0-1>}`,
@@ -50,10 +49,12 @@ Return: {"tools_required": <true|false>, "confidence": <0-1>}`,
 
   suggested_model: `Suggest the appropriate model tier to fulfill this request.
 
-- local_fast: simple, conversational, brief responses (small local model)
-- local_slow: more involved local task, slower acceptable (larger local model, privacy-sensitive)
-- billed_mini: standard hosted task, cost-conscious default (gpt-4o-mini class)
-- billed_frontier: complex reasoning, ambiguous, high-stakes, or critical accuracy (gpt-4o / claude-sonnet class)
+- local_fast: instant trivial responses — greetings, single-word answers, recall of simple facts
+- local_slow: routine local-only tasks where privacy matters and no reasoning is needed
+- billed_mini: simple non-reasoning hosted tasks — straightforward extraction, basic drafting, simple Q&A
+- billed_frontier: any task involving reasoning, multi-step thinking, brainstorming, design, planning, ambiguity, complex code, or where accuracy is critical
+
+CRITICAL RULE: if the request requires THINKING (anything beyond pattern-matching or direct recall), choose billed_frontier. Brainstorming, comparing options, designing, debugging logic, planning, weighing tradeoffs, or any open-ended question all require thinking.
 
 ${SHARED_SUFFIX}
 Return: {"suggested_model": "<value>", "confidence": <0-1>}`,

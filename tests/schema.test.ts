@@ -14,6 +14,7 @@ describe("Per-classifier result schemas", () => {
   it("TaskClassResult validates correctly", () => {
     expect(TaskClassResult.safeParse({ task_class: "code", confidence: 0.9 }).success).toBe(true);
     expect(TaskClassResult.safeParse({ task_class: "writing", confidence: 0.9 }).success).toBe(false);
+    expect(TaskClassResult.safeParse({ task_class: "unknown", confidence: 0.9 }).success).toBe(false);
     expect(TaskClassResult.safeParse({ task_class: "code", confidence: 1.5 }).success).toBe(false);
     expect(TaskClassResult.safeParse({ task_class: "code", confidence: 0.9, extra: 1 }).success).toBe(false);
   });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TaskClass = z.enum(["chat", "draft", "code", "research", "unknown"]);
+export const TaskClass = z.enum(["chat", "draft", "code", "research"]);
 export type TaskClass = z.infer<typeof TaskClass>;
 
 export const NeedsMemory = z.enum(["none", "recent", "session", "long_term"]);
