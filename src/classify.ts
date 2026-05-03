@@ -1,3 +1,17 @@
+/**
+ * The classifier orchestrator.
+ *
+ * {@link classify} fans out to 5 sub-classifiers in parallel — `awk`,
+ * `response_path`, `context_budget`, `retrieval_need`, `work_complexity` — and
+ * collects their results. Each call uses its own model (per-dimension config),
+ * has an independent timeout, and is validated against its dimension schema.
+ * One sub-classifier failing or timing out does not affect the others; its
+ * record is still emitted with `validation_status` reflecting the failure.
+ *
+ * Pass `onEvent` to stream per-dimension records as they complete (used by the
+ * NDJSON server endpoint). The same records are returned in
+ * {@link ClassifyResult.sub_results} once all 5 settle.
+ */
 import OpenAI from "openai";
 import { z } from "zod";
 import {
@@ -12,13 +26,14 @@ import {
   type SubResultRecord,
   type ValidationStatus,
 } from "./schema.js";
-
-export type SubEvent = SubResultEvent;
 import {
   type ClassifierConfig,
   type ClassifiersConfig,
   parseModelString,
 } from "./config.js";
+
+/** Alias for {@link SubResultEvent} — what `onEvent` receives during {@link classify}. */
+export type SubEvent = SubResultEvent;
 
 const SHARED_SUFFIX = `Respond with ONLY valid JSON. No markdown, no code fences, no explanation.
 "confidence" is a number between 0 and 1 indicating how sure you are.
@@ -113,6 +128,17 @@ function createClient(config: ClassifierConfig): OpenAI {
   return new OpenAI({ apiKey: config.api_key ?? process.env.OPENAI_API_KEY });
 }
 
+/**
+ * Best-effort JSON extraction from a model response.
+ *
+ * Strips `<think>...</think>` reasoning blocks first (since `think: true` is
+ * enabled and reasoning content can contain stray braces that would otherwise
+ * confuse the brace scan), then handles markdown code fences, then falls back
+ * to scanning for the first `{` and last `}`. Returns `null` when no JSON
+ * object can be located.
+ *
+ * Exported so it can be unit-tested directly — see `tests/extract-json.test.ts`.
+ */
 export function extractJson(text: string): string | null {
   const noThink = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
   const stripped = noThink.replace(/```(?:json)?\n?([\s\S]*?)```/g, "$1").trim();
@@ -189,8 +215,11 @@ async function callSubClassifier<T>(
   }
 }
 
+/** Aggregate result of a {@link classify} call. */
 export interface ClassifyResult {
+  /** Wall-clock time from invocation to all 5 sub-classifiers settling, in ms. Bounded by the slowest call (assuming the backend supports concurrency). */
   total_latency_ms: number;
+  /** One record per dimension, always 5 entries, in the order returned by Promise.all over `DIMENSION_KEYS`. */
   sub_results: SubResultRecord[];
 }
 
@@ -202,6 +231,18 @@ const SCHEMA_BY_DIMENSION = {
   work_complexity: WorkComplexityResult,
 } as const;
 
+/**
+ * Run all 5 sub-classifiers in parallel and collect their results.
+ *
+ * @param envelope - User input + a caller-provided `request_id` for trace correlation.
+ * @param configs - Per-dimension classifier configs, typically from `loadConfig().classifiers`.
+ * @param onEvent - Optional callback fired each time one of the 5 sub-classifiers settles.
+ *   Used by the streaming server endpoint to forward results as NDJSON. Records
+ *   are emitted in completion order, not dimension order.
+ * @returns Aggregated {@link ClassifyResult}. Always resolves; per-dimension
+ *   failures surface via `validation_status` on each record rather than
+ *   rejecting the promise.
+ */
 export async function classify(
   envelope: InputEnvelope,
   configs: ClassifiersConfig,

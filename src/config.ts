@@ -1,12 +1,33 @@
+/**
+ * Config loading for the harness.
+ *
+ * Each of the 5 sub-classifiers has its own {@link ClassifierConfig}, so they
+ * can run on different models if desired. {@link loadConfig} layers values in
+ * this order, last-wins:
+ *
+ *   1. Built-in defaults ({@link defaultConfig})
+ *   2. `harness.config.json`, then `harness.config.local.json` (first match)
+ *   3. Environment variables (`HARNESS_MODEL`, `HARNESS_TIMEOUT_MS`,
+ *      `HARNESS_BASE_URL`, `OPENAI_API_KEY`,
+ *      `HARNESS_AVG_CONFIDENCE_THRESHOLD`, `HARNESS_MIN_CONFIDENCE_THRESHOLD`)
+ *
+ * Env-var overrides apply uniformly to all 5 classifiers.
+ */
 import { readFileSync, existsSync } from "fs";
 
+/** Per-classifier config. One of these per sub-classifier. */
 export interface ClassifierConfig {
-  model: string; // format: "provider/model" e.g. "ollama/gemma4:e4b-it-q4_K_M" or "openai/gpt-4o-mini"
+  /** `"<provider>/<model>"`, e.g. `"ollama/gemma4:e4b-it-q4_K_M"` or `"openai/gpt-4o-mini"`. Provider defaults to `"ollama"` if no slash is present. */
+  model: string;
+  /** Hard timeout for the model call, in milliseconds. */
   timeout_ms: number;
+  /** Override base URL (e.g. a remote Ollama). Ignored for non-Ollama providers. */
   base_url?: string;
+  /** Override API key. If unset, the OpenAI client falls back to `process.env.OPENAI_API_KEY`. */
   api_key?: string;
 }
 
+/** Container for the 5 per-dimension classifier configs. */
 export interface ClassifiersConfig {
   awk: ClassifierConfig;
   response_path: ClassifierConfig;
@@ -15,13 +36,20 @@ export interface ClassifiersConfig {
   work_complexity: ClassifierConfig;
 }
 
+/**
+ * Confidence thresholds. There is no router — these drive a UI-side override:
+ * when the average across the 5 classifiers, or any single classifier,
+ * dips below threshold, the surface forces `awk.mode = "question"` and
+ * `response_path = "none"` instead of acting on a low-confidence read.
+ */
 export interface RoutingConfig {
-  // Below avg → UI forces awk.mode = "question", response_path = "none"
+  /** Average across the 5 classifiers. Below this → UI override. */
   avg_confidence_threshold: number;
-  // Below min on any single classifier → same override
+  /** Per-classifier floor. Any one classifier below this → same override. */
   min_confidence_threshold: number;
 }
 
+/** Top-level harness config. The shape `loadConfig` returns. */
 export interface HarnessConfig {
   classifiers: ClassifiersConfig;
   routing: RoutingConfig;
@@ -33,6 +61,7 @@ const DEFAULT_CLASSIFIER: ClassifierConfig = {
   base_url: "http://localhost:11434/v1",
 };
 
+/** Built-in defaults. Used as the base layer in {@link loadConfig}. */
 export const defaultConfig: HarnessConfig = {
   classifiers: {
     awk: { ...DEFAULT_CLASSIFIER },
@@ -47,6 +76,10 @@ export const defaultConfig: HarnessConfig = {
   },
 };
 
+/**
+ * Tuple of the 5 dimension keys, in canonical order. Use this for iterating
+ * the classifiers config without hardcoding the list at the call site.
+ */
 export const DIMENSION_KEYS = [
   "awk",
   "response_path",
@@ -55,18 +88,38 @@ export const DIMENSION_KEYS = [
   "work_complexity",
 ] as const satisfies ReadonlyArray<keyof ClassifiersConfig>;
 
+/**
+ * Splits a `"provider/model"` string into its parts. If no slash is present,
+ * the provider defaults to `"ollama"` and the whole string is the model name.
+ *
+ * @example
+ * parseModelString("openai/gpt-4o-mini") // { provider: "openai", name: "gpt-4o-mini" }
+ * parseModelString("qwen3:8b")           // { provider: "ollama", name: "qwen3:8b" }
+ */
 export function parseModelString(model: string): { provider: string; name: string } {
   const slashIdx = model.indexOf("/");
   if (slashIdx === -1) return { provider: "ollama", name: model };
   return { provider: model.slice(0, slashIdx), name: model.slice(slashIdx + 1) };
 }
 
+/**
+ * Compact, human-readable summary of which models the 5 classifiers are
+ * using. Deduplicates so a uniform setup renders as a single name.
+ */
 export function classifierModelSummary(classifiers: ClassifiersConfig): string {
   const names = Object.values(classifiers).map((c) => parseModelString(c.model).name);
   const unique = [...new Set(names)];
   return unique.join(", ");
 }
 
+/**
+ * Loads and merges harness config from defaults, file, and environment.
+ *
+ * @param configPath - Optional explicit path. If omitted, tries
+ *   `./harness.config.json` then `./harness.config.local.json`.
+ * @returns Fully resolved {@link HarnessConfig}. Always succeeds — malformed
+ *   config files are silently ignored and the next layer is used.
+ */
 export function loadConfig(configPath?: string): HarnessConfig {
   const paths = configPath
     ? [configPath]
