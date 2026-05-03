@@ -8,40 +8,30 @@ User Input (POST /classify or CLI)
 Input Envelope (request_id, user_input)
   ↓
 5 parallel sub-classifiers (Promise.all)
-  ├── task_class
-  ├── needs_memory
-  ├── tools_required
-  ├── suggested_model
-  └── security
+  ├── awk
+  ├── response_path
+  ├── context_budget
+  ├── retrieval_need
+  └── work_complexity
   ↓
-Aggregator merges results, computes avg/min confidence
-  ↓
-Deterministic Routing Rules
-  ↓
-Route Decision
-  ↓
-Trace Emit (SSE broadcast + in-memory store)
+Trace Emit (NDJSON stream + in-memory store)
 ```
 
 ## The 5 dimensions
 
-| Dimension | Enum |
-|-----------|------|
-| `task_class` | `chat \| draft \| code \| research \| unknown` |
-| `needs_memory` | `none \| recent \| session \| long_term` |
-| `tools_required` | `true \| false` |
-| `suggested_model` | `local_fast \| local_slow \| billed_mini \| billed_frontier` |
-| `security` | `clean \| suspicious \| prompt_injection` |
+| Dimension | Shape |
+|-----------|-------|
+| `awk` | `{ text: string (≤280), mode: "only" \| "first" \| "question", should_send: bool, confidence: 0–1 }` |
+| `response_path` | `none \| small_model \| large_model \| tool_assisted \| workflow` |
+| `context_budget` | `none \| current_message_only \| last_exchange \| recent_context \| retrieved_context_only \| full_conversation` |
+| `retrieval_need` | array of `none \| memory \| files \| web \| browser \| email_calendar \| system_local_state \| other` |
+| `work_complexity` | `trivial \| simple \| moderate \| complex \| multi_step` |
 
-Each sub-classifier returns its value plus a `confidence` (0–1). The aggregator computes `average_confidence` and `min_confidence` across all 5.
+Every result also carries a `confidence` (0–1).
 
-## Routing Rules (priority order)
+## Confidence thresholds
 
-1. Classifier failed → `fallback` route
-2. `security: prompt_injection` → `reject` route, requires_confirmation: true
-3. `average_confidence < threshold` OR `min_confidence < min_threshold` → escalate to `billed_frontier` (escalation_reason: `low_confidence`)
-4. `security: suspicious` → escalate to `billed_frontier` with confirmation (escalation_reason: `suspicious`)
-5. Otherwise → trust `suggested_model` directly
+There is no router. Two thresholds in `routing` (`avg_confidence_threshold`, `min_confidence_threshold`) drive a UI-side override: when the average confidence across the 5 classifiers, or any single classifier's confidence, falls below threshold, the surface forces `awk.mode = "question"` and `response_path = "none"` rather than acting on a low-confidence read. The classifier output itself is never rewritten — the override is a display/dispatch concern.
 
 ## Why parallel?
 
@@ -70,12 +60,11 @@ OLLAMA_NUM_PARALLEL=5 ollama serve
 
 | File | Responsibility |
 |------|----------------|
-| `schema.ts` | Zod schemas for all 5 sub-classifier results, aggregated classification, route decision, trace |
-| `config.ts` | Config loading with env var overrides |
-| `classify.ts` | 5 parallel sub-classifier calls, aggregation, fallback handling |
-| `route.ts` | Deterministic routing rules — pure function of Classification → RouteDecision |
+| `schema.ts` | Zod schemas for all 5 sub-classifier results, sub-result record, and trace |
+| `config.ts` | Per-classifier config loading with env var overrides |
+| `classify.ts` | 5 parallel sub-classifier calls; emits per-dimension events |
 | `trace.ts` | Builds and emits trace objects |
-| `server.ts` | HTTP server, SSE broadcast, live UI |
+| `server.ts` | HTTP server, NDJSON streaming, live UI |
 | `cli.ts` | CLI for one-off classification |
 
 ## Non-goals (v0)

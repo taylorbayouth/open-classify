@@ -1,36 +1,20 @@
 import { createHash } from "crypto";
 import { appendFileSync } from "fs";
-import type {
-  Classification,
-  RouteDecision,
-  Trace,
-  ValidationStatus,
-  SubLatencies,
-} from "./schema.js";
+import type { Trace, SubResultRecord } from "./schema.js";
 
 export interface TraceParams {
   request_id: string;
   user_input: string;
-  classifier_model: string;
-  classifier_latency_ms: number;
-  sub_latencies: SubLatencies | null;
-  classifier_output: Classification | null;
-  validation_status: ValidationStatus;
-  route_decision: RouteDecision;
-  fallback_used: boolean;
+  total_latency_ms: number;
+  sub_results: SubResultRecord[];
 }
 
 export function buildTrace(params: TraceParams): Trace {
   return {
     request_id: params.request_id,
     input_hash: createHash("sha256").update(params.user_input).digest("hex"),
-    classifier_model: params.classifier_model,
-    classifier_latency_ms: params.classifier_latency_ms,
-    sub_latencies: params.sub_latencies,
-    classifier_output: params.classifier_output,
-    validation_status: params.validation_status,
-    route_decision: params.route_decision,
-    fallback_used: params.fallback_used,
+    total_latency_ms: params.total_latency_ms,
+    sub_results: params.sub_results,
     timestamp: new Date().toISOString(),
   };
 }

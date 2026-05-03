@@ -1,31 +1,47 @@
 import { z } from "zod";
 
-export const TaskClass = z.enum(["chat", "draft", "code", "research"]);
-export type TaskClass = z.infer<typeof TaskClass>;
+export const AwkMode = z.enum(["only", "first", "question"]);
+export type AwkMode = z.infer<typeof AwkMode>;
 
-export const NeedsMemory = z.enum(["none", "recent", "session", "long_term"]);
-export type NeedsMemory = z.infer<typeof NeedsMemory>;
-
-export const SuggestedModel = z.enum([
-  "local_fast",
-  "local_slow",
-  "billed_mini",
-  "billed_frontier",
+export const ResponsePath = z.enum([
+  "none",
+  "small_model",
+  "large_model",
+  "tool_assisted",
+  "workflow",
 ]);
-export type SuggestedModel = z.infer<typeof SuggestedModel>;
+export type ResponsePath = z.infer<typeof ResponsePath>;
 
-export const Security = z.enum(["clean", "suspicious", "prompt_injection"]);
-export type Security = z.infer<typeof Security>;
-
-export const Route = z.enum([
-  "local_fast",
-  "local_slow",
-  "billed_mini",
-  "billed_frontier",
-  "reject",
-  "fallback",
+export const ContextBudget = z.enum([
+  "none",
+  "current_message_only",
+  "last_exchange",
+  "recent_context",
+  "retrieved_context_only",
+  "full_conversation",
 ]);
-export type Route = z.infer<typeof Route>;
+export type ContextBudget = z.infer<typeof ContextBudget>;
+
+export const RetrievalNeedItem = z.enum([
+  "none",
+  "memory",
+  "files",
+  "web",
+  "browser",
+  "email_calendar",
+  "system_local_state",
+  "other",
+]);
+export type RetrievalNeedItem = z.infer<typeof RetrievalNeedItem>;
+
+export const WorkComplexity = z.enum([
+  "trivial",
+  "simple",
+  "moderate",
+  "complex",
+  "multi_step",
+]);
+export type WorkComplexity = z.infer<typeof WorkComplexity>;
 
 export const ValidationStatus = z.enum([
   "valid",
@@ -35,60 +51,37 @@ export const ValidationStatus = z.enum([
 ]);
 export type ValidationStatus = z.infer<typeof ValidationStatus>;
 
-export const EscalationReason = z.enum([
-  "low_confidence",
-  "suspicious",
-  "prompt_injection",
-]);
-export type EscalationReason = z.infer<typeof EscalationReason>;
+const Confidence = z.number().min(0).max(1);
 
-const ConfidenceField = z.number().min(0).max(1);
+export const AwkResult = z
+  .object({
+    text: z.string().min(1).max(280),
+    mode: AwkMode,
+    should_send: z.boolean(),
+    confidence: Confidence,
+  })
+  .strict();
+export type AwkResult = z.infer<typeof AwkResult>;
 
-// Per-classifier output schemas (what each parallel call returns)
-export const TaskClassResult = z
-  .object({ task_class: TaskClass, confidence: ConfidenceField })
+export const ResponsePathResult = z
+  .object({ value: ResponsePath, confidence: Confidence })
   .strict();
-export const MemoryResult = z
-  .object({ needs_memory: NeedsMemory, confidence: ConfidenceField })
-  .strict();
-export const ToolsResult = z
-  .object({ tools_required: z.boolean(), confidence: ConfidenceField })
-  .strict();
-export const ModelResult = z
-  .object({ suggested_model: SuggestedModel, confidence: ConfidenceField })
-  .strict();
-export const SecurityResult = z
-  .object({ security: Security, confidence: ConfidenceField })
-  .strict();
+export type ResponsePathResult = z.infer<typeof ResponsePathResult>;
 
-// Aggregated classification (what all 5 results combine into)
-export const ClassificationSchema = z.object({
-  task_class: TaskClass,
-  needs_memory: NeedsMemory,
-  tools_required: z.boolean(),
-  suggested_model: SuggestedModel,
-  security: Security,
-  confidences: z.object({
-    task_class: ConfidenceField,
-    needs_memory: ConfidenceField,
-    tools_required: ConfidenceField,
-    suggested_model: ConfidenceField,
-    security: ConfidenceField,
-  }),
-  average_confidence: ConfidenceField,
-  min_confidence: ConfidenceField,
-});
-export type Classification = z.infer<typeof ClassificationSchema>;
+export const ContextBudgetResult = z
+  .object({ value: ContextBudget, confidence: Confidence })
+  .strict();
+export type ContextBudgetResult = z.infer<typeof ContextBudgetResult>;
 
-export const RouteDecisionSchema = z.object({
-  route: Route,
-  requires_confirmation: z.boolean(),
-  tools_required: z.boolean(),
-  memory_scope: NeedsMemory,
-  escalated: z.boolean(),
-  escalation_reason: EscalationReason.nullable(),
-});
-export type RouteDecision = z.infer<typeof RouteDecisionSchema>;
+export const RetrievalNeedResult = z
+  .object({ value: z.array(RetrievalNeedItem).min(1), confidence: Confidence })
+  .strict();
+export type RetrievalNeedResult = z.infer<typeof RetrievalNeedResult>;
+
+export const WorkComplexityResult = z
+  .object({ value: WorkComplexity, confidence: Confidence })
+  .strict();
+export type WorkComplexityResult = z.infer<typeof WorkComplexityResult>;
 
 export const InputEnvelopeSchema = z.object({
   request_id: z.string().min(1),
@@ -98,25 +91,30 @@ export const InputEnvelopeSchema = z.object({
 });
 export type InputEnvelope = z.infer<typeof InputEnvelopeSchema>;
 
-export const SubLatenciesSchema = z.object({
-  task_class: z.number(),
-  needs_memory: z.number(),
-  tools_required: z.number(),
-  suggested_model: z.number(),
-  security: z.number(),
+export type DimensionName =
+  | "awk"
+  | "response_path"
+  | "context_budget"
+  | "retrieval_need"
+  | "work_complexity";
+
+export const SubResultSchema = z.object({
+  dimension: z.enum(["awk", "response_path", "context_budget", "retrieval_need", "work_complexity"]),
+  data: z.unknown().nullable(),
+  latency_ms: z.number(),
+  raw_output: z.string(),
+  prompt: z.string(),
+  model: z.string(),
+  validation_status: ValidationStatus,
 });
-export type SubLatencies = z.infer<typeof SubLatenciesSchema>;
+export type SubResultRecord = z.infer<typeof SubResultSchema>;
+export type SubResultEvent = SubResultRecord & { type: "sub_result" };
 
 export const TraceSchema = z.object({
   request_id: z.string(),
   input_hash: z.string(),
-  classifier_model: z.string(),
-  classifier_latency_ms: z.number(),
-  sub_latencies: SubLatenciesSchema.nullable(),
-  classifier_output: ClassificationSchema.nullable(),
-  validation_status: ValidationStatus,
-  route_decision: RouteDecisionSchema,
-  fallback_used: z.boolean(),
+  total_latency_ms: z.number(),
+  sub_results: z.array(SubResultSchema),
   timestamp: z.string(),
 });
 export type Trace = z.infer<typeof TraceSchema>;

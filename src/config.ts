@@ -1,49 +1,70 @@
 import { readFileSync, existsSync } from "fs";
 
 export interface ClassifierConfig {
-  model: string; // format: "provider/model" e.g. "ollama/qwen3:8b" or "openai/gpt-4o-mini"
+  model: string; // format: "provider/model" e.g. "ollama/gemma4:e4b-it-q4_K_M" or "openai/gpt-4o-mini"
   timeout_ms: number;
   base_url?: string;
   api_key?: string;
 }
 
+export interface ClassifiersConfig {
+  awk: ClassifierConfig;
+  response_path: ClassifierConfig;
+  context_budget: ClassifierConfig;
+  retrieval_need: ClassifierConfig;
+  work_complexity: ClassifierConfig;
+}
+
 export interface RoutingConfig {
-  // If average confidence across the 5 classifiers falls below this, escalate
+  // Below avg → UI forces awk.mode = "question", response_path = "none"
   avg_confidence_threshold: number;
-  // If any single classifier confidence falls below this, escalate
+  // Below min on any single classifier → same override
   min_confidence_threshold: number;
-  // Default route when classification fails entirely
-  fallback_route: "local_fast" | "local_slow" | "billed_mini" | "billed_frontier";
 }
 
 export interface HarnessConfig {
-  classifier: ClassifierConfig;
+  classifiers: ClassifiersConfig;
   routing: RoutingConfig;
 }
 
+const DEFAULT_CLASSIFIER: ClassifierConfig = {
+  model: "ollama/gemma4:e4b-it-q4_K_M",
+  timeout_ms: 15000,
+  base_url: "http://localhost:11434/v1",
+};
+
 export const defaultConfig: HarnessConfig = {
-  classifier: {
-    model: "ollama/qwen3:8b",
-    timeout_ms: 15000,
-    base_url: "http://localhost:11434/v1",
+  classifiers: {
+    awk: { ...DEFAULT_CLASSIFIER },
+    response_path: { ...DEFAULT_CLASSIFIER },
+    context_budget: { ...DEFAULT_CLASSIFIER },
+    retrieval_need: { ...DEFAULT_CLASSIFIER },
+    work_complexity: { ...DEFAULT_CLASSIFIER },
   },
   routing: {
     avg_confidence_threshold: 0.65,
     min_confidence_threshold: 0.4,
-    fallback_route: "billed_mini",
   },
 };
 
-export function parseModelString(model: string): {
-  provider: string;
-  name: string;
-} {
+export const DIMENSION_KEYS = [
+  "awk",
+  "response_path",
+  "context_budget",
+  "retrieval_need",
+  "work_complexity",
+] as const satisfies ReadonlyArray<keyof ClassifiersConfig>;
+
+export function parseModelString(model: string): { provider: string; name: string } {
   const slashIdx = model.indexOf("/");
   if (slashIdx === -1) return { provider: "ollama", name: model };
-  return {
-    provider: model.slice(0, slashIdx),
-    name: model.slice(slashIdx + 1),
-  };
+  return { provider: model.slice(0, slashIdx), name: model.slice(slashIdx + 1) };
+}
+
+export function classifierModelSummary(classifiers: ClassifiersConfig): string {
+  const names = Object.values(classifiers).map((c) => parseModelString(c.model).name);
+  const unique = [...new Set(names)];
+  return unique.join(", ");
 }
 
 export function loadConfig(configPath?: string): HarnessConfig {
@@ -63,24 +84,45 @@ export function loadConfig(configPath?: string): HarnessConfig {
     }
   }
 
+  const dc = defaultConfig.classifiers;
+  const fc: Partial<ClassifiersConfig> = fileConfig.classifiers ?? {};
+
   const config: HarnessConfig = {
-    classifier: { ...defaultConfig.classifier, ...fileConfig.classifier },
+    classifiers: {
+      awk: { ...dc.awk, ...fc.awk },
+      response_path: { ...dc.response_path, ...fc.response_path },
+      context_budget: { ...dc.context_budget, ...fc.context_budget },
+      retrieval_need: { ...dc.retrieval_need, ...fc.retrieval_need },
+      work_complexity: { ...dc.work_complexity, ...fc.work_complexity },
+    },
     routing: { ...defaultConfig.routing, ...fileConfig.routing },
   };
 
-  if (process.env.HARNESS_MODEL) config.classifier.model = process.env.HARNESS_MODEL;
-  if (process.env.HARNESS_TIMEOUT_MS)
-    config.classifier.timeout_ms = Number(process.env.HARNESS_TIMEOUT_MS);
-  if (process.env.HARNESS_BASE_URL) config.classifier.base_url = process.env.HARNESS_BASE_URL;
-  if (process.env.OPENAI_API_KEY) config.classifier.api_key = process.env.OPENAI_API_KEY;
+  // Global env var overrides apply to all 5 classifiers
+  if (process.env.HARNESS_MODEL) {
+    DIMENSION_KEYS.forEach((k) => {
+      config.classifiers[k].model = process.env.HARNESS_MODEL!;
+    });
+  }
+  if (process.env.HARNESS_TIMEOUT_MS) {
+    DIMENSION_KEYS.forEach((k) => {
+      config.classifiers[k].timeout_ms = Number(process.env.HARNESS_TIMEOUT_MS);
+    });
+  }
+  if (process.env.HARNESS_BASE_URL) {
+    DIMENSION_KEYS.forEach((k) => {
+      config.classifiers[k].base_url = process.env.HARNESS_BASE_URL;
+    });
+  }
+  if (process.env.OPENAI_API_KEY) {
+    DIMENSION_KEYS.forEach((k) => {
+      config.classifiers[k].api_key = process.env.OPENAI_API_KEY;
+    });
+  }
   if (process.env.HARNESS_AVG_CONFIDENCE_THRESHOLD)
-    config.routing.avg_confidence_threshold = Number(
-      process.env.HARNESS_AVG_CONFIDENCE_THRESHOLD
-    );
+    config.routing.avg_confidence_threshold = Number(process.env.HARNESS_AVG_CONFIDENCE_THRESHOLD);
   if (process.env.HARNESS_MIN_CONFIDENCE_THRESHOLD)
-    config.routing.min_confidence_threshold = Number(
-      process.env.HARNESS_MIN_CONFIDENCE_THRESHOLD
-    );
+    config.routing.min_confidence_threshold = Number(process.env.HARNESS_MIN_CONFIDENCE_THRESHOLD);
 
   return config;
 }
