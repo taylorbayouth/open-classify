@@ -1,10 +1,9 @@
 #!/usr/bin/env tsx
 import { randomUUID } from "crypto";
-import { loadConfig } from "./config.js";
+import { loadConfig, DIMENSION_KEYS } from "./config.js";
 import { classify } from "./classify.js";
-import { computeRoute } from "./route.js";
 import { buildTrace, emitTrace } from "./trace.js";
-import { InputEnvelopeSchema } from "./schema.js";
+import { InputEnvelopeSchema, type SubResultRecord } from "./schema.js";
 
 function printUsage(): void {
   console.log(`
@@ -12,7 +11,7 @@ Usage:
   llm-harness classify <input> [options]
 
 Options:
-  --model <model>       Override classifier model (e.g. ollama/qwen3:8b, openai/gpt-4o-mini)
+  --model <model>       Override classifier model for all 5 (e.g. ollama/gemma4:e4b-it-q4_K_M)
   --config <path>       Path to config file (default: ./harness.config.json)
   --trace-file <path>   Write trace to file instead of stderr
   --no-trace            Suppress trace output
@@ -21,7 +20,7 @@ Options:
 
 Examples:
   llm-harness classify "Can you look up the latest OpenAI API pricing?"
-  llm-harness classify "Debug this Python function" --model openai/gpt-4o-mini
+  llm-harness classify "Thanks" --pretty
 `.trim());
 }
 
@@ -93,26 +92,34 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig(args.configPath);
-  if (args.model) config.classifier.model = args.model;
+  if (args.model) {
+    DIMENSION_KEYS.forEach((k) => {
+      config.classifiers[k].model = args.model!;
+    });
+  }
 
   const envelope = InputEnvelopeSchema.parse({
     request_id: randomUUID(),
     user_input: args.input,
   });
 
-  const classifyResult = await classify(envelope, config.classifier);
-  const routeDecision = computeRoute(classifyResult.classification, config);
+  const result = await classify(envelope, config.classifiers);
+
+  const sub_results: SubResultRecord[] = result.sub_results.map((r) => ({
+    dimension: r.dimension,
+    data: r.data,
+    latency_ms: r.latency_ms,
+    raw_output: r.raw_output,
+    prompt: r.prompt,
+    model: r.model,
+    validation_status: r.validation_status,
+  }));
 
   const trace = buildTrace({
     request_id: envelope.request_id,
     user_input: envelope.user_input,
-    classifier_model: config.classifier.model,
-    classifier_latency_ms: classifyResult.latency_ms,
-    sub_latencies: classifyResult.classification ? classifyResult.sub_latencies : null,
-    classifier_output: classifyResult.classification,
-    validation_status: classifyResult.validation_status,
-    route_decision: routeDecision,
-    fallback_used: classifyResult.fallback_used,
+    total_latency_ms: result.total_latency_ms,
+    sub_results,
   });
 
   if (!args.noTrace) {
@@ -120,9 +127,15 @@ async function main(): Promise<void> {
   }
 
   const output = {
-    classification: classifyResult.classification,
-    route_decision: routeDecision,
-    sub_latencies: classifyResult.sub_latencies,
+    request_id: envelope.request_id,
+    total_latency_ms: result.total_latency_ms,
+    sub_results: result.sub_results.map(({ dimension, data, latency_ms, model, validation_status }) => ({
+      dimension,
+      data,
+      latency_ms,
+      model,
+      validation_status,
+    })),
   };
 
   console.log(args.pretty ? JSON.stringify(output, null, 2) : JSON.stringify(output));

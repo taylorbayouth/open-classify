@@ -1,9 +1,8 @@
 #!/usr/bin/env tsx
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { randomUUID } from "crypto";
-import { loadConfig } from "./config.js";
-import { classify, type SubEvent } from "./classify.js";
-import { computeRoute } from "./route.js";
+import { loadConfig, classifierModelSummary } from "./config.js";
+import { classify } from "./classify.js";
 import { buildTrace } from "./trace.js";
 import { InputEnvelopeSchema, type Trace } from "./schema.js";
 
@@ -11,9 +10,8 @@ const PORT = Number(process.env.PORT ?? 3000);
 const MAX_TRACES = 500;
 
 const config = loadConfig();
-type AugmentedTrace = Trace & { _user_input: string };
 
-const traces: AugmentedTrace[] = [];
+const traces: Trace[] = [];
 
 async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -61,46 +59,41 @@ async function handleClassifyStream(
     "Transfer-Encoding": "chunked",
   });
 
-  // Send a "started" event with the request ID
-  res.write(
-    JSON.stringify({ type: "started", request_id: envelope.request_id, classifier_model: config.classifier.model }) +
-      "\n"
-  );
-
-  const onEvent = (event: SubEvent): void => {
-    res.write(JSON.stringify(event) + "\n");
-  };
-
-  const result = await classify(envelope, config.classifier, onEvent);
-  const routeDecision = computeRoute(result.classification, config);
-
-  // Final aggregate event
   res.write(
     JSON.stringify({
-      type: "complete",
-      classification: result.classification,
-      route_decision: routeDecision,
-      total_latency_ms: result.latency_ms,
-      sub_latencies: result.sub_latencies,
-      fallback_used: result.fallback_used,
+      type: "started",
+      request_id: envelope.request_id,
+      classifier_models: {
+        awk: config.classifiers.awk.model,
+        response_path: config.classifiers.response_path.model,
+        context_budget: config.classifiers.context_budget.model,
+        retrieval_need: config.classifiers.retrieval_need.model,
+        work_complexity: config.classifiers.work_complexity.model,
+      },
+      thresholds: {
+        avg_confidence: config.routing.avg_confidence_threshold,
+        min_confidence: config.routing.min_confidence_threshold,
+      },
     }) + "\n"
   );
 
-  // Persist trace for /traces
-  const trace: AugmentedTrace = {
-    ...buildTrace({
-      request_id: envelope.request_id,
-      user_input: envelope.user_input,
-      classifier_model: config.classifier.model,
-      classifier_latency_ms: result.latency_ms,
-      sub_latencies: result.classification ? result.sub_latencies : null,
-      classifier_output: result.classification,
-      validation_status: result.validation_status,
-      route_decision: routeDecision,
-      fallback_used: result.fallback_used,
-    }),
-    _user_input: envelope.user_input,
-  };
+  const result = await classify(envelope, config.classifiers, (event) => {
+    res.write(JSON.stringify(event) + "\n");
+  });
+
+  res.write(
+    JSON.stringify({
+      type: "complete",
+      total_latency_ms: result.total_latency_ms,
+    }) + "\n"
+  );
+
+  const trace = buildTrace({
+    request_id: envelope.request_id,
+    user_input: envelope.user_input,
+    total_latency_ms: result.total_latency_ms,
+    sub_results: result.sub_results,
+  });
   traces.unshift(trace);
   if (traces.length > MAX_TRACES) traces.pop();
 
@@ -138,7 +131,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`llm-harness running at http://localhost:${PORT}`);
-  console.log(`Classifier model: ${config.classifier.model}`);
+  console.log(`Classifier models: ${classifierModelSummary(config.classifiers)}`);
   console.log(
     `Note: 5 parallel sub-classifier calls per classification. For Ollama, use OLLAMA_NUM_PARALLEL=5.`
   );
@@ -146,13 +139,12 @@ server.listen(PORT, () => {
 
 // ─── Frontend ───────────────────────────────────────────────────────────────
 
-
 const FRONTEND_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LLM Harness</title>
+<title>open-classify</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -167,7 +159,6 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     --muted: #64748b;
     --muted-2: #475569;
     --green: #22c55e;
-    --green-bg: #052e16;
     --amber: #f59e0b;
     --amber-bg: #2d1f00;
     --red: #ef4444;
@@ -175,11 +166,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     --blue: #3b82f6;
     --blue-bg: #0c1e3a;
     --purple: #a855f7;
-    --purple-bg: #2a0e3a;
     --teal: #14b8a6;
-    --teal-bg: #062c28;
-    --yellow: #eab308;
-    --yellow-bg: #2d2400;
     --font: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
   }
 
@@ -207,15 +194,14 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text);
   }
 
-  header .model { color: var(--muted); font-size: 11px; }
+  header .sub { color: var(--muted); font-size: 11px; }
   header .status { margin-left: auto; font-size: 11px; color: var(--muted); }
 
   .main {
     display: grid;
-    grid-template-columns: minmax(360px, 1fr) minmax(560px, 1.5fr);
+    grid-template-columns: minmax(360px, 1fr) minmax(680px, 1.7fr);
     height: calc(100vh - 53px);
   }
 
@@ -288,7 +274,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
   }
 
   .results-pane > .empty {
@@ -298,25 +284,125 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     text-align: center;
   }
 
-  /* ─── Dimension card ─── */
+  /* ─── Awk hero ─── */
+
+  .awk-hero {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    transition: border-color 0.2s, opacity 0.2s;
+  }
+  .awk-hero.pending { opacity: 0.55; }
+  .awk-hero.done    { border-color: var(--border-strong); }
+  .awk-hero.failed  { border-color: var(--red); }
+  .awk-hero.overridden { border-color: var(--amber); }
+
+  .awk-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+
+  .awk-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+
+  .awk-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--muted);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .awk-meta .latency { font-variant-numeric: tabular-nums; }
+  .awk-meta .model-name { color: var(--muted-2); font-size: 10px; }
+
+  .awk-text {
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--text);
+    margin-bottom: 14px;
+    word-break: break-word;
+  }
+  .awk-text.placeholder { color: var(--muted); font-style: italic; font-size: 14px; }
+  .awk-text.overridden { color: var(--amber); font-style: italic; }
+
+  .awk-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .mode-pill {
+    padding: 5px 12px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px solid;
+  }
+  .mode-pill[data-mode="only"]     { background: #166534; border-color: #4ade80; color: #fff; }
+  .mode-pill[data-mode="first"]    { background: #1d4ed8; border-color: #60a5fa; color: #fff; }
+  .mode-pill[data-mode="question"] { background: #b45309; border-color: #fbbf24; color: #fff; }
+
+  .send-badge {
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .send-badge.on  { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+  .send-badge.off { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+
+  .awk-conf-row {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* ─── Card grid ─── */
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
 
   .dim-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 16px 18px;
+    padding: 14px 16px;
     transition: border-color 0.2s, opacity 0.2s;
   }
 
   .dim-card.pending { opacity: 0.55; }
   .dim-card.done { border-color: var(--border-strong); }
   .dim-card.failed { border-color: var(--red); }
+  .dim-card.overridden { border-color: var(--amber); }
 
   .dim-header {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+    gap: 12px;
   }
 
   .dim-name {
@@ -329,25 +415,28 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
   .dim-meta {
     display: flex;
-    gap: 12px;
-    font-size: 11px;
+    gap: 10px;
+    font-size: 10px;
     color: var(--muted);
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
-
+  .dim-meta .model-name { color: var(--muted-2); }
   .dim-meta .latency { font-variant-numeric: tabular-nums; }
 
   .dim-options {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
 
   .opt {
-    padding: 5px 10px;
+    padding: 4px 9px;
     border: 1px solid var(--border);
     border-radius: 5px;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted-2);
     background: transparent;
     transition: all 0.15s;
@@ -355,40 +444,42 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     font-weight: 500;
   }
 
-  /* Selected option — strongly highlighted, with per-dim color theme */
   .opt.selected {
     color: var(--text);
     font-weight: 600;
-    border-width: 1px;
   }
 
-  /* task_class colors */
-  .opt.selected[data-dim="task_class"][data-val="chat"]     { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
-  .opt.selected[data-dim="task_class"][data-val="draft"]    { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
-  .opt.selected[data-dim="task_class"][data-val="code"]     { background: #166534; border-color: #4ade80; color: #ffffff; }
-  .opt.selected[data-dim="task_class"][data-val="research"] { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
-  .opt.selected[data-dim="task_class"][data-val="unknown"]  { background: #b91c1c; border-color: #f87171; color: #ffffff; }
+  /* response_path colors */
+  .opt.selected[data-dim="response_path"][data-val="none"]          { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  .opt.selected[data-dim="response_path"][data-val="small_model"]   { background: #166534; border-color: #4ade80; color: #fff; }
+  .opt.selected[data-dim="response_path"][data-val="large_model"]   { background: #7c3aed; border-color: #c084fc; color: #fff; }
+  .opt.selected[data-dim="response_path"][data-val="tool_assisted"] { background: #1d4ed8; border-color: #60a5fa; color: #fff; }
+  .opt.selected[data-dim="response_path"][data-val="workflow"]      { background: #b45309; border-color: #fbbf24; color: #fff; }
 
-  /* needs_memory colors */
-  .opt.selected[data-dim="needs_memory"][data-val="none"]      { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
-  .opt.selected[data-dim="needs_memory"][data-val="recent"]    { background: #0f766e; border-color: #2dd4bf; color: #ffffff; }
-  .opt.selected[data-dim="needs_memory"][data-val="session"]   { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
-  .opt.selected[data-dim="needs_memory"][data-val="long_term"] { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
+  /* context_budget colors */
+  .opt.selected[data-dim="context_budget"][data-val="none"]                   { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  .opt.selected[data-dim="context_budget"][data-val="current_message_only"]   { background: #0f766e; border-color: #2dd4bf; color: #fff; }
+  .opt.selected[data-dim="context_budget"][data-val="last_exchange"]          { background: #166534; border-color: #4ade80; color: #fff; }
+  .opt.selected[data-dim="context_budget"][data-val="recent_context"]         { background: #1d4ed8; border-color: #60a5fa; color: #fff; }
+  .opt.selected[data-dim="context_budget"][data-val="retrieved_context_only"] { background: #b45309; border-color: #fbbf24; color: #fff; }
+  .opt.selected[data-dim="context_budget"][data-val="full_conversation"]      { background: #7c3aed; border-color: #c084fc; color: #fff; }
 
-  /* tools_required colors */
-  .opt.selected[data-dim="tools_required"][data-val="true"]  { background: #b45309; border-color: #fbbf24; color: #ffffff; }
-  .opt.selected[data-dim="tools_required"][data-val="false"] { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  /* retrieval_need colors */
+  .opt.selected[data-dim="retrieval_need"][data-val="none"]               { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  .opt.selected[data-dim="retrieval_need"][data-val="memory"]             { background: #7c3aed; border-color: #c084fc; color: #fff; }
+  .opt.selected[data-dim="retrieval_need"][data-val="files"]              { background: #0f766e; border-color: #2dd4bf; color: #fff; }
+  .opt.selected[data-dim="retrieval_need"][data-val="web"]                { background: #1d4ed8; border-color: #60a5fa; color: #fff; }
+  .opt.selected[data-dim="retrieval_need"][data-val="browser"]            { background: #3730a3; border-color: #a5b4fc; color: #fff; }
+  .opt.selected[data-dim="retrieval_need"][data-val="email_calendar"]     { background: #b45309; border-color: #fbbf24; color: #fff; }
+  .opt.selected[data-dim="retrieval_need"][data-val="system_local_state"] { background: #b91c1c; border-color: #f87171; color: #fff; }
+  .opt.selected[data-dim="retrieval_need"][data-val="other"]              { background: #4b5563; border-color: #9ca3af; color: #f1f5f9; }
 
-  /* suggested_model colors */
-  .opt.selected[data-dim="suggested_model"][data-val="local_fast"]      { background: #166534; border-color: #4ade80; color: #ffffff; }
-  .opt.selected[data-dim="suggested_model"][data-val="local_slow"]      { background: #854d0e; border-color: #facc15; color: #ffffff; }
-  .opt.selected[data-dim="suggested_model"][data-val="billed_mini"]     { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
-  .opt.selected[data-dim="suggested_model"][data-val="billed_frontier"] { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
-
-  /* security colors */
-  .opt.selected[data-dim="security"][data-val="clean"]            { background: #166534; border-color: #4ade80; color: #ffffff; }
-  .opt.selected[data-dim="security"][data-val="suspicious"]       { background: #b45309; border-color: #fbbf24; color: #ffffff; }
-  .opt.selected[data-dim="security"][data-val="prompt_injection"] { background: #b91c1c; border-color: #f87171; color: #ffffff; font-weight: 700; }
+  /* work_complexity colors */
+  .opt.selected[data-dim="work_complexity"][data-val="trivial"]    { background: #334155; border-color: #94a3b8; color: #f1f5f9; }
+  .opt.selected[data-dim="work_complexity"][data-val="simple"]     { background: #166534; border-color: #4ade80; color: #fff; }
+  .opt.selected[data-dim="work_complexity"][data-val="moderate"]   { background: #1d4ed8; border-color: #60a5fa; color: #fff; }
+  .opt.selected[data-dim="work_complexity"][data-val="complex"]    { background: #7c3aed; border-color: #c084fc; color: #fff; }
+  .opt.selected[data-dim="work_complexity"][data-val="multi_step"] { background: #b45309; border-color: #fbbf24; color: #fff; }
 
   /* Confidence bar */
   .conf-row {
@@ -438,7 +529,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     align-items: center;
     gap: 8px;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     font-style: italic;
   }
 
@@ -456,13 +547,14 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
   .failed-state {
     color: var(--red);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
+    margin-top: 6px;
   }
 
   .debug-row {
-    margin-top: 12px;
-    padding-top: 10px;
+    margin-top: 10px;
+    padding-top: 8px;
     border-top: 1px dashed var(--border);
     display: flex;
     gap: 8px;
@@ -472,7 +564,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     background: transparent;
     border: 1px solid var(--border);
     color: var(--muted);
-    padding: 3px 10px;
+    padding: 3px 9px;
     border-radius: 4px;
     cursor: pointer;
     font-family: var(--font);
@@ -485,17 +577,17 @@ const FRONTEND_HTML = `<!DOCTYPE html>
   .debug-toggle.active { color: var(--blue); border-color: var(--blue); }
 
   .debug-content {
-    margin-top: 10px;
-    padding: 12px;
+    margin-top: 8px;
+    padding: 10px;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;
-    font-size: 11px;
+    font-size: 10.5px;
     line-height: 1.55;
     color: var(--text-2);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 360px;
+    max-height: 300px;
     overflow-y: auto;
     display: none;
   }
@@ -510,35 +602,23 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     margin-bottom: 6px;
   }
 
-  /* ─── Aggregate / route ─── */
+  /* ─── Aggregate strip ─── */
 
   .aggregate {
-    margin-top: 12px;
     background: var(--surface);
-    border: 2px solid var(--border-strong);
+    border: 1px solid var(--border-strong);
     border-radius: 10px;
-    padding: 18px 20px;
+    padding: 16px 18px;
   }
 
   .aggregate.escalated { border-color: var(--amber); }
-  .aggregate.rejected  { border-color: var(--red); }
-  .aggregate.fallback  { border-color: var(--red); }
 
-  .agg-header {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--text-2);
-    margin-bottom: 14px;
-  }
-
-  .agg-stats {
+  .agg-grid {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 18px;
-    margin-bottom: 16px;
-    padding-bottom: 16px;
+    gap: 16px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
     border-bottom: 1px solid var(--border);
   }
 
@@ -568,87 +648,45 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     margin-top: 2px;
   }
 
-  .route-section {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  .next-step {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.55;
   }
 
-  .route-label {
+  .next-step .label {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
+    margin-bottom: 6px;
+    display: block;
   }
-
-  .route-pill {
-    display: inline-block;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    border: 1px solid;
-  }
-
-  .route-pill[data-route="local_fast"]       { background: #166534; border-color: #4ade80; color: #ffffff; }
-  .route-pill[data-route="local_slow"]       { background: #854d0e; border-color: #facc15; color: #ffffff; }
-  .route-pill[data-route="billed_mini"]      { background: #1d4ed8; border-color: #60a5fa; color: #ffffff; }
-  .route-pill[data-route="billed_frontier"]  { background: #7c3aed; border-color: #c084fc; color: #ffffff; }
-  .route-pill[data-route="reject"]           { background: #b91c1c; border-color: #f87171; color: #ffffff; }
-  .route-pill[data-route="fallback"]         { background: #4b1818; border-color: #f87171; color: #ffffff; }
 
   .escalation-note {
-    font-size: 12px;
-    color: var(--amber);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .flags-row {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-    flex-wrap: wrap;
-  }
-
-  .flag {
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 11px;
-    background: var(--surface-2);
-    color: var(--muted);
-    border: 1px solid var(--border);
-  }
-
-  .flag.on {
+    margin-top: 10px;
+    padding: 8px 12px;
     background: var(--amber-bg);
     color: var(--amber);
-    border-color: var(--amber);
-  }
-
-  .flag.confirm {
-    background: var(--red-bg);
-    color: var(--red);
-    border-color: var(--red);
-    font-weight: 600;
+    border: 1px solid var(--amber);
+    border-radius: 6px;
+    font-size: 12px;
   }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>LLM Harness</h1>
-  <span class="model" id="model-name">—</span>
+  <h1>open-classify</h1>
+  <span class="sub" id="sub-line">—</span>
   <span class="status" id="status">ready</span>
 </header>
 
 <div class="main">
 
   <div class="input-pane">
-    <label for="prompt">Request</label>
-    <textarea id="prompt" placeholder="Enter a request to classify…&#10;&#10;Press Cmd/Ctrl+Enter to submit." autofocus></textarea>
+    <label for="prompt">Inbound message</label>
+    <textarea id="prompt" placeholder="Type a user message to classify…&#10;&#10;Press Cmd/Ctrl+Enter to submit." autofocus></textarea>
     <div class="input-actions">
       <button class="primary" id="submit-btn" onclick="submitClassify()">Classify</button>
       <span class="hint">Cmd/Ctrl+Enter</span>
@@ -657,32 +695,42 @@ const FRONTEND_HTML = `<!DOCTYPE html>
   </div>
 
   <div class="results-pane" id="results">
-    <div class="empty">Submit a request to see the live classification.</div>
+    <div class="empty">Submit a message to see the live classification.</div>
   </div>
 
 </div>
 
 <script>
-  const DIMENSIONS = [
-    { key: 'task_class',      label: 'task class',      options: ['chat', 'draft', 'code', 'research'] },
-    { key: 'needs_memory',    label: 'needs memory',    options: ['none', 'recent', 'session', 'long_term'] },
-    { key: 'tools_required',  label: 'tools required',  options: ['true', 'false'] },
-    { key: 'suggested_model', label: 'suggested model', options: ['local_fast', 'local_slow', 'billed_mini', 'billed_frontier'] },
-    { key: 'security',        label: 'security',        options: ['clean', 'suspicious', 'prompt_injection'] },
-  ];
+  const DIM_OPTIONS = {
+    response_path:   ['none', 'small_model', 'large_model', 'tool_assisted', 'workflow'],
+    context_budget:  ['none', 'current_message_only', 'last_exchange', 'recent_context', 'retrieved_context_only', 'full_conversation'],
+    retrieval_need:  ['none', 'memory', 'files', 'web', 'browser', 'email_calendar', 'system_local_state', 'other'],
+    work_complexity: ['trivial', 'simple', 'moderate', 'complex', 'multi_step'],
+  };
 
-  const prompt = document.getElementById('prompt');
+  const DIM_LABELS = {
+    response_path:   'response path',
+    context_budget:  'context budget',
+    retrieval_need:  'retrieval need',
+    work_complexity: 'work complexity',
+  };
+
+  const promptEl = document.getElementById('prompt');
   const submitBtn = document.getElementById('submit-btn');
   const charCount = document.getElementById('char-count');
   const results = document.getElementById('results');
   const statusEl = document.getElementById('status');
-  const modelName = document.getElementById('model-name');
+  const subLine = document.getElementById('sub-line');
 
-  prompt.addEventListener('input', () => {
-    charCount.textContent = prompt.value.length + ' chars';
+  // Per-run state
+  let thresholds = { avg_confidence: 0.65, min_confidence: 0.4 };
+  let collected = {}; // dim -> SubEvent
+
+  promptEl.addEventListener('input', () => {
+    charCount.textContent = promptEl.value.length + ' chars';
   });
 
-  prompt.addEventListener('keydown', (e) => {
+  promptEl.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
       submitClassify();
@@ -701,21 +749,61 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     return 'var(--green)';
   }
 
-  function buildSkeleton() {
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
+  }
+
+  function buildSkeleton(models) {
     results.innerHTML = '';
-    DIMENSIONS.forEach(({ key, label, options }) => {
+
+    // Awk hero
+    const hero = document.createElement('div');
+    hero.className = 'awk-hero pending';
+    hero.id = 'card-awk';
+    hero.innerHTML = \`
+      <div class="awk-top">
+        <div class="awk-label">awk · instant response</div>
+        <div class="awk-meta">
+          <span class="model-name">\${escapeHtml(shortModel(models.awk))}</span>
+          <span class="latency">—</span>
+        </div>
+      </div>
+      <div class="awk-text placeholder">awaiting classifier…</div>
+      <div class="awk-badges"></div>
+      <div class="awk-conf-row">
+        <span class="conf-label">confidence</span>
+        <div class="conf-track"><div class="conf-fill"></div></div>
+        <span class="conf-num">—</span>
+      </div>
+      <div class="pending-state" style="margin-top:10px"><span class="spinner"></span> generating awk…</div>
+      <div class="debug-row" style="display:none">
+        <button class="debug-toggle" data-target="raw">raw output</button>
+        <button class="debug-toggle" data-target="prompt">prompt</button>
+      </div>
+      <div class="debug-content" data-kind="raw"></div>
+      <div class="debug-content" data-kind="prompt"></div>
+    \`;
+    results.appendChild(hero);
+
+    // 4-card grid
+    const grid = document.createElement('div');
+    grid.className = 'card-grid';
+    ['response_path', 'context_budget', 'retrieval_need', 'work_complexity'].forEach((dim) => {
       const card = document.createElement('div');
       card.className = 'dim-card pending';
-      card.id = 'card-' + key;
+      card.id = 'card-' + dim;
 
-      const optsHtml = options.map(opt => \`
-        <div class="opt" data-dim="\${key}" data-val="\${opt}">\${opt.replace(/_/g, ' ')}</div>
+      const optsHtml = DIM_OPTIONS[dim].map(opt => \`
+        <div class="opt" data-dim="\${dim}" data-val="\${opt}">\${opt.replace(/_/g, ' ')}</div>
       \`).join('');
 
       card.innerHTML = \`
         <div class="dim-header">
-          <div class="dim-name">\${label}</div>
+          <div class="dim-name">\${DIM_LABELS[dim]}</div>
           <div class="dim-meta">
+            <span class="model-name">\${escapeHtml(shortModel(models[dim]))}</span>
             <span class="latency">—</span>
           </div>
         </div>
@@ -725,17 +813,19 @@ const FRONTEND_HTML = `<!DOCTYPE html>
           <div class="conf-track"><div class="conf-fill"></div></div>
           <span class="conf-num">—</span>
         </div>
-        <div class="pending-state" style="margin-top:8px"><span class="spinner"></span> waiting for classifier…</div>
+        <div class="pending-state" style="margin-top:8px"><span class="spinner"></span> waiting…</div>
         <div class="debug-row" style="display:none">
-          <button class="debug-toggle" data-target="raw">raw output</button>
+          <button class="debug-toggle" data-target="raw">raw</button>
           <button class="debug-toggle" data-target="prompt">prompt</button>
         </div>
         <div class="debug-content" data-kind="raw"></div>
         <div class="debug-content" data-kind="prompt"></div>
       \`;
-      results.appendChild(card);
+      grid.appendChild(card);
     });
+    results.appendChild(grid);
 
+    // Aggregate strip (hidden until complete)
     const agg = document.createElement('div');
     agg.className = 'aggregate';
     agg.id = 'aggregate';
@@ -743,7 +833,81 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     results.appendChild(agg);
   }
 
-  function updateCard(dim, data, latency_ms, raw_output, prompt) {
+  function shortModel(m) {
+    if (!m) return '—';
+    return m.replace(/^ollama\\//, '').replace(/^openai\\//, 'oa/');
+  }
+
+  function wireDebugToggles(card) {
+    card.querySelectorAll('.debug-toggle').forEach(btn => {
+      btn.onclick = () => {
+        const target = btn.getAttribute('data-target');
+        const panel = card.querySelector('.debug-content[data-kind="' + target + '"]');
+        const isOpen = panel.classList.contains('show');
+        card.querySelectorAll('.debug-content').forEach(p => p.classList.remove('show'));
+        card.querySelectorAll('.debug-toggle').forEach(b => b.classList.remove('active'));
+        if (!isOpen) {
+          panel.classList.add('show');
+          btn.classList.add('active');
+        }
+      };
+    });
+  }
+
+  function fillDebug(card, raw, prompt) {
+    const debugRow = card.querySelector('.debug-row');
+    const rawPanel = card.querySelector('.debug-content[data-kind="raw"]');
+    const promptPanel = card.querySelector('.debug-content[data-kind="prompt"]');
+    if (debugRow) debugRow.style.display = '';
+    if (rawPanel) rawPanel.innerHTML = '<div class="label">model raw output</div>' + escapeHtml(raw || '(empty)');
+    if (promptPanel) promptPanel.innerHTML = '<div class="label">system prompt</div>' + escapeHtml(prompt || '');
+    wireDebugToggles(card);
+  }
+
+  function updateAwkCard(event) {
+    const card = document.getElementById('card-awk');
+    if (!card) return;
+    card.classList.remove('pending');
+
+    const latEl = card.querySelector('.latency');
+    const fillEl = card.querySelector('.conf-fill');
+    const numEl = card.querySelector('.conf-num');
+    const pendingEl = card.querySelector('.pending-state');
+    const textEl = card.querySelector('.awk-text');
+    const badgesEl = card.querySelector('.awk-badges');
+
+    if (pendingEl) pendingEl.remove();
+    latEl.textContent = event.latency_ms + 'ms';
+    fillDebug(card, event.raw_output, event.prompt);
+
+    if (!event.data) {
+      card.classList.add('failed');
+      textEl.textContent = '✕ classifier failed (' + (event.validation_status || 'unknown') + ')';
+      textEl.className = 'awk-text';
+      textEl.style.color = 'var(--red)';
+      badgesEl.innerHTML = '';
+      numEl.textContent = '—';
+      return;
+    }
+
+    card.classList.add('done');
+    const d = event.data;
+    textEl.textContent = '"' + d.text + '"';
+    textEl.className = 'awk-text';
+
+    badgesEl.innerHTML = \`
+      <span class="mode-pill" data-mode="\${d.mode}">\${d.mode}</span>
+      <span class="send-badge \${d.should_send ? 'on' : 'off'}">\${d.should_send ? 'send' : 'silent'}</span>
+    \`;
+
+    const pct = Math.round(d.confidence * 100);
+    fillEl.style.width = pct + '%';
+    fillEl.style.background = confColor(d.confidence);
+    numEl.textContent = pct + '%';
+    numEl.className = 'conf-num ' + confClass(d.confidence);
+  }
+
+  function updateDimCard(dim, event) {
     const card = document.getElementById('card-' + dim);
     if (!card) return;
     card.classList.remove('pending');
@@ -754,145 +918,158 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     const pendingEl = card.querySelector('.pending-state');
 
     if (pendingEl) pendingEl.remove();
-    latEl.textContent = latency_ms + 'ms';
+    latEl.textContent = event.latency_ms + 'ms';
+    fillDebug(card, event.raw_output, event.prompt);
 
-    // Populate debug panels
-    const debugRow = card.querySelector('.debug-row');
-    const rawPanel = card.querySelector('.debug-content[data-kind="raw"]');
-    const promptPanel = card.querySelector('.debug-content[data-kind="prompt"]');
-    if (debugRow) debugRow.style.display = '';
-    if (rawPanel) rawPanel.innerHTML = '<div class="label">model raw output</div>' + escapeHtml(raw_output || '(empty)');
-    if (promptPanel) promptPanel.innerHTML = '<div class="label">system prompt</div>' + escapeHtml(prompt || '');
-
-    // Wire toggles
-    card.querySelectorAll('.debug-toggle').forEach(btn => {
-      btn.onclick = () => {
-        const target = btn.getAttribute('data-target');
-        const panel = card.querySelector('.debug-content[data-kind="' + target + '"]');
-        const isOpen = panel.classList.contains('show');
-        // close all panels and toggles in this card first
-        card.querySelectorAll('.debug-content').forEach(p => p.classList.remove('show'));
-        card.querySelectorAll('.debug-toggle').forEach(b => b.classList.remove('active'));
-        if (!isOpen) {
-          panel.classList.add('show');
-          btn.classList.add('active');
-        }
-      };
-    });
-
-    if (!data) {
+    if (!event.data) {
       card.classList.add('failed');
       const fail = document.createElement('div');
       fail.className = 'failed-state';
-      fail.textContent = '✕ classifier failed';
-      fail.style.marginTop = '8px';
-      // insert before debug-row so debug stays at the bottom
+      fail.textContent = '✕ classifier failed (' + (event.validation_status || 'unknown') + ')';
+      const debugRow = card.querySelector('.debug-row');
       card.insertBefore(fail, debugRow);
       numEl.textContent = '—';
       return;
     }
 
     card.classList.add('done');
+    const value = event.data.value;
+    const values = Array.isArray(value) ? value : [value];
 
-    // Highlight selected option
-    const valStr = String(data.value);
     card.querySelectorAll('.opt').forEach(opt => {
-      if (opt.getAttribute('data-val') === valStr) {
-        opt.classList.add('selected');
-      }
+      const v = opt.getAttribute('data-val');
+      if (values.includes(v)) opt.classList.add('selected');
     });
 
-    // Confidence bar + number
-    const pct = Math.round(data.confidence * 100);
+    const pct = Math.round(event.data.confidence * 100);
     fillEl.style.width = pct + '%';
-    fillEl.style.background = confColor(data.confidence);
+    fillEl.style.background = confColor(event.data.confidence);
     numEl.textContent = pct + '%';
-    numEl.className = 'conf-num ' + confClass(data.confidence);
+    numEl.className = 'conf-num ' + confClass(event.data.confidence);
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, ch => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[ch]);
+  function nextStepSentence(awk, responsePath, retrieval, contextBudget, complexity) {
+    if (!awk || !awk.data) return 'Classification incomplete.';
+    const a = awk.data;
+    if (a.mode === 'only') return 'Send the awk and stop. No further work.';
+    if (a.mode === 'question') return 'Send the clarification question and wait for the user.';
+
+    const rp = responsePath?.data?.value;
+    const rNeeds = retrieval?.data?.value || [];
+    const ctx = contextBudget?.data?.value;
+    const cx = complexity?.data?.value;
+
+    if (!rp || rp === 'none') return 'Send the awk; no downstream action.';
+
+    const pieces = ['Send awk, then route to ' + rp.replace(/_/g, ' ')];
+    if (ctx && ctx !== 'none' && ctx !== 'current_message_only') pieces.push('with ' + ctx.replace(/_/g, ' '));
+    if (rNeeds.length && !rNeeds.includes('none')) pieces.push('using ' + rNeeds.join(' + '));
+    if (cx) pieces.push('— ' + cx + ' work');
+    return pieces.join(' ') + '.';
   }
 
-  function renderAggregate(complete) {
+  function applyLowConfidenceOverride(avg, min) {
+    const triggered = avg < thresholds.avg_confidence || min < thresholds.min_confidence;
+    if (!triggered) return false;
+
+    // Override the awk hero
+    const awkCard = document.getElementById('card-awk');
+    if (awkCard && !awkCard.classList.contains('failed')) {
+      awkCard.classList.add('overridden');
+      const textEl = awkCard.querySelector('.awk-text');
+      const badgesEl = awkCard.querySelector('.awk-badges');
+      const original = textEl.textContent;
+      textEl.innerHTML = '<span class="overridden">[overridden] Need more detail before I can act on this.</span>';
+      textEl.title = 'Original: ' + original;
+      if (badgesEl) {
+        badgesEl.innerHTML = \`
+          <span class="mode-pill" data-mode="question">question</span>
+          <span class="send-badge on">send</span>
+        \`;
+      }
+    }
+
+    // Override the response_path card
+    const rpCard = document.getElementById('card-response_path');
+    if (rpCard && !rpCard.classList.contains('failed')) {
+      rpCard.classList.add('overridden');
+      rpCard.querySelectorAll('.opt').forEach(opt => opt.classList.remove('selected'));
+      const noneOpt = rpCard.querySelector('.opt[data-val="none"]');
+      if (noneOpt) noneOpt.classList.add('selected');
+    }
+
+    return true;
+  }
+
+  function renderAggregate(totalLatencyMs) {
     const agg = document.getElementById('aggregate');
     if (!agg) return;
+
+    // Gather confidences from successful sub_results only
+    const dims = ['awk', 'response_path', 'context_budget', 'retrieval_need', 'work_complexity'];
+    const confs = dims
+      .map(d => collected[d]?.data?.confidence)
+      .filter(c => typeof c === 'number');
+
+    let avg = 0, min = 0;
+    if (confs.length) {
+      avg = confs.reduce((a, b) => a + b, 0) / confs.length;
+      min = Math.min(...confs);
+    }
+
+    const overridden = confs.length === 5 && applyLowConfidenceOverride(avg, min);
+
     agg.style.display = '';
-    agg.className = 'aggregate';
+    agg.className = 'aggregate' + (overridden ? ' escalated' : '');
 
-    const c = complete.classification;
-    const r = complete.route_decision;
+    const avgPct = Math.round(avg * 100);
+    const minPct = Math.round(min * 100);
 
-    if (!c) {
-      agg.classList.add('fallback');
-      agg.innerHTML = \`
-        <div class="agg-header">Classification result</div>
-        <div style="color:var(--red);font-size:13px;margin-bottom:14px">
-          ✕ Classification failed — using fallback route
-        </div>
-        <div class="route-section">
-          <div class="route-label">Final route</div>
-          <div><span class="route-pill" data-route="\${r.route}">\${r.route.replace(/_/g, ' ')}</span></div>
-        </div>
-      \`;
-      return;
-    }
+    const sentence = nextStepSentence(
+      collected.awk,
+      collected.response_path,
+      collected.retrieval_need,
+      collected.context_budget,
+      collected.work_complexity
+    );
 
-    if (r.route === 'reject') agg.classList.add('rejected');
-    else if (r.escalated) agg.classList.add('escalated');
-
-    const avgPct = Math.round(c.average_confidence * 100);
-    const minPct = Math.round(c.min_confidence * 100);
-
-    let escalation = '';
-    if (r.escalated && r.escalation_reason) {
-      escalation = \`<div class="escalation-note">⚠ Escalated to frontier — reason: \${r.escalation_reason.replace(/_/g, ' ')}</div>\`;
-    }
-
-    const flags = [];
-    flags.push(\`<span class="flag \${r.tools_required ? 'on' : ''}">tools: \${r.tools_required ? 'yes' : 'no'}</span>\`);
-    flags.push(\`<span class="flag">memory: \${r.memory_scope.replace(/_/g, ' ')}</span>\`);
-    if (r.requires_confirmation) {
-      flags.push(\`<span class="flag confirm">⚠ requires user confirmation</span>\`);
-    }
+    const overrideSentence = overridden
+      ? '<div class="escalation-note">⚠ Low confidence (avg < ' + Math.round(thresholds.avg_confidence * 100) + '% or min < ' + Math.round(thresholds.min_confidence * 100) + '%) — forcing awk.mode=question, response_path=none.</div>'
+      : '';
 
     agg.innerHTML = \`
-      <div class="agg-header">Aggregate confidence</div>
-      <div class="agg-stats">
+      <div class="agg-grid">
         <div class="agg-stat">
-          <div class="label">average</div>
-          <div class="value \${confClass(c.average_confidence)}">\${avgPct}%</div>
-          <div class="sub">across all 5 classifiers</div>
+          <div class="label">average confidence</div>
+          <div class="value \${confClass(avg)}">\${avgPct}%</div>
+          <div class="sub">across all classifiers</div>
         </div>
         <div class="agg-stat">
-          <div class="label">minimum</div>
-          <div class="value \${confClass(c.min_confidence)}">\${minPct}%</div>
+          <div class="label">min confidence</div>
+          <div class="value \${confClass(min)}">\${minPct}%</div>
           <div class="sub">lowest single classifier</div>
         </div>
         <div class="agg-stat">
           <div class="label">total latency</div>
-          <div class="value">\${complete.total_latency_ms}<span style="font-size:14px;color:var(--muted)">ms</span></div>
-          <div class="sub">wall-clock time</div>
+          <div class="value">\${totalLatencyMs}<span style="font-size:14px;color:var(--muted)">ms</span></div>
+          <div class="sub">wall-clock</div>
         </div>
       </div>
-      <div class="route-section">
-        <div class="route-label">Final route</div>
-        <div><span class="route-pill" data-route="\${r.route}">\${r.route.replace(/_/g, ' ')}</span></div>
-        \${escalation}
-        <div class="flags-row">\${flags.join('')}</div>
+      <div class="next-step">
+        <span class="label">next step</span>
+        \${overridden ? 'Awaiting clarification — send the question and stop.' : escapeHtml(sentence)}
       </div>
+      \${overrideSentence}
     \`;
   }
 
   async function submitClassify() {
-    const val = prompt.value.trim();
+    const val = promptEl.value.trim();
     if (!val) return;
 
     submitBtn.disabled = true;
     statusEl.textContent = 'classifying…';
-    buildSkeleton();
+    collected = {};
 
     try {
       const response = await fetch('/classify', {
@@ -925,11 +1102,19 @@ const FRONTEND_HTML = `<!DOCTYPE html>
           try { event = JSON.parse(line); } catch { continue; }
 
           if (event.type === 'started') {
-            modelName.textContent = event.classifier_model;
+            thresholds = event.thresholds;
+            const models = event.classifier_models;
+            const uniq = [...new Set(Object.values(models))];
+            subLine.textContent = uniq.length === 1
+              ? shortModel(uniq[0])
+              : uniq.length + ' distinct models';
+            buildSkeleton(models);
           } else if (event.type === 'sub_result') {
-            updateCard(event.dimension, event.data, event.latency_ms, event.raw_output, event.prompt);
+            collected[event.dimension] = event;
+            if (event.dimension === 'awk') updateAwkCard(event);
+            else updateDimCard(event.dimension, event);
           } else if (event.type === 'complete') {
-            renderAggregate(event);
+            renderAggregate(event.total_latency_ms);
           }
         }
       }
