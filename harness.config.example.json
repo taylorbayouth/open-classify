@@ -1,0 +1,16 @@
+{
+  "classifiers": {
+    "awk":             { "model": "ollama/gemma4:e4b-it-q4_K_M", "timeout_ms": 60000, "base_url": "http://localhost:11434/v1", "think": false },
+    "response_path":   { "model": "ollama/gemma4:e4b-it-q4_K_M", "timeout_ms": 60000, "base_url": "http://localhost:11434/v1", "think": false },
+    "context_budget":  { "model": "ollama/gemma4:e4b-it-q4_K_M", "timeout_ms": 60000, "base_url": "http://localhost:11434/v1", "think": false },
+    "retrieval_need":  { "model": "ollama/gemma4:e4b-it-q4_K_M", "timeout_ms": 60000, "base_url": "http://localhost:11434/v1", "think": false },
+    "work_complexity": { "model": "ollama/gemma4:e4b-it-q4_K_M", "timeout_ms": 60000, "base_url": "http://localhost:11434/v1", "think": false }
+  },
+  "routing": {
+    "avg_confidence_threshold": 0.65,
+    "min_confidence_threshold": 0.4
+  },
+  "server": {
+    "max_body_bytes": 1048576
+  }
+}

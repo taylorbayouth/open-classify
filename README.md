@@ -56,16 +56,54 @@ Create `harness.config.json` (or `harness.config.local.json`, or set env vars). 
   "routing": {
     "avg_confidence_threshold": 0.65,
     "min_confidence_threshold": 0.4
+  },
+  "server": {
+    "max_body_bytes": 1048576
   }
 }
 ```
 
-Env overrides: `HARNESS_MODEL`, `HARNESS_BASE_URL`, `HARNESS_TIMEOUT_MS`, `HARNESS_AVG_CONFIDENCE_THRESHOLD`, `HARNESS_MIN_CONFIDENCE_THRESHOLD`, `OPENAI_API_KEY`.
+All settings:
+
+| Section            | Key                          | Default | Env var                            | Notes |
+|--------------------|------------------------------|---------|------------------------------------|-------|
+| `classifiers.<dim>`| `model`                      | `ollama/gemma4:e4b-it-q4_K_M` | `HARNESS_MODEL` (applies to all 5) | `<provider>/<name>`; provider defaults to `ollama` |
+| `classifiers.<dim>`| `timeout_ms`                 | `15000` | `HARNESS_TIMEOUT_MS` (all 5)       | Per-call hard timeout |
+| `classifiers.<dim>`| `base_url`                   | `http://localhost:11434/v1` | `HARNESS_BASE_URL` (all 5)         | Ollama endpoint; ignored for non-Ollama providers |
+| `classifiers.<dim>`| `api_key`                    | —       | `OPENAI_API_KEY` (all 5)           | Used by the OpenAI client |
+| `classifiers.<dim>`| `prompt`                     | —       | (file only — multi-line)           | Optional. Full prompt override; must instruct the model to return JSON matching the schema |
+| `routing`          | `avg_confidence_threshold`   | `0.65`  | `HARNESS_AVG_CONFIDENCE_THRESHOLD` | Below this avg → UI override |
+| `routing`          | `min_confidence_threshold`   | `0.4`   | `HARNESS_MIN_CONFIDENCE_THRESHOLD` | Per-classifier floor |
+| `server`           | `max_body_bytes`             | `1048576` (1 MiB) | `HARNESS_MAX_BODY_BYTES`           | HTTP-only DoS guard. Server returns 413 above this. CLI and direct `classify()` callers are uncapped. |
+
+Resolution order (last wins): built-in defaults → `harness.config.json` → `harness.config.local.json` → env vars.
+
+### Input handling
+
+All `user_input` strings — regardless of entry point (HTTP, CLI, direct API) — are sanitized at the schema layer before any classifier sees them. Sanitization is **non-destructive**: it never changes the semantic content of the message.
+
+1. Strip a leading byte-order mark (U+FEFF).
+2. Unicode NFC normalization (composed form).
+3. Strip ASCII control chars except `\t`, `\n`, `\r`.
+4. Trim outer whitespace.
+5. Reject if empty after the above.
+
+There is **no upper length bound** at the library level. If you want to classify a long document, that's your call — the model's context window is the eventual ceiling. The HTTP server's `max_body_bytes` is a separate, deployment-level guard that only applies when running `npm run server`.
 
 ## Models
 
 - **Ollama**: `ollama/qwen3:8b`, `ollama/gemma2:9b`, etc.
 - **OpenAI**: `openai/gpt-4o-mini`, `openai/gpt-4o`
+
+## Add or modify a classifier
+
+Every classifier lives in [`src/classifiers.ts`](src/classifiers.ts) — that one file is the registry. Each entry holds a Zod schema, a prompt, and (optionally) a list of enum values for the UI's option pills. Everything else (config defaults, env-var overrides, NDJSON streaming, traces, the live web UI) iterates over the registry and picks up changes automatically.
+
+- **Edit an enum value or its description.** Edit the `options({...})` map for that dimension. The Zod enum, the bullet list shown to the model, and the UI's option pills are all derived from that single map — they cannot drift.
+- **Edit a prompt.** Edit the `prompt` template literal on that classifier's entry. `${X.list}` interpolations splice in the current enum values automatically.
+- **Add a new classifier.** Add an entry to `CLASSIFIERS` with a schema, prompt, and (optionally) `displayOptions`. That's it — no other file needs to change.
+- **Remove a classifier.** Delete its entry.
+- **Override a prompt without touching source.** Set `classifiers.<dim>.prompt` in `harness.config.json`. The override is a full string replacement; it must still instruct the model to return JSON matching the schema.
 
 ## Architecture
 

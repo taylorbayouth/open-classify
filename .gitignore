@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 *.local
+harness.config.local.json
 evals/reports/*.jsonl
 evals/reports/*.json
 .DS_Store

@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 import { randomUUID } from "crypto";
-import { loadConfig, DIMENSION_KEYS } from "./config.js";
+import { loadConfig } from "./config.js";
+import { DIMENSION_KEYS } from "./classifiers.js";
 import { classify } from "./classify.js";
 import { buildTrace, emitTrace } from "./trace.js";
-import { InputEnvelopeSchema, type SubResultRecord } from "./schema.js";
+import { InputEnvelopeSchema } from "./schema.js";
+import { ZodError } from "zod";
 
 function printUsage(): void {
   console.log(`
@@ -105,21 +107,11 @@ async function main(): Promise<void> {
 
   const result = await classify(envelope, config.classifiers);
 
-  const sub_results: SubResultRecord[] = result.sub_results.map((r) => ({
-    dimension: r.dimension,
-    data: r.data,
-    latency_ms: r.latency_ms,
-    raw_output: r.raw_output,
-    prompt: r.prompt,
-    model: r.model,
-    validation_status: r.validation_status,
-  }));
-
   const trace = buildTrace({
     request_id: envelope.request_id,
     user_input: envelope.user_input,
     total_latency_ms: result.total_latency_ms,
-    sub_results,
+    sub_results: result.sub_results,
   });
 
   if (!args.noTrace) {
@@ -142,6 +134,11 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("Fatal:", err instanceof Error ? err.message : String(err));
+  if (err instanceof ZodError) {
+    const msg = err.issues.map((i) => i.message).join("; ");
+    console.error("Error:", msg);
+  } else {
+    console.error("Fatal:", err instanceof Error ? err.message : String(err));
+  }
   process.exit(1);
 });

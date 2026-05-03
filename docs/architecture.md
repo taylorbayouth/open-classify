@@ -60,9 +60,10 @@ OLLAMA_NUM_PARALLEL=5 ollama serve
 
 | File | Responsibility |
 |------|----------------|
-| `schema.ts` | Zod schemas for all 5 sub-classifier results, sub-result record, and trace |
+| `classifiers.ts` | Registry of every sub-classifier — schema, prompt, and UI options per dimension. Single source of truth; everything else iterates over it |
+| `schema.ts` | Cross-cutting Zod schemas: input envelope, sub-result record, trace |
 | `config.ts` | Per-classifier config loading with env var overrides |
-| `classify.ts` | 5 parallel sub-classifier calls; emits per-dimension events |
+| `classify.ts` | Parallel sub-classifier calls; emits per-dimension events |
 | `trace.ts` | Builds and emits trace objects |
 | `server.ts` | HTTP server, NDJSON streaming, live UI |
 | `cli.ts` | CLI for one-off classification |

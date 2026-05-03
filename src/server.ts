@@ -5,18 +5,35 @@ import { loadConfig, classifierModelSummary } from "./config.js";
 import { classify } from "./classify.js";
 import { buildTrace } from "./trace.js";
 import { InputEnvelopeSchema, type Trace } from "./schema.js";
+import { CLASSIFIERS, DIMENSION_KEYS } from "./classifiers.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_TRACES = 500;
 
 const config = loadConfig();
+const MAX_BODY_BYTES = config.server.max_body_bytes;
 
 const traces: Trace[] = [];
 
-async function readBody(req: IncomingMessage): Promise<string> {
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("payload too large");
+  }
+}
+
+async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    let size = 0;
+    req.on("data", (chunk: Buffer | string) => {
+      size += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+      if (size > maxBytes) {
+        reject(new PayloadTooLargeError());
+        req.destroy();
+        return;
+      }
+      body += chunk;
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
@@ -34,23 +51,43 @@ async function handleClassifyStream(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
-  let body: { user_input?: string };
+  // Reject up front when the client tells us the body is over-limit.
+  const declaredLen = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLen) && declaredLen > MAX_BODY_BYTES) {
+    json(res, 413, { error: "Payload too large", code: "payload_too_large" });
+    return;
+  }
+
+  let raw: string;
   try {
-    body = JSON.parse(await readBody(req)) as typeof body;
+    raw = await readBody(req, MAX_BODY_BYTES);
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      json(res, 413, { error: "Payload too large", code: "payload_too_large" });
+    } else {
+      json(res, 400, { error: "Failed to read request body", code: "bad_request" });
+    }
+    return;
+  }
+
+  let body: { user_input?: unknown };
+  try {
+    body = JSON.parse(raw) as typeof body;
   } catch {
-    json(res, 400, { error: "Invalid JSON body" });
+    json(res, 400, { error: "Invalid JSON body", code: "invalid_json" });
     return;
   }
 
-  if (!body.user_input?.trim()) {
-    json(res, 400, { error: "user_input required" });
-    return;
-  }
-
-  const envelope = InputEnvelopeSchema.parse({
+  const parsed = InputEnvelopeSchema.safeParse({
     request_id: randomUUID(),
-    user_input: body.user_input.trim(),
+    user_input: body.user_input,
   });
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message ?? "invalid user_input";
+    json(res, 400, { error: msg, code: "invalid_input" });
+    return;
+  }
+  const envelope = parsed.data;
 
   res.writeHead(200, {
     "Content-Type": "application/x-ndjson",
@@ -59,17 +96,24 @@ async function handleClassifyStream(
     "Transfer-Encoding": "chunked",
   });
 
+  // Both maps are derived from the registry — adding/removing a classifier
+  // updates them automatically with no other server-side change.
+  const classifier_models = Object.fromEntries(
+    DIMENSION_KEYS.map((d) => [d, config.classifiers[d].model])
+  );
+  const classifier_options = Object.fromEntries(
+    DIMENSION_KEYS.flatMap((d) => {
+      const opts = CLASSIFIERS[d].displayOptions;
+      return opts ? [[d, opts]] : [];
+    })
+  );
+
   res.write(
     JSON.stringify({
       type: "started",
       request_id: envelope.request_id,
-      classifier_models: {
-        awk: config.classifiers.awk.model,
-        response_path: config.classifiers.response_path.model,
-        context_budget: config.classifiers.context_budget.model,
-        retrieval_need: config.classifiers.retrieval_need.model,
-        work_complexity: config.classifiers.work_complexity.model,
-      },
+      classifier_models,
+      classifier_options,
       thresholds: {
         avg_confidence: config.routing.avg_confidence_threshold,
         min_confidence: config.routing.min_confidence_threshold,
@@ -133,7 +177,7 @@ server.listen(PORT, () => {
   console.log(`llm-harness running at http://localhost:${PORT}`);
   console.log(`Classifier models: ${classifierModelSummary(config.classifiers)}`);
   console.log(
-    `Note: 5 parallel sub-classifier calls per classification. For Ollama, use OLLAMA_NUM_PARALLEL=5.`
+    `Note: ${DIMENSION_KEYS.length} parallel sub-classifier calls per classification. For Ollama, use OLLAMA_NUM_PARALLEL=${DIMENSION_KEYS.length}.`
   );
 });
 
@@ -701,19 +745,11 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 </div>
 
 <script>
-  const DIM_OPTIONS = {
-    response_path:   ['none', 'small_model', 'large_model', 'tool_assisted', 'workflow'],
-    context_budget:  ['none', 'current_message_only', 'last_exchange', 'recent_context', 'retrieved_context_only', 'full_conversation'],
-    retrieval_need:  ['none', 'memory', 'files', 'web', 'browser', 'email_calendar', 'system_local_state', 'other'],
-    work_complexity: ['trivial', 'simple', 'moderate', 'complex', 'multi_step'],
-  };
-
-  const DIM_LABELS = {
-    response_path:   'response path',
-    context_budget:  'context budget',
-    retrieval_need:  'retrieval need',
-    work_complexity: 'work complexity',
-  };
+  // Populated from the server's "started" event (derived from the classifier
+  // registry). Frontend renders one card per non-awk entry, with one option
+  // pill per enum value — no hardcoded lists.
+  let DIM_OPTIONS = {};
+  function dimLabel(dim) { return dim.replace(/_/g, ' '); }
 
   const promptEl = document.getElementById('prompt');
   const submitBtn = document.getElementById('submit-btn');
@@ -787,10 +823,10 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     \`;
     results.appendChild(hero);
 
-    // 4-card grid
+    // One card per non-awk classifier in the registry.
     const grid = document.createElement('div');
     grid.className = 'card-grid';
-    ['response_path', 'context_budget', 'retrieval_need', 'work_complexity'].forEach((dim) => {
+    Object.keys(DIM_OPTIONS).forEach((dim) => {
       const card = document.createElement('div');
       card.className = 'dim-card pending';
       card.id = 'card-' + dim;
@@ -801,7 +837,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
       card.innerHTML = \`
         <div class="dim-header">
-          <div class="dim-name">\${DIM_LABELS[dim]}</div>
+          <div class="dim-name">\${dimLabel(dim)}</div>
           <div class="dim-meta">
             <span class="model-name">\${escapeHtml(shortModel(models[dim]))}</span>
             <span class="latency">—</span>
@@ -1005,8 +1041,8 @@ const FRONTEND_HTML = `<!DOCTYPE html>
     const agg = document.getElementById('aggregate');
     if (!agg) return;
 
-    // Gather confidences from successful sub_results only
-    const dims = ['awk', 'response_path', 'context_budget', 'retrieval_need', 'work_complexity'];
+    // Gather confidences from successful sub_results only.
+    const dims = Object.keys(collected);
     const confs = dims
       .map(d => collected[d]?.data?.confidence)
       .filter(c => typeof c === 'number');
@@ -1017,7 +1053,9 @@ const FRONTEND_HTML = `<!DOCTYPE html>
       min = Math.min(...confs);
     }
 
-    const overridden = confs.length === 5 && applyLowConfidenceOverride(avg, min);
+    // Override only when every classifier (awk + each non-awk dim) has settled.
+    const expected = 1 + Object.keys(DIM_OPTIONS).length;
+    const overridden = confs.length === expected && applyLowConfidenceOverride(avg, min);
 
     agg.style.display = '';
     agg.className = 'aggregate' + (overridden ? ' escalated' : '');
@@ -1103,6 +1141,7 @@ const FRONTEND_HTML = `<!DOCTYPE html>
 
           if (event.type === 'started') {
             thresholds = event.thresholds;
+            DIM_OPTIONS = event.classifier_options || {};
             const models = event.classifier_models;
             const uniq = [...new Set(Object.values(models))];
             subLine.textContent = uniq.length === 1
