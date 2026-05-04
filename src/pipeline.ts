@@ -94,9 +94,20 @@ export async function classifyOpenClassifyInput(
     };
   }
 
-  const results = await Promise.all(
-    CLASSIFIER_NAMES.map((name) => unwrapClassifierResult(runs.get(name), request)),
+  const settled = await Promise.all(
+    CLASSIFIER_NAMES.map((name) => runs.get(name)!),
   );
+
+  const firstFailure = settled.find((entry) => !entry.ok);
+  if (firstFailure && !firstFailure.ok) {
+    throw new OpenClassifyClassifierError(
+      firstFailure.name,
+      request,
+      firstFailure.error,
+    );
+  }
+
+  const results = settled.map((entry) => (entry as { ok: true; value: unknown }).value);
 
   const classifiers: OpenClassifyResult = {
     preflight: results[0] as PreflightResult,
