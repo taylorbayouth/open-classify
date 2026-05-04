@@ -76,6 +76,8 @@ async function classifyStream(
     connection: "keep-alive",
     "x-accel-buffering": "no",
   });
+  response.flushHeaders();
+  request.socket.setNoDelay(true);
 
   let closed = false;
   request.on("close", () => {
@@ -92,42 +94,59 @@ async function classifyStream(
     if (closed || response.writableEnded || response.destroyed) {
       return;
     }
-    response.write(`event: ${event}\n`);
-    response.write(`data: ${JSON.stringify(data)}\n\n`);
+    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
+
+  const heartbeat = setInterval(() => {
+    if (closed || response.writableEnded || response.destroyed) {
+      return;
+    }
+    response.write(`: ping ${Date.now()}\n\n`);
+  }, 5000);
 
   try {
     const input = (await readJsonBody(request)) as OpenClassifyInput;
     const baseRunner = createOllamaClassifierRunner();
     const runClassifier: RunClassifier = async (name, classifierInput, signal) => {
-      send("classifier_started", { name });
+      send("classifier_started", { name, started_at: Date.now() });
 
       try {
         const result = await baseRunner(name, classifierInput, signal);
-        send("classifier_completed", { name, result });
+        send("classifier_completed", { name, result, completed_at: Date.now() });
         return result;
       } catch (error) {
         if (signal.aborted && name !== "preflight") {
-          send("classifier_canceled", { name });
+          send("classifier_canceled", { name, completed_at: Date.now() });
         } else {
-          send("classifier_failed", { name, error: errorMessage(error) });
+          send("classifier_failed", {
+            name,
+            error: errorMessage(error),
+            completed_at: Date.now(),
+          });
         }
         throw error;
       }
     };
 
-    send("normalization_started", {});
-    send("resource_check_started", {
+    send("pipeline_started", {
+      classifiers: CLASSIFIER_NAMES,
+      started_at: Date.now(),
+    });
+    send("pipeline_phase", { phase: "normalizing" });
+    send("pipeline_phase", {
+      phase: "resource_check",
       required_parallelism: OLLAMA_REQUIRED_PARALLELISM,
       context_length: OLLAMA_CONTEXT_LENGTH,
       min_total_memory_bytes: OLLAMA_MIN_TOTAL_MEMORY_BYTES,
       min_available_memory_bytes: OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
     });
+    send("pipeline_phase", { phase: "running" });
     const result = await classifyOpenClassifyInput(input, { runClassifier });
     send("pipeline_completed", result);
   } catch (error) {
     send("pipeline_failed", { error: errorMessage(error) });
   } finally {
+    clearInterval(heartbeat);
     closed = true;
     if (!response.writableEnded && !response.destroyed) {
       response.end();

@@ -8,7 +8,7 @@ The classifier set is intentionally static. Integrations should not add project-
 
 ## Library Input Contract
 
-Callers pass one normalized adapter object into Open Classify. This is not an HTTP contract.
+Callers pass one adapter object into Open Classify. The library normalizes it before hashing or classification. This is not an HTTP contract.
 
 Required field:
 
@@ -32,7 +32,7 @@ Attachment input fields:
 - `mime_type`: declared MIME type, when available.
 - `raw`: opaque provider metadata for the attachment.
 
-Unknown top-level fields are rejected. Provider-specific metadata belongs under `raw`.
+Unknown top-level and attachment fields are rejected. Provider-specific metadata belongs under `raw`.
 
 ### Normalization
 
@@ -51,7 +51,7 @@ Use `toClassifierInput(normalized)` to build classifier-visible input. It includ
 
 ### Raw Metadata Safety
 
-`raw` is accepted only as a plain JSON-serializable object. Arrays as the top-level `raw` value, functions, class instances, `Date`, `Map`, `Set`, circular objects, `undefined`, symbols, and other non-JSON values are rejected.
+`raw` is accepted only as a plain JSON-serializable object. Arrays are allowed inside `raw`, but not as the top-level `raw` value. Functions, class instances, `Date`, `Map`, `Set`, circular objects, `undefined`, symbols, non-finite numbers, and other non-JSON values are rejected.
 
 The default serialized `raw` cap is 64 KB. Attachment `raw` follows the same rule.
 
@@ -145,6 +145,30 @@ Continue result:
     "preflight": {
       "terminality": "continue",
       "awk": "I'll take a look."
+    },
+    "downstream_route": {
+      "value": "tool_harness_answer"
+    },
+    "additional_history_need": {
+      "value": "current_message_only"
+    },
+    "memory_retrieval_queries": {
+      "queries": []
+    },
+    "tool_family_need": {
+      "value": [
+        "workspace"
+      ]
+    },
+    "message_and_attachment_digest": {
+      "slug": "review_request",
+      "summary": "The user wants a review.",
+      "attachments": []
+    },
+    "security_posture": {
+      "value": "normal",
+      "signals": [],
+      "notes": "No notable security risk signals."
     }
   }
 }
@@ -200,7 +224,16 @@ const result = await classifyWithOllama(input, {
 });
 ```
 
-`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, the classifier's system prompt, and classifier input built without `raw`.
+`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096`, the classifier's system prompt, and classifier input built without `raw`.
+
+Supported Ollama runner options:
+
+- `host`: Ollama host. The library default is `http://localhost:11434`.
+- `models`: partial classifier-to-model map. `null` means use the base model.
+- `options`: Ollama generation options. These override the default `temperature` and `num_ctx`.
+- `fetch`: custom fetch implementation, mainly for tests.
+- `skipResourceCheck`: bypass local memory checks.
+- `minAvailableMemoryBytes` and `minTotalMemoryBytes`: override the default 16 GiB checks.
 
 ## Local Workbench
 
@@ -211,17 +244,26 @@ npm run setup
 npm run start
 ```
 
-Run the local classifier workbench:
+`npm run setup` installs dependencies, verifies Node.js/npm/Ollama, checks total system memory, verifies the base model is present, and builds the project.
+
+`npm run start` verifies or starts Ollama, builds the project, and runs the local classifier workbench at `http://127.0.0.1:4317/`.
+
+If Ollama is already running with the required settings, you can run only the UI server:
 
 ```sh
 npm run ui
 ```
 
-Then open `http://127.0.0.1:4317/`.
+The UI host and port can be changed with `OPEN_CLASSIFY_UI_HOST` and `OPEN_CLASSIFY_UI_PORT`.
+
+Other local scripts:
+
+- `npm run build`: compile TypeScript into `dist/`.
+- `npm test`: build, then run `node --test tests/*.test.mjs`.
 
 The workbench accepts message text and attachment metadata, streams progress for all seven classifiers, and highlights selected enum values as results arrive. It uses the same `classifyOpenClassifyInput` pipeline and Ollama runner as library callers.
 
-The Ollama runtime is designed for seven parallel classifier requests. Before sending model requests, it checks that the machine has enough total and currently available memory for that runtime. Machines that do not pass the check fail before Ollama generation starts.
+The Ollama runtime is designed for seven parallel classifier requests. Before sending model requests, the library checks that the machine has enough total and currently available memory for that runtime. Machines that do not pass the check fail before Ollama generation starts.
 
 For Ollama itself, use a matching runtime configuration:
 
@@ -233,6 +275,8 @@ ollama serve
 ```
 
 `npm run start` starts Ollama with those settings when Ollama is not already running. If an Ollama server is already running, `start` verifies those settings before using it.
+
+The scripts use `OLLAMA_HOST` when set and otherwise target `http://127.0.0.1:11434`. The exported Ollama runner defaults to `http://localhost:11434` unless `host` is provided.
 
 The context length must stay small for classifier traffic. Ollama may choose a very large default context on machines with high VRAM, which can make the base model consume tens of GiB before classification starts.
 
@@ -731,45 +775,59 @@ Output:
 }
 ```
 
-## Full Result Shape
+## Full Continue Result Shape
 
-A complete successful result contains:
+A complete non-terminal pipeline result contains:
 
 ```json
 {
-  "preflight": {
-    "terminality": "continue",
-    "awk": "I'll take a look."
+  "status": "continue",
+  "request": {
+    "text": "Review this project for risk.",
+    "attachments": [],
+    "message_hash": "...",
+    "request_hash": "..."
   },
-  "downstream_route": {
-    "value": "tool_harness_answer"
-  },
-  "additional_history_need": {
-    "value": "full_recent_conversation"
-  },
-  "memory_retrieval_queries": {
-    "queries": []
-  },
-  "tool_family_need": {
-    "value": [
-      "workspace"
-    ]
-  },
-  "message_and_attachment_digest": {
-    "slug": "review_project_risk",
-    "summary": "The user wants the project reviewed for risk.",
-    "attachments": []
-  },
-  "security_posture": {
-    "value": "normal",
-    "signals": [],
-    "notes": "No notable security risk signals."
+  "awk": "I'll take a look.",
+  "classifiers": {
+    "preflight": {
+      "terminality": "continue",
+      "awk": "I'll take a look."
+    },
+    "downstream_route": {
+      "value": "tool_harness_answer"
+    },
+    "additional_history_need": {
+      "value": "full_recent_conversation"
+    },
+    "memory_retrieval_queries": {
+      "queries": []
+    },
+    "tool_family_need": {
+      "value": [
+        "workspace"
+      ]
+    },
+    "message_and_attachment_digest": {
+      "slug": "review_project_risk",
+      "summary": "The user wants the project reviewed for risk.",
+      "attachments": []
+    },
+    "security_posture": {
+      "value": "normal",
+      "signals": [],
+      "notes": "No notable security risk signals."
+    }
   }
 }
 ```
 
+A terminal result contains `status`, `request`, and `preflight` only.
+
 ## Failure Behavior
 
-If any classifier fails, the classification pipeline should fail as a whole.
+If normalization fails, the pipeline throws `OpenClassifyNormalizationError` before starting classifiers.
+
+If any classifier fails, the classification pipeline fails as a whole with `OpenClassifyClassifierError`.
 
 Integrations should treat failure as a closed condition and avoid automatic downstream prompt assembly, tool exposure, or workflow execution unless an explicit fallback policy is defined.
