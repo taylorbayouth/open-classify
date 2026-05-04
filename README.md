@@ -6,6 +6,224 @@ The goal is not to answer the user directly. The goal is to decide what the next
 
 The classifier set is intentionally static. Integrations should not add project-specific classifiers to the core contract.
 
+## Library Input Contract
+
+Callers pass one normalized adapter object into Open Classify. This is not an HTTP contract.
+
+Required field:
+
+- `text`: inbound user message text.
+
+Optional fields:
+
+- `external_request_id`: caller-provided tracing ID, such as a webhook delivery ID or queue job ID.
+- `source`: integration source, such as `slack`, `email`, `web_chat`, `cli`, or `api`.
+- `conversation_id`: broad conversation container, such as a channel ID or DM ID.
+- `thread_id`: narrower thread inside the conversation, when the source has threads.
+- `message_id`: provider message or event ID, when available.
+- `timestamp`: source timestamp, preferably ISO-8601 when the caller can provide it.
+- `raw`: opaque provider metadata for caller trace/debug use.
+- `attachments`: attachment metadata.
+
+Attachment input fields:
+
+- `filename`: declared attachment filename, when available.
+- `size_bytes`: declared file size in bytes, when available.
+- `mime_type`: declared MIME type, when available.
+- `raw`: opaque provider metadata for the attachment.
+
+Unknown top-level fields are rejected. Provider-specific metadata belongs under `raw`.
+
+### Normalization
+
+Open Classify normalizes input before hashing or classification:
+
+1. Remove one leading BOM from `text`.
+2. Normalize Unicode to NFC.
+3. Remove unsafe ASCII control characters: `\x00-\x08`, `\x0B`, `\x0C`, `\x0E-\x1F`, and `\x7F`.
+4. Preserve tab, newline, and carriage return.
+5. Trim outer whitespace.
+6. Fail if the sanitized text is empty.
+
+The normalized request contains sanitized `text`, `attachments` defaulted to `[]`, `message_hash`, and `request_hash`. Open Classify does not preserve or expose the original raw text.
+
+Use `toClassifierInput(normalized)` to build classifier-visible input. It includes all normalized fields except `raw` and strips attachment `raw`. Classifiers should not receive the full normalized request.
+
+### Raw Metadata Safety
+
+`raw` is accepted only as a plain JSON-serializable object. Arrays as the top-level `raw` value, functions, class instances, `Date`, `Map`, `Set`, circular objects, `undefined`, symbols, and other non-JSON values are rejected.
+
+The default serialized `raw` cap is 64 KB. Attachment `raw` follows the same rule.
+
+Open Classify preserves `raw` for caller trace/debug use only. It is never hashed, inspected, interpreted, or included in classifier prompts.
+
+### Limits
+
+Default payload caps:
+
+- Sanitized text: 32,000 characters.
+- Attachments: 20.
+- Metadata strings such as IDs, `source`, `filename`, and `mime_type`: 512 characters.
+- Serialized `raw`: 64 KB.
+
+`filename` and `mime_type` are untrusted declared metadata. Open Classify validates shape and size only. File-byte limits, redaction, extraction, and MIME sniffing belong in adapters.
+
+### Hashing And Idempotency
+
+`message_hash` means "same sanitized message in the same source conversation/thread context."
+
+It is computed from canonical JSON containing:
+
+- `source`
+- `conversation_id`
+- `thread_id`
+- sanitized `text`
+
+`request_hash` means "same logical classification event."
+
+It is computed from canonical JSON containing:
+
+- `source`
+- `conversation_id`
+- `thread_id`
+- `message_id`
+- `timestamp`
+- sanitized `text`
+- attachment public metadata: `filename`, `size_bytes`, and `mime_type`
+
+`external_request_id`, top-level `raw`, and attachment `raw` are excluded from both hashes.
+
+Use `message_hash` when repeated identical messages in the same source conversation/thread should dedupe. Use `request_hash` for production idempotency of the same logical classification event.
+
+## Classification Pipeline
+
+`classifyOpenClassifyInput(input, { runClassifier })` normalizes the caller input and orchestrates the fixed classifier set.
+
+Open Classify does not own an LLM provider. Callers provide `runClassifier(name, input, signal)`, which should execute the named classifier using the exported classifier definition and return that classifier's typed JSON result.
+
+Pipeline behavior:
+
+1. Normalize input first. If normalization fails, no classifier starts and `OpenClassifyNormalizationError` is thrown.
+2. Build classifier input with `toClassifierInput(normalized)`, which excludes `raw`.
+3. Start all seven classifiers concurrently.
+4. Treat `preflight` as the gate:
+   - If `preflight.terminality` is `terminal`, abort the other classifiers via `AbortSignal` and return only the preflight result.
+   - If `preflight.terminality` is `continue` or `unable_to_determine`, wait for the other classifiers and return all seven classifier outputs.
+5. If any classifier fails, the pipeline fails as a whole with `OpenClassifyClassifierError`.
+
+Terminal result:
+
+```json
+{
+  "status": "terminal",
+  "request": {
+    "text": "Thanks",
+    "attachments": [],
+    "message_hash": "...",
+    "request_hash": "..."
+  },
+  "preflight": {
+    "terminality": "terminal",
+    "awk": "You're welcome."
+  }
+}
+```
+
+Continue result:
+
+```json
+{
+  "status": "continue",
+  "request": {
+    "text": "Can you review this?",
+    "attachments": [],
+    "message_hash": "...",
+    "request_hash": "..."
+  },
+  "awk": "I'll take a look.",
+  "classifiers": {
+    "preflight": {
+      "terminality": "continue",
+      "awk": "I'll take a look."
+    }
+  }
+}
+```
+
+The `request` field is the normalized request for caller logging and tracing. It may include `raw`; classifier input must come from `toClassifierInput`, not from serializing `request`.
+
+## Ollama Reference Runtime
+
+Open Classify's reference runtime is Ollama with `gemma4:e4b-it-q4_K_M` as the base model.
+
+Use `classifyWithOllama(input)` for the default local runtime:
+
+```ts
+import { classifyWithOllama } from "open-classify";
+
+const result = await classifyWithOllama({
+  text: "Can you review this?",
+  source: "api"
+});
+```
+
+By default, all classifier adapters are `null`, which means the runner uses the base model for each classifier. This lets the system run before fine-tuned adapters exist.
+
+```ts
+import { OLLAMA_BASE_MODEL, OLLAMA_CLASSIFIER_MODELS } from "open-classify";
+
+console.log(OLLAMA_BASE_MODEL);
+console.log(OLLAMA_CLASSIFIER_MODELS.preflight); // null
+```
+
+When fine-tuned adapter models are installed in Ollama, pass the adapter model map:
+
+```ts
+import {
+  classifyWithOllama,
+  OLLAMA_CLASSIFIER_ADAPTER_MODELS
+} from "open-classify";
+
+const result = await classifyWithOllama(input, {
+  models: OLLAMA_CLASSIFIER_ADAPTER_MODELS
+});
+```
+
+You can also set adapters incrementally. Any classifier set to `null` falls back to `gemma4:e4b-it-q4_K_M`.
+
+```ts
+const result = await classifyWithOllama(input, {
+  models: {
+    preflight: "open-classify-preflight:v0.1.0",
+    downstream_route: null
+  }
+});
+```
+
+`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, the classifier's system prompt, and classifier input built without `raw`.
+
+## Local Workbench
+
+Run the local classifier workbench:
+
+```sh
+npm run ui
+```
+
+Then open `http://127.0.0.1:4317/`.
+
+The workbench accepts message text and attachment metadata, streams progress for all seven classifiers, and highlights selected enum values as results arrive. It uses the same `classifyOpenClassifyInput` pipeline and Ollama runner as library callers.
+
+The Ollama runtime is designed for seven parallel classifier requests. Before sending model requests, it checks that the machine has enough total and currently available memory for that runtime. Machines that do not pass the check fail before Ollama generation starts.
+
+For Ollama itself, use a matching runtime configuration:
+
+```sh
+OLLAMA_NUM_PARALLEL=7 OLLAMA_MAX_LOADED_MODELS=7 ollama serve
+```
+
+Do not lower Open Classify to a smaller local batch size. If a machine cannot safely run seven classifiers in parallel, it is not a supported Ollama runtime target for this project.
+
 ## Classifiers
 
 Open Classify defines seven classifiers:
