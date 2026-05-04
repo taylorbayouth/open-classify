@@ -57,6 +57,7 @@ const jsonToggle = document.querySelector("#jsonToggle");
 const metaChips = document.querySelector("#metaChips");
 const clearButton = document.querySelector("#clearButton");
 const runButton = document.querySelector("#runButton");
+const copyJsonButton = document.querySelector("#copyJsonButton");
 const eventLogList = document.querySelector("#eventLogList");
 const eventLogCount = document.querySelector("#eventLogCount");
 
@@ -98,6 +99,21 @@ async function init() {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     void classify();
+  });
+
+  copyJsonButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const text = jsonPanel.textContent ?? "";
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      copyJsonButton.textContent = "Copied";
+      setTimeout(() => (copyJsonButton.textContent = "Copy"), 1500);
+    } catch {
+      copyJsonButton.textContent = "Failed";
+      setTimeout(() => (copyJsonButton.textContent = "Copy"), 1500);
+    }
   });
 }
 
