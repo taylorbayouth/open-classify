@@ -9,6 +9,7 @@ import {
   OLLAMA_CLASSIFIER_ADAPTER_MODELS,
   OLLAMA_BASE_MODEL,
   OLLAMA_CLASSIFIER_MODELS,
+  OLLAMA_CONTEXT_LENGTH,
   OLLAMA_DEFAULT_HOST,
   OLLAMA_REQUIRED_PARALLELISM,
 } from "../dist/src/ollama.js";
@@ -31,6 +32,7 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_DEFAULT_HOST, "http://localhost:11434");
   assert.equal(OLLAMA_BASE_MODEL, "gemma4:e4b-it-q4_K_M");
   assert.equal(OLLAMA_REQUIRED_PARALLELISM, 7);
+  assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
 });
@@ -70,6 +72,7 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.stream, false);
   assert.equal(body.format, "json");
   assert.equal(body.options.temperature, 0);
+  assert.equal(body.options.num_ctx, OLLAMA_CONTEXT_LENGTH);
   assert.equal(body.messages[0].role, "system");
   assert.match(body.messages[0].content, /preflight classifier/);
   assert.equal(body.messages[1].role, "user");

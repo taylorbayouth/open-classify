@@ -30,6 +30,7 @@ import type {
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
+export const OLLAMA_CONTEXT_LENGTH = 4096;
 export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
@@ -125,6 +126,7 @@ export function createOllamaClassifierRunner(
   const models = { ...OLLAMA_CLASSIFIER_MODELS, ...config.models };
   const options = {
     temperature: 0,
+    num_ctx: OLLAMA_CONTEXT_LENGTH,
     ...config.options,
   };
   let resourceCheck: Promise<void> | undefined;

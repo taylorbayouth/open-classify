@@ -4,6 +4,7 @@ import os from "node:os";
 
 export const baseModel = "gemma4:e4b-it-q4_K_M";
 export const requiredParallelism = 7;
+export const contextLength = 4096;
 export const minTotalMemoryBytes = 16 * 1024 * 1024 * 1024;
 export const ollamaHost = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
 
@@ -69,6 +70,7 @@ export function startOllamaServe() {
       ...process.env,
       OLLAMA_NUM_PARALLEL: String(requiredParallelism),
       OLLAMA_MAX_LOADED_MODELS: String(requiredParallelism),
+      OLLAMA_CONTEXT_LENGTH: String(contextLength),
       OLLAMA_MAX_QUEUE: process.env.OLLAMA_MAX_QUEUE ?? "64",
     },
     stdio: ["ignore", "inherit", "inherit"],
@@ -105,9 +107,45 @@ export async function assertBaseModelPresent() {
   }
 }
 
+export async function assertOllamaServerConfig() {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  const { stdout } = await execFileAsync("pgrep", ["-f", "ollama serve"]);
+  const pid = stdout
+    .split("\n")
+    .map((value) => value.trim())
+    .find(Boolean);
+
+  if (pid === undefined) {
+    throw new Error("Ollama server process was not found.");
+  }
+
+  const { stdout: envOutput } = await execFileAsync("ps", ["eww", "-p", pid]);
+  const required = {
+    OLLAMA_NUM_PARALLEL: String(requiredParallelism),
+    OLLAMA_MAX_LOADED_MODELS: String(requiredParallelism),
+    OLLAMA_CONTEXT_LENGTH: String(contextLength),
+  };
+
+  const missing = Object.entries(required).filter(
+    ([key, value]) => !envOutput.includes(`${key}=${value}`),
+  );
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Existing Ollama server is not configured for Open Classify. Stop it with "pkill -f ollama", then run "npm run start". Missing: ${missing
+        .map(([key, value]) => `${key}=${value}`)
+        .join(", ")}`,
+    );
+  }
+}
+
 export function printRuntimeSummary(totalMemoryBytes) {
   console.log(`Memory: ${formatBytes(totalMemoryBytes)} total`);
   console.log(`Required classifier parallelism: ${requiredParallelism}`);
+  console.log(`Required Ollama context length: ${contextLength}`);
   console.log(`Ollama host: ${ollamaHost}`);
   console.log(`Base model: ${baseModel}`);
 }

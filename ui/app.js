@@ -49,7 +49,7 @@ init();
 async function init() {
   const response = await fetch("/api/metadata");
   state.metadata = await response.json();
-  modelLabel.textContent = `Ollama base model: ${state.metadata.base_model} · ${state.metadata.ollama_required_parallelism}-way runtime`;
+  modelLabel.textContent = `Ollama base model: ${state.metadata.base_model} · ${state.metadata.ollama_required_parallelism}-way · ctx ${state.metadata.ollama_context_length}`;
   resetClassifiers();
   renderAttachments();
 
@@ -144,7 +144,7 @@ function handleStreamEvent(event, data) {
       pipelineStatus.textContent = "Normalized input pending";
       break;
     case "resource_check_started":
-      pipelineStatus.textContent = `Checking local resources for ${data.required_parallelism}-way runtime`;
+      pipelineStatus.textContent = `Checking local resources for ${data.required_parallelism}-way runtime · ctx ${data.context_length}`;
       break;
     case "classifier_started":
       updateClassifier(data.name, { status: "running" });

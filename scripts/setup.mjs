@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   assertBaseModelPresent,
+  assertOllamaServerConfig,
   baseModel,
   checkTotalMemory,
   commandExists,
@@ -37,6 +38,8 @@ async function main() {
     console.log("Starting Ollama temporarily for model checks...");
     ollamaChild = startOllamaServe();
     await waitForOllama();
+  } else {
+    await assertOllamaServerConfig();
   }
 
   try {

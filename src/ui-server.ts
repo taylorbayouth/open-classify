@@ -14,6 +14,7 @@ import {
 import {
   createOllamaClassifierRunner,
   OLLAMA_BASE_MODEL,
+  OLLAMA_CONTEXT_LENGTH,
   OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
   OLLAMA_MIN_TOTAL_MEMORY_BYTES,
   OLLAMA_REQUIRED_PARALLELISM,
@@ -118,6 +119,7 @@ async function classifyStream(
     send("normalization_started", {});
     send("resource_check_started", {
       required_parallelism: OLLAMA_REQUIRED_PARALLELISM,
+      context_length: OLLAMA_CONTEXT_LENGTH,
       min_total_memory_bytes: OLLAMA_MIN_TOTAL_MEMORY_BYTES,
       min_available_memory_bytes: OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
     });
@@ -136,6 +138,7 @@ async function classifyStream(
 function metadata(): unknown {
   return {
     base_model: OLLAMA_BASE_MODEL,
+    ollama_context_length: OLLAMA_CONTEXT_LENGTH,
     ollama_required_parallelism: OLLAMA_REQUIRED_PARALLELISM,
     ollama_min_total_memory_bytes: OLLAMA_MIN_TOTAL_MEMORY_BYTES,
     ollama_min_available_memory_bytes: OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,

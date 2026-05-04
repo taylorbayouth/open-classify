@@ -226,10 +226,15 @@ The Ollama runtime is designed for seven parallel classifier requests. Before se
 For Ollama itself, use a matching runtime configuration:
 
 ```sh
-OLLAMA_NUM_PARALLEL=7 OLLAMA_MAX_LOADED_MODELS=7 ollama serve
+OLLAMA_NUM_PARALLEL=7 \
+OLLAMA_MAX_LOADED_MODELS=7 \
+OLLAMA_CONTEXT_LENGTH=4096 \
+ollama serve
 ```
 
-`npm run start` starts Ollama with those settings when Ollama is not already running. If an Ollama server is already running, `start` uses it after the memory and model checks pass.
+`npm run start` starts Ollama with those settings when Ollama is not already running. If an Ollama server is already running, `start` verifies those settings before using it.
+
+The context length must stay small for classifier traffic. Ollama may choose a very large default context on machines with high VRAM, which can make the base model consume tens of GiB before classification starts.
 
 Do not lower Open Classify to a smaller local batch size. If a machine cannot safely run seven classifiers in parallel, it is not a supported Ollama runtime target for this project.
 

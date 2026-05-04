@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   assertBaseModelPresent,
+  assertOllamaServerConfig,
   checkTotalMemory,
   commandExists,
   isOllamaReachable,
@@ -24,10 +25,12 @@ async function main() {
   let ollamaChild;
   if (await isOllamaReachable()) {
     console.log(`Using existing Ollama server at ${ollamaHost}`);
+    await assertOllamaServerConfig();
   } else {
-    console.log("Starting Ollama with OLLAMA_NUM_PARALLEL=7 and OLLAMA_MAX_LOADED_MODELS=7");
+    console.log("Starting Ollama with OLLAMA_NUM_PARALLEL=7, OLLAMA_MAX_LOADED_MODELS=7, and OLLAMA_CONTEXT_LENGTH=4096");
     ollamaChild = startOllamaServe();
     await waitForOllama();
+    await assertOllamaServerConfig();
   }
 
   await assertBaseModelPresent();
