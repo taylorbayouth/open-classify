@@ -154,6 +154,37 @@ test("validates raw as plain JSON-compatible objects", () => {
   );
 });
 
+test("accepts arbitrary attachment metadata without file contents", () => {
+  const normalized = normalizeOpenClassifyInput({
+    text: "inspect these",
+    attachments: [
+      {
+        filename: "photo.webp",
+        size_bytes: 252_696,
+        mime_type: "image/webp",
+      },
+      {
+        filename: "archive.custom",
+        size_bytes: 42,
+        mime_type: "application/x-custom",
+      },
+    ],
+  });
+
+  assert.deepEqual(normalized.attachments, [
+    {
+      filename: "photo.webp",
+      size_bytes: 252_696,
+      mime_type: "image/webp",
+    },
+    {
+      filename: "archive.custom",
+      size_bytes: 42,
+      mime_type: "application/x-custom",
+    },
+  ]);
+});
+
 test("toClassifierInput strips raw and exposes sanitized text", () => {
   const normalized = normalizeOpenClassifyInput({
     text: "\uFEFF hello\x00 ",

@@ -91,7 +91,10 @@ Values:
 - "full_extended_conversation": choose this when the request depends on older requirements, long-running project context, or prior decisions outside the recent exchange.
 
 Selection guide:
+- First ask whether the latest message seems to be missing context that would change the downstream response. Be generous: if nearby conversation could supply a missing object, subject, recipient, target, comparison, decision, or purpose, include recent history.
+- Choose "current_message_only" only when the message is complete enough that prior turns would not materially change the response.
 - Choose "full_recent_conversation" when the current message says "that", "this", "the second one", "same as before", "make it better", "approved", or otherwise points to nearby unstated content.
+- Choose "full_recent_conversation" when the message contains an action or judgment but leaves the object, subject, target, recipient, or criteria unstated.
 - Choose "summary_of_recent_conversation" for continuity where a concise state summary is enough.
 - Choose "full_extended_conversation" for "earlier", "everything we've discussed", "the original requirements", or named long-running work.
 - When exact prior wording matters, choose "full_recent_conversation" over "summary_of_recent_conversation".
@@ -158,7 +161,7 @@ Values:
 - "workspace": choose this for local files, source code, shell commands, git state, logs, local servers, or runtime inspection.
 - "web": choose this for current public facts, URLs, browsing, search, prices, schedules, news, docs, or other internet lookup.
 - "communications": choose this for email, calendar, contacts, chat, meetings, invites, or messages.
-- "documents": choose this for documents, PDFs, slide decks, contracts, reports, or text-heavy attachments/artifacts.
+- "documents": choose this for attached files and file-like artifacts that need inspection, extraction, conversion, or summarization, including PDFs, docs, slides, images, media, archives, and text-heavy files.
 - "spreadsheets": choose this for spreadsheets, CSV/TSV files, tables, formulas, workbook analysis, or tabular charts.
 - "project_management": choose this for tickets, tasks, boards, issue trackers, roadmaps, sprints, or planning systems.
 - "developer_platforms": choose this for GitHub, GitLab, PRs, issues, CI/CD, package registries, cloud APIs, or hosted developer services.
@@ -166,7 +169,8 @@ Values:
 Selection guide:
 - Return an empty array when the task can be answered from the current message without tools.
 - Select every family likely needed to complete the request, but omit families that would only be convenient.
-- Attachments imply a family only when their type matters to the work, such as PDFs for "documents" or CSVs for "spreadsheets".
+- Attachments imply a family when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content.
+- Choose "spreadsheets" for tabular workbook/CSV attachments; choose "documents" for other attachment types when attached content must be inspected.
 - Prefer "workspace" for local repo work and "developer_platforms" for hosted PR, issue, CI, or registry work; include both when the request needs local code and hosted platform state.
 
 Examples:

@@ -44,6 +44,7 @@ const state = {
 };
 
 const form = document.querySelector("#classifyForm");
+const textInput = document.querySelector("#textInput");
 const attachmentInput = document.querySelector("#attachmentInput");
 const attachmentList = document.querySelector("#attachmentList");
 const classifierGrid = document.querySelector("#classifierGrid");
@@ -71,12 +72,34 @@ async function init() {
   renderAttachments();
   startTicker();
 
+  textInput.addEventListener("keydown", (event) => {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.isComposing
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!runButton.disabled) {
+      form.requestSubmit();
+    }
+  });
+
   attachmentInput.addEventListener("change", () => {
-    state.attachments = Array.from(attachmentInput.files ?? []).map((file) => ({
-      filename: file.name,
-      size_bytes: file.size,
-      mime_type: file.type || undefined,
-    }));
+    state.attachments = [
+      ...state.attachments,
+      ...Array.from(attachmentInput.files ?? []).map((file) => ({
+        filename: file.name,
+        size_bytes: file.size,
+        mime_type: file.type || undefined,
+      })),
+    ];
+    attachmentInput.value = "";
     renderAttachments();
   });
 

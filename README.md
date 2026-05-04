@@ -34,6 +34,8 @@ Attachment input fields:
 
 Unknown top-level and attachment fields are rejected. Provider-specific metadata belongs under `raw`.
 
+Open Classify accepts metadata for any attachment type. It does not read file bytes, decode file contents, extract text, or store full file contents, even temporarily.
+
 ### Normalization
 
 Open Classify normalizes input before hashing or classification:
@@ -51,11 +53,11 @@ Use `toClassifierInput(normalized)` to build runner input. It includes all norma
 
 ### Raw Metadata Safety
 
-`raw` is accepted only as a plain JSON-serializable object. Arrays are allowed inside `raw`, but not as the top-level `raw` value. Functions, class instances, `Date`, `Map`, `Set`, circular objects, `undefined`, symbols, non-finite numbers, and other non-JSON values are rejected.
+`raw` is accepted only as a plain JSON-serializable metadata object. Arrays are allowed inside `raw`, but not as the top-level `raw` value. Functions, class instances, `Date`, `Map`, `Set`, circular objects, `undefined`, symbols, non-finite numbers, and other non-JSON values are rejected.
 
 The default serialized `raw` cap is 64 KB. Attachment `raw` follows the same rule.
 
-Open Classify preserves `raw` for caller trace/debug use only. It is never hashed, inspected, interpreted, or included in classifier prompts.
+Open Classify preserves `raw` for caller trace/debug use only. It is never hashed, inspected, interpreted, or included in classifier prompts. Callers must not place full file contents, byte arrays, base64 file data, or extracted attachment text in `raw`.
 
 ### Limits
 
@@ -66,7 +68,7 @@ Default payload caps:
 - Metadata strings such as IDs, `source`, `filename`, and `mime_type`: 512 characters.
 - Serialized `raw`: 64 KB.
 
-`filename` and `mime_type` are untrusted declared metadata. Open Classify validates shape and size only. File-byte limits, redaction, extraction, and MIME sniffing belong in adapters.
+`filename` and `mime_type` are untrusted declared metadata. Open Classify validates shape and size only. File-byte limits, redaction, extraction, and MIME sniffing belong in downstream tools or adapters that operate outside the classification contract.
 
 ### Hashing And Idempotency
 
@@ -638,7 +640,7 @@ This is a digest generator, not a routing decision.
       "filename": "vendor-contract.pdf",
       "size_bytes": 482331,
       "mime_type": "application/pdf",
-      "summary": "A vendor services agreement covering scope, payment terms, confidentiality, and termination clauses."
+      "summary": "A PDF attachment named vendor-contract.pdf; contents are unavailable to this classifier."
     }
   ]
 }
@@ -655,7 +657,7 @@ Attachment fields:
 - `filename`: attachment filename.
 - `size_bytes`: file size in bytes, when available.
 - `mime_type`: MIME type, when available.
-- `summary`: concise factual summary.
+- `summary`: concise metadata-only description unless extracted content is explicitly provided by another system.
 
 ### Examples
 
@@ -681,7 +683,7 @@ Output:
     {
       "filename": "q4-pipeline.xlsx",
       "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "summary": "A spreadsheet related to Q4 pipeline data. Detailed contents require extraction before analysis."
+      "summary": "A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."
     }
   ]
 }
