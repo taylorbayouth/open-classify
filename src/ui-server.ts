@@ -42,6 +42,8 @@ server.listen(PORT, HOST, () => {
 });
 
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const startedAt = Date.now();
+  console.log(`[req] ${request.method} ${request.url}`);
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
@@ -52,6 +54,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === "POST" && url.pathname === "/api/classify-stream") {
       await classifyStream(request, response);
+      console.log(`[req] ${request.method} ${request.url} stream ended in ${Date.now() - startedAt}ms`);
       return;
     }
 
@@ -62,6 +65,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     sendJson(response, { error: "method not allowed" }, 405);
   } catch (error) {
+    console.error(`[req] ${request.method} ${request.url} failed:`, error);
     sendJson(response, { error: errorMessage(error) }, 500);
   }
 }
@@ -92,9 +96,11 @@ async function classifyStream(
 
   const send = (event: string, data: unknown): void => {
     if (closed || response.writableEnded || response.destroyed) {
+      console.warn(`[sse] dropped ${event} (closed=${closed} ended=${response.writableEnded})`);
       return;
     }
-    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const ok = response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    console.log(`[sse] -> ${event}${(data as { name?: string })?.name ? ` ${(data as { name: string }).name}` : ""}${ok ? "" : " [backpressure]"}`);
   };
 
   const heartbeat = setInterval(() => {
@@ -115,6 +121,7 @@ async function classifyStream(
         send("classifier_completed", { name, result, completed_at: Date.now() });
         return result;
       } catch (error) {
+        console.error(`[classifier] ${name} threw:`, error);
         if (signal.aborted && name !== "preflight") {
           send("classifier_canceled", { name, completed_at: Date.now() });
         } else {
