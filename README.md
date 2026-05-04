@@ -47,7 +47,7 @@ Open Classify normalizes input before hashing or classification:
 
 The normalized request contains sanitized `text`, `attachments` defaulted to `[]`, `message_hash`, and `request_hash`. Open Classify does not preserve or expose the original raw text.
 
-Use `toClassifierInput(normalized)` to build classifier-visible input. It includes all normalized fields except `raw` and strips attachment `raw`. Classifiers should not receive the full normalized request.
+Use `toClassifierInput(normalized)` to build runner input. It includes all normalized fields except `raw` and strips attachment `raw`. LLM classifier prompts should expose only the sanitized user text and attachment metadata; hashes, IDs, source, timestamp, and `raw` are orchestration metadata.
 
 ### Raw Metadata Safety
 
@@ -224,7 +224,7 @@ const result = await classifyWithOllama(input, {
 });
 ```
 
-`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096`, the classifier's system prompt, and classifier input built without `raw`.
+`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096`, the classifier's system prompt, and a user message containing only the latest sanitized text plus attachment metadata.
 
 Supported Ollama runner options:
 

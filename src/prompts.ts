@@ -195,26 +195,28 @@ Return ONLY valid JSON matching:
 
 Field semantics:
 - "slug": a short stable snake_case label for the request, based on the user's intent.
-- "summary": a short factual description of what the user is asking for.
+- "summary": a short factual description of what the user is asking for, suitable for a database short-string field.
 - "attachments": one object per attachment in the input, preserving available filename, size_bytes, and mime_type fields.
-- Attachment "summary": a concise factual description of the attachment from available metadata only.
+- Attachment "summary": a short database-friendly description of the attachment from available metadata only.
 
 Selection guide:
 - Name the action and object in the slug, such as "review_contract" or "summarize_sales_csv".
-- Summaries should describe the request, not solve it.
-- For attachments with only metadata, state what can be inferred from filename or MIME type and that contents require extraction when relevant.
+- Summaries should describe the user's message, not solve it or describe the classification task.
+- Keep top-level summary and attachment summaries to one plain-text sentence, 160 characters or fewer.
+- For attachments with only metadata, describe the metadata and whether contents are available to this classifier.
 - For messages without attachments, use an empty attachments array.
 
 Examples:
 - User: "Can you summarize the attached spreadsheet and tell me what looks off?"
   Attachment: q4-pipeline.xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-  Return: {"slug":"summarize_q4_pipeline","summary":"The user wants the attached pipeline spreadsheet summarized and checked for suspicious items.","attachments":[{"filename":"q4-pipeline.xlsx","mime_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","summary":"A spreadsheet that appears to contain Q4 pipeline data. Detailed contents require extraction before analysis."}]}
+  Return: {"slug":"summarize_q4_pipeline","summary":"The user wants the attached pipeline spreadsheet summarized and checked for suspicious items.","attachments":[{"filename":"q4-pipeline.xlsx","mime_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","summary":"A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."}]}
 - User: "Explain why bread rises."
   Return: {"slug":"explain_bread_rising","summary":"The user wants an explanation of why bread rises.","attachments":[]}
 
 Constraints:
 - Return JSON only.
 - Use snake_case for slug.
+- Use plain text, not markdown.
 - Do not invent attachment contents.`;
 
 export const SECURITY_POSTURE_SYSTEM_PROMPT = `You are the security posture classifier for an AI assistant handoff system.

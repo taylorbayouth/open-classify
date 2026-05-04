@@ -56,7 +56,13 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
     "preflight",
     {
       text: "hello",
-      attachments: [],
+      attachments: [
+        {
+          filename: "Welcome.md",
+          mime_type: "text/markdown",
+          size_bytes: 203,
+        },
+      ],
       message_hash: "message",
       request_hash: "request",
     },
@@ -76,7 +82,11 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.messages[0].role, "system");
   assert.match(body.messages[0].content, /preflight classifier/);
   assert.equal(body.messages[1].role, "user");
-  assert.match(body.messages[1].content, /"text":"hello"/);
+  assert.match(body.messages[1].content, /User message:\nhello/);
+  assert.match(body.messages[1].content, /filename: Welcome\.md/);
+  assert.match(body.messages[1].content, /mime_type: text\/markdown/);
+  assert.match(body.messages[1].content, /size_bytes: 203/);
+  assert.doesNotMatch(body.messages[1].content, /message_hash|request_hash/);
 });
 
 test("createOllamaClassifierRunner uses base model for null adapter", async () => {
@@ -171,7 +181,8 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
         );
         assert.ok(name);
 
-        assert.match(body.messages[1].content, /"text":"review this"/);
+        assert.match(body.messages[1].content, /User message:\nreview this/);
+        assert.doesNotMatch(body.messages[1].content, /"text"/);
         assert.doesNotMatch(body.messages[1].content, /"raw"/);
 
         return jsonResponse({

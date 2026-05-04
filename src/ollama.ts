@@ -304,7 +304,37 @@ function readVmStatPages(output: string, label: string): number {
 }
 
 function buildClassifierPrompt(input: ClassifierInput): string {
-  return `Classify this normalized Open Classify request. Return JSON only.\n\n${JSON.stringify(input)}`;
+  const lines = [
+    "Classify the latest normalized user message below.",
+    "It may be part of an ongoing conversation.",
+    "Use the user message as the request. Use attachments as metadata only.",
+    "Return JSON only.",
+    "",
+    "User message:",
+    input.text,
+    "",
+    "Attachments:",
+  ];
+
+  if (input.attachments.length === 0) {
+    lines.push("none");
+    return lines.join("\n");
+  }
+
+  for (const [index, attachment] of input.attachments.entries()) {
+    lines.push(`- Attachment ${index + 1}:`);
+    if (attachment.filename !== undefined) {
+      lines.push(`  filename: ${attachment.filename}`);
+    }
+    if (attachment.mime_type !== undefined) {
+      lines.push(`  mime_type: ${attachment.mime_type}`);
+    }
+    if (attachment.size_bytes !== undefined) {
+      lines.push(`  size_bytes: ${attachment.size_bytes}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function parseJsonObject(
