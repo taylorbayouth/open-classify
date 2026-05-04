@@ -11,6 +11,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "setup": "node scripts/setup.mjs",
+    "start": "node scripts/start.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
     "ui": "npm run build && node dist/src/ui-server.js"
   },

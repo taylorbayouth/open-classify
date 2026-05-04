@@ -204,6 +204,13 @@ const result = await classifyWithOllama(input, {
 
 ## Local Workbench
 
+Fresh machine setup:
+
+```sh
+npm run setup
+npm run start
+```
+
 Run the local classifier workbench:
 
 ```sh
@@ -221,6 +228,8 @@ For Ollama itself, use a matching runtime configuration:
 ```sh
 OLLAMA_NUM_PARALLEL=7 OLLAMA_MAX_LOADED_MODELS=7 ollama serve
 ```
+
+`npm run start` starts Ollama with those settings when Ollama is not already running. If an Ollama server is already running, `start` uses it after the memory and model checks pass.
 
 Do not lower Open Classify to a smaller local batch size. If a machine cannot safely run seven classifiers in parallel, it is not a supported Ollama runtime target for this project.
 
