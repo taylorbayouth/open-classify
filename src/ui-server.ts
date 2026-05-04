@@ -84,9 +84,6 @@ async function classifyStream(
   request.socket.setNoDelay(true);
 
   let closed = false;
-  request.on("close", () => {
-    closed = true;
-  });
   response.on("close", () => {
     closed = true;
   });
