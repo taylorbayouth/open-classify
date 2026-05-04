@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Classify Workbench</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Open Classify</h1>
+          <p id="modelLabel">Loading runtime</p>
+        </div>
+        <div class="run-state" id="runState">Idle</div>
+      </header>
+
+      <section class="workspace">
+        <form class="composer" id="classifyForm">
+          <label class="field wide">
+            <span>Message</span>
+            <textarea
+              id="textInput"
+              name="text"
+              rows="9"
+              placeholder="Paste an inbound user message..."
+              required
+            ></textarea>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Source</span>
+              <input name="source" placeholder="api" />
+            </label>
+            <label class="field">
+              <span>External request ID</span>
+              <input name="external_request_id" placeholder="delivery-123" />
+            </label>
+            <label class="field">
+              <span>Conversation ID</span>
+              <input name="conversation_id" placeholder="C123" />
+            </label>
+            <label class="field">
+              <span>Thread ID</span>
+              <input name="thread_id" placeholder="T123" />
+            </label>
+            <label class="field">
+              <span>Message ID</span>
+              <input name="message_id" placeholder="M123" />
+            </label>
+            <label class="field">
+              <span>Timestamp</span>
+              <input name="timestamp" placeholder="2026-05-04T12:00:00Z" />
+            </label>
+          </div>
+
+          <label class="file-drop" for="attachmentInput">
+            <input id="attachmentInput" type="file" multiple />
+            <span>Choose attachments</span>
+            <small>Metadata only</small>
+          </label>
+          <div class="attachment-list" id="attachmentList"></div>
+
+          <div class="actions">
+            <button class="primary" type="submit">Run classifiers</button>
+            <button class="secondary" type="button" id="clearButton">Clear</button>
+          </div>
+        </form>
+
+        <section class="results">
+          <div class="result-strip">
+            <div>
+              <span class="caption">AWK</span>
+              <strong id="awkValue">Waiting</strong>
+            </div>
+            <div>
+              <span class="caption">Status</span>
+              <strong id="pipelineStatus">Not run</strong>
+            </div>
+          </div>
+
+          <div class="hashes" id="hashes" hidden></div>
+          <div class="classifier-grid" id="classifierGrid"></div>
+          <pre class="json-panel" id="jsonPanel" hidden></pre>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
