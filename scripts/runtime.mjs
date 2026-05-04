@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 import os from "node:os";
 
 export const baseModel = "gemma4:e4b-it-q4_K_M";
@@ -7,6 +8,8 @@ export const requiredParallelism = 7;
 export const contextLength = 4096;
 export const minTotalMemoryBytes = 16 * 1024 * 1024 * 1024;
 export const ollamaHost = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
+
+const execFileAsync = promisify(execFile);
 
 export function formatBytes(value) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
