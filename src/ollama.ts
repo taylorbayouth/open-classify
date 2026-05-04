@@ -198,6 +198,7 @@ async function runOllamaClassifier<Name extends ClassifierName>(
     model,
     stream: false,
     format: "json",
+    think: false,
     options,
     messages: [
       {
