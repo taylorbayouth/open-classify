@@ -469,6 +469,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .classifier-card[data-status="done"]     { border-left-color: var(--ok); }
 .classifier-card[data-status="failed"]   { border-left-color: var(--err); }
 .classifier-card[data-status="canceled"] { border-left-color: var(--warn); }
+.classifier-card[data-status="idle"]     { opacity: 0.78; }
+.classifier-card[data-status="idle"] .badge { display: none; }
 
 .classifier-card[data-status="pending"]::after {
   content: "";

@@ -66,7 +66,7 @@ async function init() {
   const response = await fetch("/api/metadata");
   state.metadata = await response.json();
   renderMetaChips();
-  resetClassifiers();
+  resetClassifiers("idle");
   renderAttachments();
   startTicker();
 
@@ -86,7 +86,7 @@ async function init() {
     state.events = [];
     state.eventCount = 0;
     renderEventLog();
-    resetClassifiers();
+    resetClassifiers("idle");
     renderAttachments();
     setRunState("idle");
     awkDisplay.hidden = true;
@@ -247,11 +247,11 @@ function renderPipeline(result) {
   jsonPanel.textContent = JSON.stringify(result, null, 2);
 }
 
-function resetClassifiers() {
+function resetClassifiers(status = "pending") {
   state.classifiers = Object.fromEntries(
     state.classifierNames.map((name) => [
       name,
-      { status: "pending", result: null, error: null, startedAt: null, finishedAt: null },
+      { status, result: null, error: null, startedAt: null, finishedAt: null },
     ]),
   );
   renderClassifiers();
@@ -399,6 +399,7 @@ function emptyStateText(status) {
   if (status === "running") return "Running…";
   if (status === "canceled") return "Canceled by preflight";
   if (status === "failed") return "Failed";
+  if (status === "pending") return "Queued";
   return "Awaiting run";
 }
 
