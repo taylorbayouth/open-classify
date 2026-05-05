@@ -90,12 +90,80 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.messages[0].role, "system");
   assert.match(body.messages[0].content, /preflight classifier/);
   assert.equal(body.messages[1].role, "user");
+  assert.match(body.messages[1].content, /The target user message is the final message in the window\./);
   assert.match(body.messages[1].content, /Message 1 \(target\):/);
-  assert.match(body.messages[1].content, /Target user message:\nhello/);
+  assert.match(body.messages[1].content, /text:\nhello/);
   assert.match(body.messages[1].content, /filename: Welcome\.md/);
   assert.match(body.messages[1].content, /mime_type: text\/markdown/);
   assert.match(body.messages[1].content, /size_bytes: 203/);
   assert.doesNotMatch(body.messages[1].content, /message_hash|request_hash/);
+});
+
+test("createOllamaClassifierRunner drops older whole messages to fit estimated context", async () => {
+  const calls = [];
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    options: { num_ctx: 1000 },
+    fetch: async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs.preflight) },
+      });
+    },
+  });
+
+  await runner(
+    "preflight",
+    {
+      text: "final request",
+      conversation_window: [
+        { role: "user", text: `older context ${"x".repeat(1200)}` },
+        { role: "user", text: "final request" },
+      ],
+      attachments: [],
+      message_hash: "message",
+      request_hash: "request",
+    },
+    new AbortController().signal,
+  );
+
+  const prompt = calls[0].messages[1].content;
+  assert.doesNotMatch(prompt, /older context/);
+  assert.match(prompt, /Message 1 \(target\):/);
+  assert.match(prompt, /text:\nfinal request/);
+});
+
+test("createOllamaClassifierRunner rejects when target alone exceeds estimated context", async () => {
+  let called = false;
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    options: { num_ctx: 1000 },
+    fetch: async () => {
+      called = true;
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs.preflight) },
+      });
+    },
+  });
+
+  await assert.rejects(
+    runner(
+      "preflight",
+      {
+        text: "x".repeat(10_000),
+        conversation_window: [{ role: "user", text: "x".repeat(10_000) }],
+        attachments: [],
+        message_hash: "message",
+        request_hash: "request",
+      },
+      new AbortController().signal,
+    ),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "preflight" &&
+      /target message/.test(error.message),
+  );
+  assert.equal(called, false);
 });
 
 test("createOllamaClassifierRunner uses base model for null adapter", async () => {
@@ -293,7 +361,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
         );
         assert.ok(name);
 
-        assert.match(body.messages[1].content, /Target user message:\nreview this/);
+        assert.match(body.messages[1].content, /text:\nreview this/);
         assert.doesNotMatch(body.messages[1].content, /"text"/);
         assert.doesNotMatch(body.messages[1].content, /"raw"/);
 

@@ -34,6 +34,7 @@ export const OLLAMA_CONTEXT_LENGTH = 4096;
 export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
+const ESTIMATED_CHARS_PER_TOKEN = 3;
 const CONTEXT_MISSING_MAX_COUNT = 5;
 const MEMORY_QUERY_MAX_COUNT = 3;
 const MEMORY_QUERY_MIN_WORDS = 3;
@@ -201,6 +202,8 @@ async function runOllamaClassifier<Name extends ClassifierName>(
   model: string,
   options: OllamaOptions,
 ): Promise<ClassifierOutput<Name>> {
+  const systemPrompt = CLASSIFIERS[name].systemPrompt;
+  const userPrompt = buildPackedClassifierPrompt(name, input, systemPrompt, model, options);
   const body = {
     model,
     stream: false,
@@ -210,11 +213,11 @@ async function runOllamaClassifier<Name extends ClassifierName>(
     messages: [
       {
         role: "system",
-        content: CLASSIFIERS[name].systemPrompt,
+        content: systemPrompt,
       },
       {
         role: "user",
-        content: buildClassifierPrompt(input),
+        content: userPrompt,
       },
     ],
   };
@@ -310,10 +313,86 @@ function readVmStatPages(output: string, label: string): number {
   return match === null ? 0 : Number(match[1]);
 }
 
+/*
+ * Prompt packing policy:
+ *
+ * The normalizer enforces coarse payload safety. This runner enforces runtime
+ * fit. Those are different jobs. A 32k character payload is a perfectly
+ * reasonable thing to accept at an API boundary and a perfectly unreasonable
+ * thing to shove blindly into a 4096-token local classifier. Boundaries are
+ * where optimism goes to become incident review notes.
+ *
+ * We intentionally do not truncate message text here. The final message is the
+ * thing being classified, and chopping off its tail can change the route,
+ * security posture, or memory hints in ways that look confident and are wrong.
+ * Older context is useful but optional, so we drop older whole messages until
+ * the fully rendered chat prompt fits the estimated context window. If the
+ * target message alone does not fit, this runtime should fail clearly instead
+ * of manufacturing a smaller, more convenient user request.
+ *
+ * This is not a tokenizer. It is the smallest honest heuristic: one named
+ * assumption, applied to the full rendered prompt including the classifier
+ * system prompt and our wrapper text. A model tokenizer would be more exact;
+ * a pile of hidden constants would only be more decorative.
+ */
+function buildPackedClassifierPrompt(
+  name: ClassifierName,
+  input: ClassifierInput,
+  systemPrompt: string,
+  model: string,
+  options: OllamaOptions,
+): string {
+  let conversationWindow = input.conversation_window;
+  let prompt = buildClassifierPrompt({
+    ...input,
+    conversation_window: conversationWindow,
+  });
+
+  while (
+    !fitsEstimatedContext(systemPrompt, prompt, options) &&
+    conversationWindow.length > 1
+  ) {
+    conversationWindow = conversationWindow.slice(1);
+    prompt = buildClassifierPrompt({
+      ...input,
+      conversation_window: conversationWindow,
+    });
+  }
+
+  if (!fitsEstimatedContext(systemPrompt, prompt, options)) {
+    throw new OllamaClassifierError(
+      name,
+      model,
+      `${name} classifier prompt exceeds estimated ${contextLength(options)} token context length with only the target message`,
+    );
+  }
+
+  return prompt;
+}
+
+function fitsEstimatedContext(
+  systemPrompt: string,
+  userPrompt: string,
+  options: OllamaOptions,
+): boolean {
+  return estimateTokens(`${systemPrompt}\n\n${userPrompt}`) <= contextLength(options);
+}
+
+function contextLength(options: OllamaOptions): number {
+  return Number.isFinite(options.num_ctx)
+    ? Math.floor(options.num_ctx as number)
+    : OLLAMA_CONTEXT_LENGTH;
+}
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / ESTIMATED_CHARS_PER_TOKEN);
+}
+
 function buildClassifierPrompt(input: ClassifierInput): string {
   const lines = [
     "Classify the final message in the normalized conversation window below.",
     "Earlier messages are context only; do not classify them as new requests.",
+    "The target user message is the final message in the window.",
     "Use attachments as metadata only.",
     "Return JSON only.",
     "",
@@ -341,9 +420,6 @@ function buildClassifierPrompt(input: ClassifierInput): string {
   }
 
   lines.push(
-    "Target user message:",
-    input.text,
-    "",
     "Attachments:",
   );
 

@@ -80,6 +80,37 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.equal(aborted.length, 6);
 });
 
+test("terminal preflight returns without waiting for aborted classifier runs to settle", async () => {
+  let settledAfterAbort = false;
+
+  const result = await classifyOpenClassifyInput(
+    { conversation_window: [{ role: "user", text: "thanks" }] },
+    {
+      runClassifier(name, _input, signal) {
+        if (name === "preflight") {
+          return Promise.resolve({ terminality: "terminal", awk: "You're welcome." });
+        }
+
+        return new Promise((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              setTimeout(() => {
+                settledAfterAbort = true;
+                resolve(results[name]);
+              }, 10);
+            },
+            { once: true },
+          );
+        });
+      },
+    },
+  );
+
+  assert.equal(result.status, "terminal");
+  assert.equal(settledAfterAbort, false);
+});
+
 test("unable_to_determine behaves like continue", async () => {
   const result = await classifyOpenClassifyInput(
     { conversation_window: [{ role: "user", text: "ambiguous" }] },

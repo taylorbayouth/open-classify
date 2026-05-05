@@ -398,6 +398,10 @@ function renderPipeline(result) {
   setRunState(result.status === "terminal" ? "terminal" : "complete");
   showAwk(result.status === "terminal" ? result.preflight.awk : result.awk);
 
+  if (result.status === "terminal") {
+    cancelUnfinishedClassifiers();
+  }
+
   hashes.hidden = false;
   hashes.innerHTML = `
     <div><em>message_hash</em>${escapeHtml(result.request.message_hash)}</div>
@@ -406,6 +410,26 @@ function renderPipeline(result) {
 
   jsonToggle.hidden = false;
   jsonPanel.textContent = JSON.stringify(result, null, 2);
+}
+
+function cancelUnfinishedClassifiers() {
+  for (const name of state.classifierNames) {
+    if (name === "preflight") {
+      continue;
+    }
+
+    const item = state.classifiers[name];
+    if (!item || !["pending", "running"].includes(item.status)) {
+      continue;
+    }
+
+    state.classifiers[name] = {
+      ...item,
+      status: "canceled",
+      finishedAt: performance.now(),
+    };
+  }
+  renderClassifiers();
 }
 
 function resetClassifiers(status = "pending") {
