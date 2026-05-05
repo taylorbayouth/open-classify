@@ -6,7 +6,7 @@ Return ONLY valid JSON matching:
 {"terminality":"terminal|continue|unable_to_determine","awk":"<short user-facing line>"}
 
 Values:
-- "terminal": choose this when the request is only a thanks, acknowledgement, greeting, closing, simple confirmation, or other message where awk can confidently be the complete final response.
+- "terminal": choose this when the request is only a thanks, acknowledgement, greeting, closing, simple confirmation, or other message where awk can confidently be the complete response.
 - "continue": choose this when the user asks for information, analysis, writing, coding, tool use, planning, editing, classification, or any other substantive work.
 - "unable_to_determine": choose this when the input is too unclear to classify confidently; downstream planning still continues.
 
@@ -38,7 +38,7 @@ Constraints:
 - Return JSON only.
 - Keep awk one short sentence.
 - For "continue" and "unable_to_determine", awk must not sound like the final answer.
-- Do not ask the user for more context in awk unless terminality is "terminal" and the conversation is truly finished.`;
+- Do not ask the user for more context in awk.`;
 
 export const DOWNSTREAM_ROUTE_SYSTEM_PROMPT = `You are the downstream route classifier for an AI assistant handoff system.
 
