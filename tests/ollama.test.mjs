@@ -8,6 +8,7 @@ import {
   OllamaResourceError,
   OLLAMA_CLASSIFIER_ADAPTER_MODELS,
   OLLAMA_BASE_MODEL,
+  OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH,
   OLLAMA_CLASSIFIER_MODELS,
   OLLAMA_CONTEXT_LENGTH,
   OLLAMA_DEFAULT_HOST,
@@ -34,6 +35,7 @@ const validOutputs = {
 test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_DEFAULT_HOST, "http://localhost:11434");
   assert.equal(OLLAMA_BASE_MODEL, "gemma4:e4b-it-q4_K_M");
+  assert.equal(OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH, 131_072);
   assert.equal(OLLAMA_REQUIRED_PARALLELISM, 7);
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);

@@ -29,7 +29,15 @@ import type {
 
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
+export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
+
+/*
+ * Gemma 4 E4B's native context is 131,072 tokens (128K). The reference local
+ * runtime is deliberately much smaller because Open Classify sends seven
+ * classifiers in parallel on one workstation-class Ollama server. This is the
+ * configured classifier runtime context, not the model's architectural maximum.
+ */
 export const OLLAMA_CONTEXT_LENGTH = 4096;
 export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
@@ -316,11 +324,10 @@ function readVmStatPages(output: string, label: string): number {
 /*
  * Prompt packing policy:
  *
- * The normalizer enforces coarse payload safety. This runner enforces runtime
- * fit. Those are different jobs. A 32k character payload is a perfectly
- * reasonable thing to accept at an API boundary and a perfectly unreasonable
- * thing to shove blindly into a 4096-token local classifier. Boundaries are
- * where optimism goes to become incident review notes.
+ * The normalizer enforces coarse payload safety based on the reference runtime
+ * budget. This runner enforces exact fit for the configured Ollama num_ctx
+ * after the full classifier system prompt, wrapper text, conversation window,
+ * and attachment metadata have been rendered.
  *
  * We intentionally do not truncate message text here. The final message is the
  * thing being classified, and chopping off its tail can change the route,

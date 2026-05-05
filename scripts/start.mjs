@@ -27,7 +27,7 @@ async function main() {
     console.log(`Using existing Ollama server at ${ollamaHost}`);
     await assertOllamaServerConfig();
   } else {
-    console.log("Starting Ollama with OLLAMA_NUM_PARALLEL=7, OLLAMA_MAX_LOADED_MODELS=7, and OLLAMA_CONTEXT_LENGTH=4096");
+    console.log("Starting Ollama with classifier runtime settings: OLLAMA_NUM_PARALLEL=7, OLLAMA_MAX_LOADED_MODELS=7, OLLAMA_CONTEXT_LENGTH=4096");
     ollamaChild = startOllamaServe();
     await waitForOllama();
     await assertOllamaServerConfig();

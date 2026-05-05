@@ -8,7 +8,26 @@ import type {
   OpenClassifyInput,
 } from "./types.js";
 
-const TEXT_MAX_CHARS = 32_000;
+/*
+ * Conversation text budget:
+ *
+ * Gemma 4 E4B supports a native 131,072-token (128K) context window. Open
+ * Classify does not use that full window in the reference local runtime: it
+ * runs seven classifiers in parallel with a configured 4,096-token context. The
+ * largest fixed classifier prompt is security_posture at about 1,748 estimated
+ * tokens using the same 3 chars/token heuristic as the Ollama packer. We round
+ * that up to 2,000 fixed-prompt tokens, reserve roughly 400 tokens for output,
+ * chat-template variance, and estimation error, then spend the remainder on
+ * sanitized conversation text:
+ *
+ *   4,096 - 2,000 - 400 = 1,696 text tokens
+ *   1,696 * 3 chars/token = 5,088 chars
+ *
+ * Use a round 5,000-character API budget. The Ollama runner still validates the
+ * fully rendered prompt for the configured num_ctx and drops older whole
+ * context messages when a caller overrides num_ctx lower.
+ */
+const CONVERSATION_TEXT_MAX_CHARS = 5_000;
 const CONVERSATION_WINDOW_MAX_COUNT = 20;
 const ATTACHMENT_MAX_COUNT = 20;
 const METADATA_STRING_MAX_CHARS = 512;
@@ -143,30 +162,7 @@ function normalizeConversationWindow(
     throw new Error("input.conversation_window must contain at least one message");
   }
 
-  const newestMessages = conversationWindow.slice(-CONVERSATION_WINDOW_MAX_COUNT);
-  const normalized = newestMessages
-    .map((message, index) =>
-      normalizeConversationMessage(
-        message,
-        `input.conversation_window[${conversationWindow.length - newestMessages.length + index}]`,
-      ),
-    )
-    .filter((message, index, messages) => message.text.length > 0 || index === messages.length - 1);
-
-  if (normalized.length === 0 || normalized[normalized.length - 1].text.length === 0) {
-    throw new Error("final conversation_window message is empty after sanitization");
-  }
-  if (
-    normalized[normalized.length - 1].role !== undefined &&
-    normalized[normalized.length - 1].role !== "user"
-  ) {
-    throw new Error("final conversation_window message must have role user");
-  }
-  if (normalized[normalized.length - 1].text.length > TEXT_MAX_CHARS) {
-    throw new RangeError(`final conversation_window message must be ${TEXT_MAX_CHARS} characters or fewer`);
-  }
-
-  return fitWholeMessagesToTextBudget(normalized);
+  return takeNewestWholeMessagesThatFit(conversationWindow);
 }
 
 function normalizeConversationMessage(
@@ -201,26 +197,47 @@ function normalizeConversationMessage(
   return normalized;
 }
 
-function fitWholeMessagesToTextBudget(
-  messages: ConversationMessageInput[],
+function takeNewestWholeMessagesThatFit(
+  conversationWindow: ConversationMessageInput[],
 ): ConversationMessageInput[] {
-  let totalChars = totalMessageChars(messages);
-  let start = 0;
+  const selected: ConversationMessageInput[] = [];
+  let totalChars = 0;
 
-  while (totalChars > TEXT_MAX_CHARS && start < messages.length - 1) {
-    totalChars -= messages[start].text.length;
-    start += 1;
+  for (let index = conversationWindow.length - 1; index >= 0; index -= 1) {
+    const normalized = normalizeConversationMessage(
+      conversationWindow[index],
+      `input.conversation_window[${index}]`,
+    );
+    const isFinalMessage = index === conversationWindow.length - 1;
+
+    if (isFinalMessage) {
+      if (normalized.text.length === 0) {
+        throw new Error("final conversation_window message is empty after sanitization");
+      }
+      if (normalized.role !== undefined && normalized.role !== "user") {
+        throw new Error("final conversation_window message must have role user");
+      }
+      if (normalized.text.length > CONVERSATION_TEXT_MAX_CHARS) {
+        throw new RangeError(
+          `final conversation_window message must be ${CONVERSATION_TEXT_MAX_CHARS} characters or fewer`,
+        );
+      }
+    } else if (normalized.text.length === 0) {
+      continue;
+    }
+
+    if (!isFinalMessage && selected.length >= CONVERSATION_WINDOW_MAX_COUNT) {
+      break;
+    }
+    if (!isFinalMessage && totalChars + normalized.text.length > CONVERSATION_TEXT_MAX_CHARS) {
+      break;
+    }
+
+    selected.push(normalized);
+    totalChars += normalized.text.length;
   }
 
-  if (totalChars > TEXT_MAX_CHARS) {
-    throw new RangeError(`conversation_window text must fit within ${TEXT_MAX_CHARS} characters`);
-  }
-
-  return messages.slice(start);
-}
-
-function totalMessageChars(messages: ConversationMessageInput[]): number {
-  return messages.reduce((total, message) => total + message.text.length, 0);
+  return selected.reverse();
 }
 
 function normalizeClassifierConversationWindow(

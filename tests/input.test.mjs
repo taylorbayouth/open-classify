@@ -114,8 +114,8 @@ test("raw and external_request_id do not affect hashes", () => {
 
 test("enforces payload caps", () => {
   assert.throws(
-    () => normalizeOpenClassifyInput({ conversation_window: [message("a".repeat(32_001))] }),
-    /32000 characters/,
+    () => normalizeOpenClassifyInput({ conversation_window: [message("a".repeat(5_001))] }),
+    /5000 characters/,
   );
   assert.throws(
     () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], attachments: Array(21).fill({}) }),
@@ -237,6 +237,37 @@ test("normalizes conversation windows as whole-message context", () => {
   assert.deepEqual(
     normalized.conversation_window.map((item) => item.text),
     ["old", "meeting with Dave on Tuesday", "remind me at 3 PM"],
+  );
+});
+
+test("drops older whole messages to fit the sanitized text budget", () => {
+  const normalized = normalizeOpenClassifyInput({
+    conversation_window: [
+      message("old"),
+      message("a".repeat(3_000)),
+      message("b".repeat(3_000)),
+      message("final"),
+    ],
+  });
+
+  assert.deepEqual(
+    normalized.conversation_window.map((item) => item.text),
+    ["b".repeat(3_000), "final"],
+  );
+});
+
+test("skips empty context messages before applying the retained message count", () => {
+  const normalized = normalizeOpenClassifyInput({
+    conversation_window: [
+      message("kept"),
+      ...Array.from({ length: 25 }, () => message("\x00 ")),
+      message("final"),
+    ],
+  });
+
+  assert.deepEqual(
+    normalized.conversation_window.map((item) => item.text),
+    ["kept", "final"],
   );
 });
 

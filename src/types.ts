@@ -30,9 +30,10 @@ export interface OpenClassifyInput {
    *
    * Callers should send the best same-thread/same-conversation context they
    * already have. Open Classify classifies only the final message and uses
-   * earlier messages as context. Normalization keeps whole messages, caps the
-   * window to the newest 20 messages, and drops older whole messages when the
-   * classifier payload budget is exceeded. It never slices message text.
+   * earlier messages as context. Normalization walks backward from the final
+   * message, keeps newest whole context messages while the classifier payload
+   * budget allows, and caps the retained window to 20 messages. It never slices
+   * message text.
    */
   conversation_window: ConversationMessageInput[];
   external_request_id?: string;

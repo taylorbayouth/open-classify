@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import os from "node:os";
 
 export const baseModel = "gemma4:e4b-it-q4_K_M";
+export const baseModelNativeContextLength = 131_072;
 export const requiredParallelism = 7;
 export const contextLength = 4096;
 export const minTotalMemoryBytes = 16 * 1024 * 1024 * 1024;
@@ -148,7 +149,8 @@ export async function assertOllamaServerConfig() {
 export function printRuntimeSummary(totalMemoryBytes) {
   console.log(`Memory: ${formatBytes(totalMemoryBytes)} total`);
   console.log(`Required classifier parallelism: ${requiredParallelism}`);
-  console.log(`Required Ollama context length: ${contextLength}`);
+  console.log(`Base model native context length: ${baseModelNativeContextLength}`);
+  console.log(`Configured classifier context length: ${contextLength}`);
   console.log(`Ollama host: ${ollamaHost}`);
   console.log(`Base model: ${baseModel}`);
 }

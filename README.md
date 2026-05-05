@@ -71,17 +71,19 @@ Open Classify preserves `raw` for caller trace/debug use only. It is never hashe
 
 Default payload caps:
 
-- Conversation window: newest 20 whole messages.
-- Sanitized conversation text: 32,000 total characters.
+- Conversation window: newest whole-message suffix, up to 20 retained messages.
+- Sanitized conversation text: 5,000 total characters.
 - Attachments: 20.
 - Metadata strings such as IDs, `source`, `filename`, and `mime_type`: 512 characters.
 - Serialized `raw`: 64 KB.
 
 `filename` and `mime_type` are untrusted declared metadata. Open Classify validates shape and size only. File-byte limits, redaction, extraction, and MIME sniffing belong in downstream tools or adapters that operate outside the classification contract.
 
+The 5,000-character conversation budget is derived from the reference local classifier runtime, not from the model's native maximum. `gemma4:e4b-it-q4_K_M` supports a 131,072-token context, but Open Classify intentionally configures local classifier calls with `num_ctx: 4096` so seven classifiers can run in parallel on one Ollama server. The largest fixed classifier prompt is rounded up to 2,000 estimated tokens, about 400 tokens are reserved for output and rendering variance, and the remaining budget is converted at 3 characters per token, rounded to a simple 5,000-character cap.
+
 ### Hashing And Idempotency
 
-When a caller sends more than 20 messages, Open Classify keeps the newest 20. When the sanitized text budget would be exceeded, it drops older whole messages until the window fits. It never slices message text; the final message is always preserved whole or rejected if it is too large.
+Open Classify walks backward from the final message after sanitization, keeps the newest whole context messages while both the 20-message cap and 5,000-character text budget allow, and skips context messages that become empty after sanitization. It never slices message text; the final message is always preserved whole or rejected if it is too large.
 
 `message_hash` means "same sanitized target message in the same source conversation/thread context."
 
@@ -204,7 +206,7 @@ The `request` field is the normalized request for caller logging and tracing. It
 
 ## Ollama Reference Runtime
 
-Open Classify's reference runtime is Ollama with `gemma4:e4b-it-q4_K_M` as the base model.
+Open Classify's reference runtime is Ollama with `gemma4:e4b-it-q4_K_M` as the base model. That model's native context length is 131,072 tokens; the reference local classifier runtime deliberately uses a smaller configured context length for parallelism and memory predictability.
 
 Use `classifyWithOllama(input)` for the default local runtime:
 
@@ -255,7 +257,7 @@ const result = await classifyWithOllama(input, {
 });
 ```
 
-`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096`, the classifier's system prompt, and a user message containing only the sanitized conversation window plus attachment metadata.
+`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096` for the configured classifier context, the classifier's system prompt, and a user message containing only the sanitized conversation window plus attachment metadata.
 
 Supported Ollama runner options:
 
@@ -309,7 +311,7 @@ ollama serve
 
 The scripts use `OLLAMA_HOST` when set and otherwise target `http://127.0.0.1:11434`. The exported Ollama runner defaults to `http://localhost:11434` unless `host` is provided.
 
-The context length must stay small for classifier traffic. Ollama may choose a very large default context on machines with high VRAM, which can make the base model consume tens of GiB before classification starts.
+The configured classifier context length must stay far below Gemma 4 E4B's native 131,072-token (128K) context for local classifier traffic. Ollama may choose a very large default context on machines with high VRAM, which can make the base model consume tens of GiB before classification starts.
 
 Do not lower Open Classify to a smaller local batch size. If a machine cannot safely run seven classifiers in parallel, it is not a supported Ollama runtime target for this project.
 
