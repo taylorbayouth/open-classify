@@ -7,7 +7,7 @@ import {
   CONTEXT_SUFFICIENCY_VALUES,
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
-  SECURITY_POSTURE_VALUES,
+  SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
   TERMINALITY_VALUES,
   TOOL_FAMILY_VALUES,
@@ -18,7 +18,7 @@ import type {
   ClassifierInput,
   ClassifierName,
   ClassifierOutput,
-  DownstreamRouteResult,
+  RoutingResult,
   MemoryRetrievalQueriesResult,
   MessageAndAttachmentDigestResult,
   OpenClassifyInput,
@@ -26,8 +26,8 @@ import type {
   OpenClassifyResult,
   PreflightResult,
   RunClassifier,
-  SecurityPostureResult,
-  ToolFamilyNeedResult,
+  SecurityResult,
+  ToolsResult,
 } from "./types.js";
 
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
@@ -60,22 +60,22 @@ const execFileAsync = promisify(execFile);
 
 export const OLLAMA_CLASSIFIER_MODELS = {
   preflight: null,
-  downstream_route: null,
+  routing: null,
   context_sufficiency: null,
   memory_retrieval_queries: null,
-  tool_family_need: null,
+  tools: null,
   message_and_attachment_digest: null,
-  security_posture: null,
+  security: null,
 } as const satisfies Record<ClassifierName, string | null>;
 
 export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
   preflight: "open-classify-preflight:v0.1.0",
-  downstream_route: "open-classify-downstream-route:v0.1.0",
+  routing: "open-classify-routing:v0.1.0",
   context_sufficiency: "open-classify-context-sufficiency:v0.1.0",
   memory_retrieval_queries: "open-classify-memory-retrieval-queries:v0.1.0",
-  tool_family_need: "open-classify-tool-family-need:v0.1.0",
+  tools: "open-classify-tools:v0.1.0",
   message_and_attachment_digest: "open-classify-message-and-attachment-digest:v0.1.0",
-  security_posture: "open-classify-security-posture:v0.1.0",
+  security: "open-classify-security:v0.1.0",
 } as const satisfies Record<ClassifierName, string>;
 
 export interface OllamaOptions {
@@ -512,18 +512,18 @@ function validateClassifierOutput(
   switch (name) {
     case "preflight":
       return validatePreflight(value, name, model);
-    case "downstream_route":
-      return validateDownstreamRoute(value, name, model);
+    case "routing":
+      return validateRouting(value, name, model);
     case "context_sufficiency":
       return validateContextSufficiency(value, name, model);
     case "memory_retrieval_queries":
       return validateMemoryRetrievalQueries(value, name, model);
-    case "tool_family_need":
-      return validateToolFamilyNeed(value, name, model);
+    case "tools":
+      return validateTools(value, name, model);
     case "message_and_attachment_digest":
       return validateMessageAndAttachmentDigest(value, name, model);
-    case "security_posture":
-      return validateSecurityPosture(value, name, model);
+    case "security":
+      return validateSecurity(value, name, model);
   }
 }
 
@@ -537,11 +537,11 @@ function validatePreflight(
   return { terminality, awk };
 }
 
-function validateDownstreamRoute(
+function validateRouting(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
-): DownstreamRouteResult {
+): RoutingResult {
   return {
     execution_mode: requireEnum(
       value.execution_mode,
@@ -619,20 +619,26 @@ function validateMemoryRetrievalQueries(
   return { queries };
 }
 
-function validateToolFamilyNeed(
+function validateTools(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
-): ToolFamilyNeedResult {
-  if (!Array.isArray(value.value)) {
-    throwInvalid(name, model, "value must be an array");
+): ToolsResult {
+  if (typeof value.needed !== "boolean") {
+    throwInvalid(name, model, "needed must be a boolean");
   }
-  const selected = value.value.map((item, index) =>
-    requireEnum(item, TOOL_FAMILY_VALUES, name, model, `value[${index}]`),
+  if (!Array.isArray(value.families)) {
+    throwInvalid(name, model, "families must be an array");
+  }
+  const families = value.families.map((item, index) =>
+    requireEnum(item, TOOL_FAMILY_VALUES, name, model, `families[${index}]`),
   );
-  ensureNoDuplicates(selected, name, model, "value");
+  ensureNoDuplicates(families, name, model, "families");
+  if (value.needed !== (families.length > 0)) {
+    throwInvalid(name, model, "needed must match whether families is non-empty");
+  }
 
-  return { value: selected };
+  return { needed: value.needed, families };
 }
 
 function validateMessageAndAttachmentDigest(
@@ -695,30 +701,36 @@ function validateMessageAndAttachmentDigest(
   };
 }
 
-function validateSecurityPosture(
+function validateSecurity(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
-): SecurityPostureResult {
+): SecurityResult {
   if (!Array.isArray(value.signals)) {
     throwInvalid(name, model, "signals must be an array");
   }
 
-  const selected = requireEnum(value.value, SECURITY_POSTURE_VALUES, name, model, "value");
+  const riskLevel = requireEnum(
+    value.risk_level,
+    SECURITY_RISK_LEVEL_VALUES,
+    name,
+    model,
+    "risk_level",
+  );
   const signals = value.signals.map((item, index) =>
     requireEnum(item, SECURITY_SIGNAL_VALUES, name, model, `signals[${index}]`),
   );
   ensureNoDuplicates(signals, name, model, "signals");
 
-  if (selected === "normal" && signals.length > 0) {
-    throwInvalid(name, model, "normal posture must not include signals");
+  if ((riskLevel === "normal" || riskLevel === "unable_to_determine") && signals.length > 0) {
+    throwInvalid(name, model, `${riskLevel} risk_level must not include signals`);
   }
-  if (selected !== "normal" && signals.length === 0) {
-    throwInvalid(name, model, "non-normal posture must include at least one signal");
+  if (riskLevel !== "normal" && riskLevel !== "unable_to_determine" && signals.length === 0) {
+    throwInvalid(name, model, "elevated risk_level must include at least one signal");
   }
 
   return {
-    value: selected,
+    risk_level: riskLevel,
     signals,
     notes: requireString(value.notes, name, model, "notes"),
   };

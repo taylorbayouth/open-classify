@@ -7,7 +7,7 @@ import {
   CONTEXT_SUFFICIENCY_VALUES,
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
-  SECURITY_POSTURE_VALUES,
+  SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
   TERMINALITY_VALUES,
   TOOL_FAMILY_VALUES,
@@ -173,7 +173,7 @@ function metadata(): unknown {
       downstream_model_tier: DOWNSTREAM_MODEL_TIER_VALUES,
       context_sufficiency: CONTEXT_SUFFICIENCY_VALUES,
       tool_family: TOOL_FAMILY_VALUES,
-      security_posture: SECURITY_POSTURE_VALUES,
+      security_risk_level: SECURITY_RISK_LEVEL_VALUES,
       security_signal: SECURITY_SIGNAL_VALUES,
     },
   };

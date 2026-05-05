@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nremind me Friday to send the invoice"},{"role":"assistant","content":"{\"needed\":true,\"families\":[\"project_management\"]}"}]}

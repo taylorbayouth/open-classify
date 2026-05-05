@@ -2,7 +2,7 @@ import type {
   ContextSufficiency,
   DownstreamExecutionMode,
   DownstreamModelTier,
-  SecurityPosture,
+  SecurityRiskLevel,
   SecuritySignal,
   Terminality,
   ToolFamily,
@@ -76,7 +76,7 @@ export interface PreflightResult {
   awk: string;
 }
 
-export interface DownstreamRouteResult {
+export interface RoutingResult {
   execution_mode: DownstreamExecutionMode;
   model_tier: DownstreamModelTier;
 }
@@ -91,8 +91,9 @@ export interface MemoryRetrievalQueriesResult {
   queries: string[];
 }
 
-export interface ToolFamilyNeedResult {
-  value: ToolFamily[];
+export interface ToolsResult {
+  needed: boolean;
+  families: ToolFamily[];
 }
 
 export interface AttachmentDigest {
@@ -108,20 +109,20 @@ export interface MessageAndAttachmentDigestResult {
   attachments: AttachmentDigest[];
 }
 
-export interface SecurityPostureResult {
-  value: SecurityPosture;
+export interface SecurityResult {
+  risk_level: SecurityRiskLevel;
   signals: SecuritySignal[];
   notes: string;
 }
 
 export interface OpenClassifyResult {
   preflight: PreflightResult;
-  downstream_route: DownstreamRouteResult;
+  routing: RoutingResult;
   context_sufficiency: ContextSufficiencyResult;
   memory_retrieval_queries: MemoryRetrievalQueriesResult;
-  tool_family_need: ToolFamilyNeedResult;
+  tools: ToolsResult;
   message_and_attachment_digest: MessageAndAttachmentDigestResult;
-  security_posture: SecurityPostureResult;
+  security: SecurityResult;
 }
 
 export type ClassifierName = keyof OpenClassifyResult;
@@ -134,19 +135,34 @@ export type RunClassifier = <Name extends ClassifierName>(
   signal: AbortSignal,
 ) => Promise<ClassifierOutput<Name>>;
 
-export interface OpenClassifyTerminalPipelineResult {
-  status: "terminal";
-  request: NormalizedOpenClassifyInput;
-  preflight: PreflightResult;
+export type ClassifierFallbackReason = "error" | "timeout";
+
+export interface ClassifierRunStatus {
+  ok: boolean;
+  source: "model" | "fallback";
+  attempts: number;
+  reason?: ClassifierFallbackReason;
+  error?: string;
 }
 
-export interface OpenClassifyContinuePipelineResult {
-  status: "continue";
+export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRunStatus>>;
+
+export interface OpenClassifyTerminalPipelineResult {
+  decision: "terminal";
+  request: NormalizedOpenClassifyInput;
+  awk: string;
+  preflight: PreflightResult;
+  classifier_status: ClassifierRunStatusMap;
+}
+
+export interface OpenClassifyRoutePipelineResult {
+  decision: "route";
   request: NormalizedOpenClassifyInput;
   awk: string;
   classifiers: OpenClassifyResult;
+  classifier_status: ClassifierRunStatusMap;
 }
 
 export type OpenClassifyPipelineResult =
   | OpenClassifyTerminalPipelineResult
-  | OpenClassifyContinuePipelineResult;
+  | OpenClassifyRoutePipelineResult;

@@ -23,20 +23,20 @@ import {
 
 const validOutputs = {
   preflight: { terminality: "continue", awk: "Let me check." },
-  downstream_route: { execution_mode: "tool_assisted", model_tier: "local_strong" },
+  routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
   context_sufficiency: {
     value: "self_contained",
     missing_context: [],
     relevant_context_summary: "",
   },
   memory_retrieval_queries: { queries: ["user review preferences"] },
-  tool_family_need: { value: ["workspace"] },
+  tools: { needed: true, families: ["workspace"] },
   message_and_attachment_digest: {
     slug: "review_request",
     summary: "The user wants a review.",
     attachments: [],
   },
-  security_posture: { value: "normal", signals: [], notes: "No notable risk." },
+  security: { risk_level: "normal", signals: [], notes: "No notable risk." },
 };
 
 test("exports Ollama default runtime identity", () => {
@@ -63,14 +63,14 @@ test("discovers classifier adapters from model files incrementally", async () =>
       join(root, "preflight", OLLAMA_ADAPTER_MODEL_FILE),
       "# first non-empty non-comment line wins\nopen-classify-preflight:v0.1.0\n",
     );
-    await mkdir(join(root, "security_posture"), { recursive: true });
-    await writeFile(join(root, "security_posture", OLLAMA_ADAPTER_MODEL_FILE), "\n");
+    await mkdir(join(root, "security"), { recursive: true });
+    await writeFile(join(root, "security", OLLAMA_ADAPTER_MODEL_FILE), "\n");
 
     const models = discoverOllamaClassifierAdapterModels(root);
 
     assert.equal(models.preflight, "open-classify-preflight:v0.1.0");
-    assert.equal(models.security_posture, null);
-    assert.equal(models.downstream_route, null);
+    assert.equal(models.security, null);
+    assert.equal(models.routing, null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -97,7 +97,7 @@ test("createOllamaClassifierRunner falls back to base model for missing adapter 
             content: JSON.stringify(
               body.model === "open-classify-preflight:v0.1.0"
                 ? validOutputs.preflight
-                : validOutputs.downstream_route,
+                : validOutputs.routing,
             ),
           },
         });
@@ -105,7 +105,7 @@ test("createOllamaClassifierRunner falls back to base model for missing adapter 
     });
 
     await runner("preflight", classifierInput(), new AbortController().signal);
-    await runner("downstream_route", classifierInput(), new AbortController().signal);
+    await runner("routing", classifierInput(), new AbortController().signal);
 
     assert.equal(calls[0].model, "open-classify-preflight:v0.1.0");
     assert.equal(calls[1].model, OLLAMA_BASE_MODEL);
@@ -319,20 +319,20 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
     skipResourceCheck: true,
     fetch: async () =>
       jsonResponse({
-        message: { content: JSON.stringify({ value: ["workspace", "workspace"] }) },
+        message: { content: JSON.stringify({ needed: true, families: ["workspace", "workspace"] }) },
       }),
   });
 
   await assert.rejects(
     runner(
-      "tool_family_need",
+      "tools",
       classifierInput(),
       new AbortController().signal,
     ),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "tool_family_need" &&
-      /value must not include duplicates/.test(error.message),
+      error.classifier === "tools" &&
+      /families must not include duplicates/.test(error.message),
   );
 });
 
@@ -364,15 +364,15 @@ test("createOllamaClassifierRunner validates digest contract", async () => {
   );
 });
 
-test("createOllamaClassifierRunner validates security posture consistency", async () => {
+test("createOllamaClassifierRunner validates security risk-level consistency", async () => {
   const runner = createOllamaClassifierRunner({
     skipResourceCheck: true,
     fetch: async () =>
       jsonResponse({
         message: {
           content: JSON.stringify({
-            value: "normal",
-            signals: ["system_prompt_probe"],
+            risk_level: "normal",
+            signals: ["instruction_attack"],
             notes: "Conflicting output.",
           }),
         },
@@ -381,14 +381,14 @@ test("createOllamaClassifierRunner validates security posture consistency", asyn
 
   await assert.rejects(
     runner(
-      "security_posture",
+      "security",
       classifierInput(),
       new AbortController().signal,
     ),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "security_posture" &&
-      /normal posture must not include signals/.test(error.message),
+      error.classifier === "security" &&
+      /normal risk_level must not include signals/.test(error.message),
   );
 });
 
@@ -400,7 +400,7 @@ test("createOllamaClassifierRunner surfaces Ollama errors", async () => {
 
   await assert.rejects(
     runner(
-      "security_posture",
+      "security",
       {
         text: "hello",
         conversation_window: [{ role: "user", text: "hello" }],
@@ -412,7 +412,7 @@ test("createOllamaClassifierRunner surfaces Ollama errors", async () => {
     ),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "security_posture" &&
+      error.classifier === "security" &&
       /model not found/.test(error.message),
   );
 });
@@ -442,7 +442,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     },
   );
 
-  assert.equal(result.status, "continue");
+  assert.equal(result.decision, "route");
   assert.equal(result.request.raw.keep, true);
   assert.deepEqual(result.classifiers, validOutputs);
 });

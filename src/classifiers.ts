@@ -1,11 +1,11 @@
 import type { ClassifierName } from "./types.js";
 import {
   CONTEXT_SUFFICIENCY_SYSTEM_PROMPT,
-  DOWNSTREAM_ROUTE_SYSTEM_PROMPT,
   MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
   MESSAGE_AND_ATTACHMENT_DIGEST_SYSTEM_PROMPT,
   PREFLIGHT_SYSTEM_PROMPT,
-  SECURITY_POSTURE_SYSTEM_PROMPT,
+  ROUTING_SYSTEM_PROMPT,
+  SECURITY_SYSTEM_PROMPT,
   TOOL_FAMILY_NEED_SYSTEM_PROMPT,
 } from "./prompts.js";
 
@@ -21,10 +21,10 @@ export const CLASSIFIERS = {
     purpose: "Determine whether to stop immediately or continue downstream planning.",
     systemPrompt: PREFLIGHT_SYSTEM_PROMPT,
   },
-  downstream_route: {
-    name: "downstream_route",
+  routing: {
+    name: "routing",
     purpose: "Choose the downstream execution lane.",
-    systemPrompt: DOWNSTREAM_ROUTE_SYSTEM_PROMPT,
+    systemPrompt: ROUTING_SYSTEM_PROMPT,
   },
   context_sufficiency: {
     name: "context_sufficiency",
@@ -36,8 +36,8 @@ export const CLASSIFIERS = {
     purpose: "Generate short saved-memory query hints for the downstream assistant.",
     systemPrompt: MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
   },
-  tool_family_need: {
-    name: "tool_family_need",
+  tools: {
+    name: "tools",
     purpose: "Choose broad tool manifest families for downstream exposure.",
     systemPrompt: TOOL_FAMILY_NEED_SYSTEM_PROMPT,
   },
@@ -46,10 +46,10 @@ export const CLASSIFIERS = {
     purpose: "Create a compact digest of the message and attachments.",
     systemPrompt: MESSAGE_AND_ATTACHMENT_DIGEST_SYSTEM_PROMPT,
   },
-  security_posture: {
-    name: "security_posture",
+  security: {
+    name: "security",
     purpose: "Assess prompt injection, exfiltration, and permission boundary risk.",
-    systemPrompt: SECURITY_POSTURE_SYSTEM_PROMPT,
+    systemPrompt: SECURITY_SYSTEM_PROMPT,
   },
 } as const satisfies Record<ClassifierName, ClassifierDefinition>;
 

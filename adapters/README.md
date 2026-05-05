@@ -9,7 +9,7 @@ adapters/
   preflight/
     creative_generation.jsonl
     model.txt
-  downstream_route/
+  routing/
     creative_generation.jsonl
     model.txt
 ```

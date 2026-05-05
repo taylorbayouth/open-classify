@@ -1,28 +1,28 @@
 const DEFAULT_CLASSIFIER_NAMES = [
   "preflight",
-  "downstream_route",
+  "routing",
   "context_sufficiency",
   "memory_retrieval_queries",
-  "tool_family_need",
+  "tools",
   "message_and_attachment_digest",
-  "security_posture",
+  "security",
 ];
 
 const labels = {
   preflight: "Preflight",
-  downstream_route: "Downstream route",
+  routing: "Routing",
   context_sufficiency: "Context sufficiency",
   memory_retrieval_queries: "Memory queries",
-  tool_family_need: "Tool families",
+  tools: "Tools",
   message_and_attachment_digest: "Message digest",
-  security_posture: "Security posture",
+  security: "Security",
 };
 
 const optionKeys = {
   preflight: "terminality",
   context_sufficiency: "context_sufficiency",
-  tool_family_need: "tool_family",
-  security_posture: "security_posture",
+  tools: "tool_family",
+  security: "security_risk_level",
 };
 
 const PHASE_LABELS = {
@@ -400,11 +400,21 @@ function showAwk(value) {
 }
 
 function renderPipeline(result) {
-  setRunState(result.status === "terminal" ? "terminal" : "complete");
-  showAwk(result.status === "terminal" ? result.preflight.awk : result.awk);
+  setRunState(result.decision === "terminal" ? "terminal" : "complete");
+  showAwk(result.decision === "terminal" ? result.preflight.awk : result.awk);
 
-  if (result.status === "terminal") {
+  if (result.decision === "terminal") {
     cancelUnfinishedClassifiers();
+  } else if (result.classifiers) {
+    for (const name of Object.keys(result.classifiers)) {
+      const status = result.classifier_status?.[name];
+      updateClassifier(name, {
+        status: status?.ok === false ? "fallback" : "done",
+        result: result.classifiers[name],
+        error: status?.ok === false ? status.error : null,
+        finishedAt: performance.now(),
+      });
+    }
   }
 
   hashes.hidden = false;
@@ -521,14 +531,14 @@ function updateTickers() {
 }
 
 function renderOptions(name, result) {
-  if (name === "security_posture") {
+  if (name === "security") {
     return `
-      <div class="option-row">${renderEnumOptions("security_posture", result?.value)}</div>
+      <div class="option-row">${renderEnumOptions("security_risk_level", result?.risk_level)}</div>
       <div class="option-row">${renderEnumOptions("security_signal", result?.signals ?? [])}</div>
     `;
   }
 
-  if (name === "downstream_route") {
+  if (name === "routing") {
     return `
       ${renderLabeledEnumOptions("execution", "downstream_execution_mode", result?.execution_mode)}
       ${renderLabeledEnumOptions("model tier", "downstream_model_tier", result?.model_tier)}
@@ -539,8 +549,8 @@ function renderOptions(name, result) {
   if (!key) return "";
 
   const selected =
-    name === "tool_family_need"
-      ? result?.value ?? []
+    name === "tools"
+      ? result?.families ?? []
       : result?.value ?? result?.terminality;
   return `<div class="option-row">${renderEnumOptions(key, selected)}</div>`;
 }
@@ -603,7 +613,11 @@ function renderDetails(name, item) {
     `;
   }
 
-  if (name === "security_posture") {
+  if (name === "tools") {
+    return `<div class="detail muted">needed: ${result.needed ? "true" : "false"}</div>`;
+  }
+
+  if (name === "security") {
     return `<div class="detail muted">${escapeHtml(result.notes)}</div>`;
   }
 

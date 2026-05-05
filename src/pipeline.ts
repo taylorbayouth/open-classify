@@ -1,8 +1,11 @@
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
+  ClassifierFallbackReason,
   ClassifierName,
   ClassifierOutput,
+  ClassifierRunStatus,
+  ClassifierRunStatusMap,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
   OpenClassifyPipelineResult,
@@ -21,38 +24,28 @@ export class OpenClassifyNormalizationError extends Error {
   }
 }
 
-export class OpenClassifyClassifierError extends Error {
-  readonly classifier: ClassifierName;
-  readonly request: NormalizedOpenClassifyInput;
-  readonly cause: unknown;
-
-  constructor(
-    classifier: ClassifierName,
-    request: NormalizedOpenClassifyInput,
-    cause: unknown,
-  ) {
-    super(`${classifier} classifier failed: ${errorMessage(cause)}`);
-    this.name = "OpenClassifyClassifierError";
-    this.classifier = classifier;
-    this.request = request;
-    this.cause = cause;
-  }
-}
-
 export interface ClassifyOptions {
   runClassifier: RunClassifier;
+  classifierTimeoutMs?: number;
+  classifierRetryCount?: number;
 }
+
+export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
+export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
 
 type SettledClassifierResult<Name extends ClassifierName> =
   | {
       ok: true;
       name: Name;
       value: ClassifierOutput<Name>;
+      attempts: number;
     }
   | {
       ok: false;
       name: Name;
       error: unknown;
+      reason: ClassifierFallbackReason;
+      attempts: number;
     };
 
 export async function classifyOpenClassifyInput(
@@ -68,29 +61,41 @@ export async function classifyOpenClassifyInput(
 
   const controller = new AbortController();
   const classifierInput = toClassifierInput(request);
+  const classifierTimeoutMs =
+    options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
+  const classifierRetryCount =
+    options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
   const runs = new Map(
     CLASSIFIER_NAMES.map((name) => [
       name,
-      settleClassifier(
+      runClassifierWithRetry(
         name,
-        options.runClassifier(name, classifierInput, controller.signal),
+        classifierInput,
+        options.runClassifier,
+        controller.signal,
+        classifierTimeoutMs,
+        classifierRetryCount,
       ),
     ]),
   );
 
-  const preflight = await unwrapClassifierResult(
-    runs.get("preflight") as Promise<SettledClassifierResult<"preflight">>,
-    request,
-  );
+  const preflightSettled = await requireClassifierRun(runs, "preflight");
+  const preflight = preflightSettled.ok
+    ? preflightSettled.value
+    : fallbackClassifierOutput("preflight");
 
-  if (preflight.terminality === "terminal") {
+  if (preflightSettled.ok && preflight.terminality === "terminal") {
     controller.abort();
     await settleNonPreflightRuns(runs);
 
     return {
-      status: "terminal",
+      decision: "terminal",
       request,
+      awk: preflight.awk,
       preflight,
+      classifier_status: {
+        preflight: classifierRunStatus(preflightSettled),
+      },
     };
   }
 
@@ -98,59 +103,143 @@ export async function classifyOpenClassifyInput(
     CLASSIFIER_NAMES.map((name) => runs.get(name)!),
   );
 
-  const firstFailure = settled.find((entry) => !entry.ok);
-  if (firstFailure && !firstFailure.ok) {
-    throw new OpenClassifyClassifierError(
-      firstFailure.name,
-      request,
-      firstFailure.error,
-    );
-  }
-
-  const results = settled.map((entry) => (entry as { ok: true; value: unknown }).value);
+  const results = new Map(settled.map((entry) => [entry.name, entry]));
 
   const classifiers: OpenClassifyResult = {
-    preflight: results[0] as PreflightResult,
-    downstream_route: results[1] as OpenClassifyResult["downstream_route"],
-    context_sufficiency: results[2] as OpenClassifyResult["context_sufficiency"],
-    memory_retrieval_queries: results[3] as OpenClassifyResult["memory_retrieval_queries"],
-    tool_family_need: results[4] as OpenClassifyResult["tool_family_need"],
-    message_and_attachment_digest: results[5] as OpenClassifyResult["message_and_attachment_digest"],
-    security_posture: results[6] as OpenClassifyResult["security_posture"],
+    preflight: resultOrFallback(results, "preflight"),
+    routing: resultOrFallback(results, "routing"),
+    context_sufficiency: resultOrFallback(results, "context_sufficiency"),
+    memory_retrieval_queries: resultOrFallback(results, "memory_retrieval_queries"),
+    tools: resultOrFallback(results, "tools"),
+    message_and_attachment_digest: resultOrFallback(results, "message_and_attachment_digest"),
+    security: resultOrFallback(results, "security"),
   };
 
   return {
-    status: "continue",
+    decision: "route",
     request,
     awk: classifiers.preflight.awk,
     classifiers,
+    classifier_status: classifierRunStatuses(settled),
   };
 }
 
-function settleClassifier<Name extends ClassifierName>(
+async function runClassifierWithRetry<Name extends ClassifierName>(
   name: Name,
-  run: Promise<ClassifierOutput<Name>>,
+  input: Parameters<RunClassifier>[1],
+  runClassifier: RunClassifier,
+  rootSignal: AbortSignal,
+  timeoutMs: number,
+  retryCount: number,
 ): Promise<SettledClassifierResult<Name>> {
-  return run.then(
-    (value) => ({ ok: true, name, value }),
-    (error: unknown) => ({ ok: false, name, error }),
-  );
+  let attempts = 0;
+  let lastError: unknown = new Error(`${name} classifier did not run`);
+  let lastReason: ClassifierFallbackReason = "error";
+
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    if (rootSignal.aborted) {
+      break;
+    }
+
+    attempts += 1;
+    const result = await runClassifierAttempt(
+      name,
+      input,
+      runClassifier,
+      rootSignal,
+      timeoutMs,
+    );
+
+    if (result.ok) {
+      return {
+        ok: true,
+        name,
+        value: result.value,
+        attempts,
+      };
+    }
+
+    lastError = result.error;
+    lastReason = result.reason;
+  }
+
+  return {
+    ok: false,
+    name,
+    error: lastError,
+    reason: lastReason,
+    attempts,
+  };
 }
 
-async function unwrapClassifierResult<Name extends ClassifierName>(
-  result: Promise<SettledClassifierResult<Name>> | undefined,
-  request: NormalizedOpenClassifyInput,
-): Promise<ClassifierOutput<Name>> {
+async function runClassifierAttempt<Name extends ClassifierName>(
+  name: Name,
+  input: Parameters<RunClassifier>[1],
+  runClassifier: RunClassifier,
+  rootSignal: AbortSignal,
+  timeoutMs: number,
+): Promise<
+  | { ok: true; value: ClassifierOutput<Name> }
+  | { ok: false; error: unknown; reason: ClassifierFallbackReason }
+> {
+  const controller = new AbortController();
+  const timeoutError = new Error(`${name} classifier timed out after ${timeoutMs}ms`);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let abortAttempt: (() => void) | undefined;
+
+  try {
+    const run = runClassifier(name, input, controller.signal).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({
+        ok: false as const,
+        error,
+        reason: "error" as const,
+      }),
+    );
+    const timedOut = new Promise<{ ok: false; error: unknown; reason: "timeout" }>((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort(timeoutError);
+        resolve({
+          ok: false,
+          error: timeoutError,
+          reason: "timeout",
+        });
+      }, timeoutMs);
+    });
+    const aborted = new Promise<{ ok: false; error: unknown; reason: "error" }>((resolve) => {
+      abortAttempt = (): void => {
+        const error = rootSignal.reason ?? new Error(`${name} classifier aborted`);
+        controller.abort(error);
+        resolve({
+          ok: false,
+          error,
+          reason: "error",
+        });
+      };
+      rootSignal.addEventListener("abort", abortAttempt, { once: true });
+    });
+
+    return await Promise.race([run, timedOut, aborted]);
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+    if (abortAttempt !== undefined) {
+      rootSignal.removeEventListener("abort", abortAttempt);
+    }
+  }
+}
+
+async function requireClassifierRun<Name extends ClassifierName>(
+  runs: ReadonlyMap<ClassifierName, Promise<SettledClassifierResult<ClassifierName>>>,
+  name: Name,
+): Promise<SettledClassifierResult<Name>> {
+  const result = runs.get(name) as Promise<SettledClassifierResult<Name>> | undefined;
   if (result === undefined) {
     throw new Error("internal classifier run missing");
   }
 
-  const settled = await result;
-  if (settled.ok) {
-    return settled.value;
-  }
-
-  throw new OpenClassifyClassifierError(settled.name, request, settled.error);
+  return result;
 }
 
 async function settleNonPreflightRuns(
@@ -168,4 +257,86 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function resultOrFallback<Name extends ClassifierName>(
+  results: ReadonlyMap<ClassifierName, SettledClassifierResult<ClassifierName>>,
+  name: Name,
+): ClassifierOutput<Name> {
+  const settled = results.get(name);
+  if (settled?.ok) {
+    return settled.value as ClassifierOutput<Name>;
+  }
+
+  return fallbackClassifierOutput(name);
+}
+
+function classifierRunStatuses(
+  settled: SettledClassifierResult<ClassifierName>[],
+): ClassifierRunStatusMap {
+  return Object.fromEntries(
+    settled.map((entry) => [entry.name, classifierRunStatus(entry)]),
+  ) as ClassifierRunStatusMap;
+}
+
+function classifierRunStatus(
+  settled: SettledClassifierResult<ClassifierName>,
+): ClassifierRunStatus {
+  if (settled.ok) {
+    return {
+      ok: true,
+      source: "model",
+      attempts: settled.attempts,
+    };
+  }
+
+  return {
+    ok: false,
+    source: "fallback",
+    attempts: settled.attempts,
+    reason: settled.reason,
+    error: errorMessage(settled.error),
+  };
+}
+
+function fallbackClassifierOutput<Name extends ClassifierName>(
+  name: Name,
+): ClassifierOutput<Name> {
+  switch (name) {
+    case "preflight":
+      return {
+        terminality: "unable_to_determine",
+        awk: "Let me check.",
+      } as unknown as ClassifierOutput<Name>;
+    case "routing":
+      return {
+        execution_mode: "direct",
+        model_tier: "local_strong",
+      } as unknown as ClassifierOutput<Name>;
+    case "context_sufficiency":
+      return {
+        value: "unable_to_determine",
+        missing_context: [],
+        relevant_context_summary: "",
+      } as unknown as ClassifierOutput<Name>;
+    case "memory_retrieval_queries":
+      return { queries: [] } as unknown as ClassifierOutput<Name>;
+    case "tools":
+      return {
+        needed: false,
+        families: [],
+      } as unknown as ClassifierOutput<Name>;
+    case "message_and_attachment_digest":
+      return {
+        slug: "classifier_unavailable",
+        summary: "Classifier unavailable.",
+        attachments: [],
+      } as unknown as ClassifierOutput<Name>;
+    case "security":
+      return {
+        risk_level: "unable_to_determine",
+        signals: [],
+        notes: "Security classifier unavailable.",
+      } as unknown as ClassifierOutput<Name>;
+  }
 }

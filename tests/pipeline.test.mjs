@@ -2,26 +2,25 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   classifyOpenClassifyInput,
-  OpenClassifyClassifierError,
   OpenClassifyNormalizationError,
 } from "../dist/src/pipeline.js";
 
 const results = {
   preflight: { terminality: "continue", awk: "Let me check." },
-  downstream_route: { execution_mode: "tool_assisted", model_tier: "local_strong" },
+  routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
   context_sufficiency: {
     value: "self_contained",
     missing_context: [],
     relevant_context_summary: "",
   },
   memory_retrieval_queries: { queries: ["user review preferences"] },
-  tool_family_need: { value: ["workspace"] },
+  tools: { needed: true, families: ["workspace"] },
   message_and_attachment_digest: {
     slug: "review_request",
     summary: "The user wants a review.",
     attachments: [],
   },
-  security_posture: { value: "normal", signals: [], notes: "No notable risk." },
+  security: { risk_level: "normal", signals: [], notes: "No notable risk." },
 };
 
 test("starts all classifiers concurrently and returns continue result", async () => {
@@ -40,7 +39,7 @@ test("starts all classifiers concurrently and returns continue result", async ()
     },
   );
 
-  assert.equal(result.status, "continue");
+  assert.equal(result.decision, "route");
   assert.deepEqual(started.sort(), Object.keys(results).sort());
   assert.equal(result.awk, "Let me check.");
   assert.equal(result.request.raw.kept, true);
@@ -72,7 +71,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
     },
   );
 
-  assert.equal(result.status, "terminal");
+  assert.equal(result.decision, "terminal");
   assert.deepEqual(result.preflight, {
     terminality: "terminal",
     awk: "Anytime.",
@@ -81,7 +80,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.equal(aborted.length, 6);
 });
 
-test("terminal preflight waits for aborted classifier runs to settle", async () => {
+test("terminal preflight returns without waiting for slow aborted classifiers", async () => {
   const settledAfterAbort = [];
 
   const result = await classifyOpenClassifyInput(
@@ -108,8 +107,8 @@ test("terminal preflight waits for aborted classifier runs to settle", async () 
     },
   );
 
-  assert.equal(result.status, "terminal");
-  assert.equal(settledAfterAbort.length, 6);
+  assert.equal(result.decision, "terminal");
+  assert.equal(settledAfterAbort.length, 0);
 });
 
 test("unable_to_determine behaves like continue", async () => {
@@ -125,7 +124,7 @@ test("unable_to_determine behaves like continue", async () => {
     },
   );
 
-  assert.equal(result.status, "continue");
+  assert.equal(result.decision, "route");
   assert.equal(result.classifiers.preflight.terminality, "unable_to_determine");
 });
 
@@ -148,22 +147,58 @@ test("normalization failure rejects before classifiers start", async () => {
   assert.equal(started, false);
 });
 
-test("classifier failure rejects the whole pipeline", async () => {
-  await assert.rejects(
-    classifyOpenClassifyInput(
-      { conversation_window: [{ role: "user", text: "review this" }] },
-      {
-        async runClassifier(name) {
-          if (name === "security_posture") {
-            throw new Error("model unavailable");
-          }
-          return results[name];
-        },
+test("classifier failure retries once and falls back", async () => {
+  const attempts = {};
+
+  const result = await classifyOpenClassifyInput(
+    { conversation_window: [{ role: "user", text: "review this" }] },
+    {
+      async runClassifier(name) {
+        attempts[name] = (attempts[name] ?? 0) + 1;
+        if (name === "security") {
+          throw new Error("model unavailable");
+        }
+        return results[name];
       },
-    ),
-    (error) =>
-      error instanceof OpenClassifyClassifierError &&
-      error.classifier === "security_posture" &&
-      /model unavailable/.test(error.message),
+    },
   );
+
+  assert.equal(result.decision, "route");
+  assert.equal(attempts.security, 2);
+  assert.deepEqual(result.classifiers.security, {
+    risk_level: "unable_to_determine",
+    signals: [],
+    notes: "Security classifier unavailable.",
+  });
+  assert.equal(result.classifier_status.security.ok, false);
+  assert.equal(result.classifier_status.security.source, "fallback");
+  assert.equal(result.classifier_status.security.attempts, 2);
+  assert.match(result.classifier_status.security.error, /model unavailable/);
+});
+
+test("classifier timeout retries once and falls back even if signal is ignored", async () => {
+  const attempts = {};
+
+  const result = await classifyOpenClassifyInput(
+    { conversation_window: [{ role: "user", text: "review this" }] },
+    {
+      classifierTimeoutMs: 5,
+      async runClassifier(name) {
+        attempts[name] = (attempts[name] ?? 0) + 1;
+        if (name === "routing") {
+          return new Promise(() => {});
+        }
+        return results[name];
+      },
+    },
+  );
+
+  assert.equal(result.decision, "route");
+  assert.equal(attempts.routing, 2);
+  assert.deepEqual(result.classifiers.routing, {
+    execution_mode: "direct",
+    model_tier: "local_strong",
+  });
+  assert.equal(result.classifier_status.routing.ok, false);
+  assert.equal(result.classifier_status.routing.reason, "timeout");
 });

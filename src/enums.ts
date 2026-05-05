@@ -43,27 +43,19 @@ export const TOOL_FAMILY_VALUES = [
 ] as const;
 export type ToolFamily = (typeof TOOL_FAMILY_VALUES)[number];
 
-export const SECURITY_POSTURE_VALUES = [
+export const SECURITY_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
   "high_risk",
+  "unable_to_determine",
 ] as const;
-export type SecurityPosture = (typeof SECURITY_POSTURE_VALUES)[number];
+export type SecurityRiskLevel = (typeof SECURITY_RISK_LEVEL_VALUES)[number];
 
 export const SECURITY_SIGNAL_VALUES = [
-  "instruction_override_attempt",
-  "system_prompt_probe",
-  "tool_exfiltration_attempt",
-  "credential_or_secret_probe",
-  "credential_or_secret_handling",
-  "private_data_exfiltration_risk",
-  "remote_content_injection_risk",
-  "encoded_or_obfuscated_content",
-  "html_or_markdown_injection",
-  "cross_turn_persistence_attempt",
-  "destructive_action_request",
-  "untrusted_code_execution",
-  "bulk_sensitive_action",
-  "permission_boundary_risk",
+  "instruction_attack",
+  "secret_or_private_data_risk",
+  "unsafe_tool_or_action",
+  "untrusted_content_or_code",
+  "injection_or_obfuscation",
 ] as const;
 export type SecuritySignal = (typeof SECURITY_SIGNAL_VALUES)[number];

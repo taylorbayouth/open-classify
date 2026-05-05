@@ -17,7 +17,7 @@ Required field:
 Conversation message fields:
 
 - `text`: message text.
-- `role`: optional message role: `user`, `assistant`, `system`, or `tool`.
+- `role`: optional message role: `user` or `assistant`.
 - `message_id`: provider message or event ID, when available.
 - `timestamp`: source timestamp, preferably ISO-8601 when the caller can provide it.
 - `raw`: opaque provider metadata for caller trace/debug use.
@@ -120,15 +120,15 @@ Pipeline behavior:
 2. Build classifier input with `toClassifierInput(normalized)`, which excludes `raw`.
 3. Start all seven classifiers concurrently.
 4. Treat `preflight` as the gate:
-   - If `preflight.terminality` is `terminal`, abort the other classifiers via `AbortSignal` and return only the preflight result.
-   - If `preflight.terminality` is `continue` or `unable_to_determine`, wait for the other classifiers and return all seven classifier outputs.
-5. If any classifier fails, the pipeline fails as a whole with `OpenClassifyClassifierError`.
+   - If `preflight.terminality` is `terminal`, abort the other classifiers via `AbortSignal` and return `decision: "terminal"`.
+   - If `preflight.terminality` is `continue` or `unable_to_determine`, wait for the other classifiers and return `decision: "route"`.
+5. If a classifier fails or times out, retry it once. If it still fails, return a conservative fallback result and record the failure in `classifier_status`.
 
 Terminal result:
 
 ```json
 {
-  "status": "terminal",
+  "decision": "terminal",
   "request": {
     "conversation_window": [
       {
@@ -141,18 +141,26 @@ Terminal result:
     "message_hash": "...",
     "request_hash": "..."
   },
+  "awk": "Anytime.",
   "preflight": {
     "terminality": "terminal",
     "awk": "Anytime."
+  },
+  "classifier_status": {
+    "preflight": {
+      "ok": true,
+      "source": "model",
+      "attempts": 1
+    }
   }
 }
 ```
 
-Continue result:
+Route result:
 
 ```json
 {
-  "status": "continue",
+  "decision": "route",
   "request": {
     "conversation_window": [
       {
@@ -171,7 +179,7 @@ Continue result:
       "terminality": "continue",
       "awk": "Let me check."
     },
-    "downstream_route": {
+    "routing": {
       "execution_mode": "tool_assisted",
       "model_tier": "local_strong"
     },
@@ -183,8 +191,9 @@ Continue result:
     "memory_retrieval_queries": {
       "queries": []
     },
-    "tool_family_need": {
-      "value": [
+    "tools": {
+      "needed": true,
+      "families": [
         "workspace"
       ]
     },
@@ -193,10 +202,17 @@ Continue result:
       "summary": "The user wants a review.",
       "attachments": []
     },
-    "security_posture": {
-      "value": "normal",
+    "security": {
+      "risk_level": "normal",
       "signals": [],
       "notes": "No notable security risk signals."
+    }
+  },
+  "classifier_status": {
+    "preflight": {
+      "ok": true,
+      "source": "model",
+      "attempts": 1
     }
   }
 }
@@ -240,12 +256,12 @@ The runner also checks an `adapters/` folder by default. Each classifier can opt
 ```txt
 adapters/
   preflight/model.txt
-  downstream_route/model.txt
+  routing/model.txt
   context_sufficiency/model.txt
   memory_retrieval_queries/model.txt
-  tool_family_need/model.txt
+  tools/model.txt
   message_and_attachment_digest/model.txt
-  security_posture/model.txt
+  security/model.txt
 ```
 
 `model.txt` uses the first non-empty, non-comment line:
@@ -276,7 +292,7 @@ You can also set adapters incrementally. Any classifier set to `null` falls back
 const result = await classifyWithOllama(input, {
   models: {
     preflight: "open-classify-preflight:v0.1.0",
-    downstream_route: null
+    routing: null
   }
 });
 ```
@@ -345,12 +361,12 @@ Do not lower Open Classify to a smaller local batch size. If a machine cannot sa
 Open Classify defines seven classifiers:
 
 - `preflight`
-- `downstream_route`
+- `routing`
 - `context_sufficiency`
 - `memory_retrieval_queries`
-- `tool_family_need`
+- `tools`
 - `message_and_attachment_digest`
-- `security_posture`
+- `security`
 
 Each classifier returns JSON only. Confidence scores are implementation details and are not part of the public result shape.
 
@@ -661,7 +677,7 @@ Output:
 }
 ```
 
-## 5. Tool Family Need
+## 5. Tools
 
 Chooses broad tool families that should be exposed to the downstream model.
 
@@ -669,7 +685,8 @@ Chooses broad tool families that should be exposed to the downstream model.
 
 ```json
 {
-  "value": [
+  "needed": true,
+  "families": [
     "workspace",
     "developer_platforms"
   ]
@@ -688,7 +705,7 @@ Multi-select:
 - `project_management`: tasks, tickets, boards, and planning systems.
 - `developer_platforms`: GitHub, GitLab, package registries, CI/CD, cloud, and developer APIs.
 
-An empty array means no tools are needed.
+`needed` is true exactly when `families` is non-empty.
 
 ### Examples
 
@@ -702,7 +719,8 @@ Output:
 
 ```json
 {
-  "value": [
+  "needed": true,
+  "families": [
     "workspace"
   ]
 }
@@ -718,7 +736,8 @@ Output:
 
 ```json
 {
-  "value": [
+  "needed": true,
+  "families": [
     "communications"
   ]
 }
@@ -734,7 +753,8 @@ Output:
 
 ```json
 {
-  "value": [
+  "needed": true,
+  "families": [
     "spreadsheets",
     "web"
   ]
@@ -830,7 +850,7 @@ Output:
 }
 ```
 
-## 7. Security Posture
+## 7. Security
 
 Assesses prompt injection, exfiltration, credential handling, dangerous tool use, and permission boundary risk.
 
@@ -840,43 +860,34 @@ This classifier informs security posture. It does not replace deterministic secu
 
 ```json
 {
-  "value": "suspicious",
+  "risk_level": "suspicious",
   "signals": [
-    "instruction_override_attempt",
-    "system_prompt_probe"
+    "instruction_attack"
   ],
   "notes": "The message asks the assistant to ignore prior instructions and reveal hidden prompts."
 }
 ```
 
-### `value`
+### `risk_level`
 
 Select one:
 
 - `normal`: no notable security risk signals.
 - `suspicious`: possible security risk or ambiguous unsafe intent.
 - `high_risk`: strong prompt injection, exfiltration, unsafe action, or permission boundary risk.
+- `unable_to_determine`: security risk could not be classified.
 
 ### `signals`
 
 Multi-select:
 
-- `instruction_override_attempt`
-- `system_prompt_probe`
-- `tool_exfiltration_attempt`
-- `credential_or_secret_probe`
-- `credential_or_secret_handling`
-- `private_data_exfiltration_risk`
-- `remote_content_injection_risk`
-- `encoded_or_obfuscated_content`
-- `html_or_markdown_injection`
-- `cross_turn_persistence_attempt`
-- `destructive_action_request`
-- `untrusted_code_execution`
-- `bulk_sensitive_action`
-- `permission_boundary_risk`
+- `instruction_attack`
+- `secret_or_private_data_risk`
+- `unsafe_tool_or_action`
+- `untrusted_content_or_code`
+- `injection_or_obfuscation`
 
-Use an empty `signals` array only when `value` is `normal`.
+Use an empty `signals` array when `risk_level` is `normal` or `unable_to_determine`.
 
 ### Examples
 
@@ -890,10 +901,9 @@ Output:
 
 ```json
 {
-  "value": "suspicious",
+  "risk_level": "suspicious",
   "signals": [
-    "instruction_override_attempt",
-    "system_prompt_probe"
+    "instruction_attack"
   ],
   "notes": "The message attempts to override instructions and reveal hidden prompts."
 }
@@ -909,22 +919,22 @@ Output:
 
 ```json
 {
-  "value": "high_risk",
+  "risk_level": "high_risk",
   "signals": [
-    "untrusted_code_execution",
-    "destructive_action_request"
+    "untrusted_content_or_code",
+    "unsafe_tool_or_action"
   ],
   "notes": "The message requests running untrusted code and deleting local files."
 }
 ```
 
-## Full Continue Result Shape
+## Full Route Result Shape
 
 A complete non-terminal pipeline result contains:
 
 ```json
 {
-  "status": "continue",
+  "decision": "route",
   "request": {
     "conversation_window": [
       {
@@ -943,7 +953,7 @@ A complete non-terminal pipeline result contains:
       "terminality": "continue",
       "awk": "Let me check."
     },
-    "downstream_route": {
+    "routing": {
       "execution_mode": "tool_assisted",
       "model_tier": "local_strong"
     },
@@ -955,8 +965,9 @@ A complete non-terminal pipeline result contains:
     "memory_retrieval_queries": {
       "queries": []
     },
-    "tool_family_need": {
-      "value": [
+    "tools": {
+      "needed": true,
+      "families": [
         "workspace"
       ]
     },
@@ -965,8 +976,8 @@ A complete non-terminal pipeline result contains:
       "summary": "The user wants the project reviewed for risk.",
       "attachments": []
     },
-    "security_posture": {
-      "value": "normal",
+    "security": {
+      "risk_level": "normal",
       "signals": [],
       "notes": "No notable security risk signals."
     }
@@ -974,12 +985,12 @@ A complete non-terminal pipeline result contains:
 }
 ```
 
-A terminal result contains `status`, `request`, and `preflight` only.
+A terminal result contains `decision`, `request`, `awk`, `preflight`, and `classifier_status`.
 
 ## Failure Behavior
 
 If normalization fails, the pipeline throws `OpenClassifyNormalizationError` before starting classifiers.
 
-If any classifier fails, the classification pipeline fails as a whole with `OpenClassifyClassifierError`.
+If preflight fails or times out after retry, the pipeline routes with fallback preflight `{ "terminality": "unable_to_determine", "awk": "Let me check." }`.
 
-Integrations should treat failure as a closed condition and avoid automatic downstream prompt assembly, tool exposure, or workflow execution unless an explicit fallback policy is defined.
+If a downstream classifier fails or times out after retry, the pipeline still returns `decision: "route"` with a fallback result for that classifier and `classifier_status` metadata describing the failure.
