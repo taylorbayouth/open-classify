@@ -1,30 +1,19 @@
-# Adapter Discovery
+# Adapter Training Files
 
-Open Classify checks this folder before each Ollama runner is created.
-
-Use one folder per classifier. Each folder can contain JSONL training buckets and, later, an optional `model.txt` file:
+This folder contains append-only JSONL training files, one per classifier:
 
 ```txt
-adapters/
-  preflight/
-    creative_generation.jsonl
-    model.txt
-  routing/
-    creative_generation.jsonl
-    model.txt
+adapters/preflight.jsonl
+adapters/routing.jsonl
+adapters/context_sufficiency.jsonl
+adapters/memory_retrieval_queries.jsonl
+adapters/tools.jsonl
+adapters/message_and_attachment_digest.jsonl
+adapters/security.jsonl
 ```
-
-The `.jsonl` files are scenario buckets. They currently contain one sample row each so the schema and taxonomy are explicit; future training sets can add many rows to the same files.
 
 Each adapter output must match its classifier's schema. Do not train the seven adapters on a combined classifier object.
 
-When an adapter model exists in Ollama, add `model.txt` to that classifier folder. It should contain the Ollama model name for that classifier's adapter. The first non-empty, non-comment line is used.
+Each line is one chat-format training record. Add new examples by appending a single JSON object on a new line.
 
-```txt
-# optional comment
-open-classify-preflight:v0.1.0
-```
-
-Missing classifier folders or `model.txt` files are intentional and safe. The runner falls back to `gemma4:e4b-it-q4_K_M` for those classifiers.
-
-Ollama chat requests select model names, so create/register the adapter as an Ollama model before adding the `model.txt` entry.
+Runtime model selection is configured separately in `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.

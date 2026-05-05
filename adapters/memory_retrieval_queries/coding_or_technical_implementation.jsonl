@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nadd a React settings panel with save and cancel buttons"},{"role":"assistant","content":"{\"queries\":[]}"}]}

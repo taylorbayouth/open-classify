@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\ncalculate the conversion rate from 200 visitors and 12 sales"},{"role":"assistant","content":"{\"queries\":[]}"}]}

@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nwrite a haiku about cars"},{"role":"assistant","content":"{\"slug\":\"write_haiku_about_cars\",\"summary\":\"The user asks for a haiku poem about cars.\",\"attachments\":[]}"}]}

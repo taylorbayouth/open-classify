@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,10 +8,9 @@ import {
   classifyWithOllama,
   createOllamaClassifierRunner,
   discoverOllamaClassifierAdapterModels,
-  OLLAMA_ADAPTER_MODEL_FILE,
   OllamaClassifierError,
   OllamaResourceError,
-  OLLAMA_DEFAULT_ADAPTER_ROOT,
+  OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
   OLLAMA_CLASSIFIER_ADAPTER_MODELS,
   OLLAMA_BASE_MODEL,
   OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH,
@@ -45,8 +44,7 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH, 131_072);
   assert.equal(OLLAMA_REQUIRED_PARALLELISM, 7);
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
-  assert.equal(OLLAMA_DEFAULT_ADAPTER_ROOT, "adapters");
-  assert.equal(OLLAMA_ADAPTER_MODEL_FILE, "model.txt");
+  assert.equal(OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG, "adapter-models.json");
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
   assert.equal(
@@ -55,18 +53,16 @@ test("exports Ollama default runtime identity", () => {
   );
 });
 
-test("discovers classifier adapters from model files incrementally", async () => {
+test("discovers classifier adapters from JSON config incrementally", async () => {
   const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
+  const configPath = join(root, "adapter-models.json");
   try {
-    await mkdir(join(root, "preflight"), { recursive: true });
-    await writeFile(
-      join(root, "preflight", OLLAMA_ADAPTER_MODEL_FILE),
-      "# first non-empty non-comment line wins\nopen-classify-preflight:v0.1.0\n",
-    );
-    await mkdir(join(root, "security"), { recursive: true });
-    await writeFile(join(root, "security", OLLAMA_ADAPTER_MODEL_FILE), "\n");
+    await writeFile(configPath, JSON.stringify({
+      preflight: "open-classify-preflight:v0.1.0",
+      security: null,
+    }));
 
-    const models = discoverOllamaClassifierAdapterModels(root);
+    const models = discoverOllamaClassifierAdapterModels(configPath);
 
     assert.equal(models.preflight, "open-classify-preflight:v0.1.0");
     assert.equal(models.security, null);
@@ -76,18 +72,18 @@ test("discovers classifier adapters from model files incrementally", async () =>
   }
 });
 
-test("createOllamaClassifierRunner falls back to base model for missing adapter files", async () => {
+test("createOllamaClassifierRunner falls back to base model for missing adapter config entries", async () => {
   const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
+  const configPath = join(root, "adapter-models.json");
   try {
-    await mkdir(join(root, "preflight"), { recursive: true });
     await writeFile(
-      join(root, "preflight", OLLAMA_ADAPTER_MODEL_FILE),
-      "open-classify-preflight:v0.1.0\n",
+      configPath,
+      JSON.stringify({ preflight: "open-classify-preflight:v0.1.0" }),
     );
 
     const calls = [];
     const runner = createOllamaClassifierRunner({
-      adapterRoot: root,
+      adapterModelConfig: configPath,
       skipResourceCheck: true,
       fetch: async (_url, init) => {
         const body = JSON.parse(init.body);

@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\norder more printer paper from our usual vendor"},{"role":"assistant","content":"{\"slug\":\"order_printer_paper\",\"summary\":\"The user wants more printer paper ordered from the usual vendor.\",\"attachments\":[]}"}]}

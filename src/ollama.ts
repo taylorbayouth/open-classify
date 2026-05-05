@@ -1,7 +1,6 @@
 import { CLASSIFIERS, CLASSIFIER_NAMES } from "./classifiers.js";
 import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   CONTEXT_SUFFICIENCY_VALUES,
@@ -34,8 +33,7 @@ export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
-export const OLLAMA_DEFAULT_ADAPTER_ROOT = "adapters";
-export const OLLAMA_ADAPTER_MODEL_FILE = "model.txt";
+export const OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG = "adapter-models.json";
 
 /*
  * Gemma 4 E4B's native context is 131,072 tokens (128K). The reference local
@@ -87,7 +85,7 @@ export interface OllamaOptions {
 
 export interface OllamaClassifierRunnerConfig {
   host?: string;
-  adapterRoot?: string;
+  adapterModelConfig?: string;
   models?: Partial<Record<ClassifierName, string | null>>;
   options?: OllamaOptions;
   fetch?: typeof fetch;
@@ -147,7 +145,7 @@ export function createOllamaClassifierRunner(
   const host = trimTrailingSlash(config.host ?? OLLAMA_DEFAULT_HOST);
   const fetchImpl = config.fetch ?? fetch;
   const models = {
-    ...discoverOllamaClassifierAdapterModels(config.adapterRoot),
+    ...discoverOllamaClassifierAdapterModels(config.adapterModelConfig),
     ...config.models,
   };
   const options = {
@@ -178,17 +176,29 @@ export function createOllamaClassifierRunner(
 }
 
 export function discoverOllamaClassifierAdapterModels(
-  adapterRoot = OLLAMA_DEFAULT_ADAPTER_ROOT,
+  configPath = OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
 ): Record<ClassifierName, string | null> {
   const models: Record<ClassifierName, string | null> = { ...OLLAMA_CLASSIFIER_MODELS };
-  if (!isDirectory(adapterRoot)) {
+  if (!isFile(configPath)) {
     return models;
   }
 
-  for (const name of CLASSIFIER_NAMES) {
-    models[name] = readAdapterModelName(
-      join(adapterRoot, name, OLLAMA_ADAPTER_MODEL_FILE),
-    );
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
+    if (!isRecord(parsed)) {
+      return models;
+    }
+
+    for (const name of CLASSIFIER_NAMES) {
+      const model = parsed[name];
+      if (typeof model === "string" && model.trim().length > 0) {
+        models[name] = model.trim();
+      } else if (model === null) {
+        models[name] = null;
+      }
+    }
+  } catch {
+    return models;
   }
 
   return models;
@@ -826,34 +836,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readAdapterModelName(path: string): string | null {
-  if (!isFile(path)) {
-    return null;
-  }
-
-  try {
-    const model = readFileSync(path, "utf8")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.length > 0 && !line.startsWith("#"));
-
-    return model ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
   } catch {
     return false;
   }

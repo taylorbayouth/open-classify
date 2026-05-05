@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\ncreate a project brief for the launch plan"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"local_strong\"}"}]}

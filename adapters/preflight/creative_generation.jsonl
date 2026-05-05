@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nwrite a haiku about cars"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"awk\":\"Let me check.\"}"}]}

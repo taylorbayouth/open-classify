@@ -251,27 +251,21 @@ console.log(OLLAMA_BASE_MODEL);
 console.log(OLLAMA_CLASSIFIER_MODELS.preflight); // null
 ```
 
-The runner also checks an `adapters/` folder by default. Each classifier can opt into an adapter model by placing the Ollama model name in `adapters/<classifier>/model.txt`. Missing folders, missing files, empty files, and unreadable files are treated as `null`, so a partial adapter set falls back to `gemma4:e4b-it-q4_K_M` for the classifiers that are not ready.
+The runner also checks `adapter-models.json` by default. Each classifier can opt into an adapter model by placing the Ollama model name in that file. Missing files, unreadable files, omitted classifiers, and `null` values fall back to `gemma4:e4b-it-q4_K_M`.
 
-```txt
-adapters/
-  preflight/model.txt
-  routing/model.txt
-  context_sufficiency/model.txt
-  memory_retrieval_queries/model.txt
-  tools/model.txt
-  message_and_attachment_digest/model.txt
-  security/model.txt
+```json
+{
+  "preflight": "open-classify-preflight:v0.1.0",
+  "routing": null,
+  "context_sufficiency": null,
+  "memory_retrieval_queries": null,
+  "tools": null,
+  "message_and_attachment_digest": null,
+  "security": null
+}
 ```
 
-`model.txt` uses the first non-empty, non-comment line:
-
-```txt
-# optional comment
-open-classify-preflight:v0.1.0
-```
-
-Ollama chat requests select a model name; they do not attach adapter files directly per request. Create/register each fine-tuned adapter as an Ollama model first, then write that model name into the matching `model.txt`.
+Ollama chat requests select a model name; they do not attach adapter files directly per request. Create/register each fine-tuned adapter as an Ollama model first, then write that model name into `adapter-models.json`.
 
 When fine-tuned adapter models are installed in Ollama, pass the adapter model map:
 
@@ -302,7 +296,7 @@ const result = await classifyWithOllama(input, {
 Supported Ollama runner options:
 
 - `host`: Ollama host. The library default is `http://localhost:11434`.
-- `adapterRoot`: folder to scan for `<classifier>/model.txt`. Defaults to `adapters`.
+- `adapterModelConfig`: JSON file to scan for classifier adapter model names. Defaults to `adapter-models.json`.
 - `models`: partial classifier-to-model map. `null` means use the base model.
 - `options`: Ollama generation options. These override the default `temperature` and `num_ctx`.
 - `fetch`: custom fetch implementation, mainly for tests.

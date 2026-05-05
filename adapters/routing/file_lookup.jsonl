@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nfind the budget spreadsheet in my project files"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_fast\"}"}]}

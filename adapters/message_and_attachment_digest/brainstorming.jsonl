@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nbrainstorm names for a coffee app"},{"role":"assistant","content":"{\"slug\":\"brainstorm_coffee_app_names\",\"summary\":\"The user wants name ideas for a coffee app.\",\"attachments\":[]}"}]}

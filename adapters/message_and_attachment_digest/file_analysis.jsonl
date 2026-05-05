@@ -1,1 +1,0 @@
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nanalyze the attached CSV for revenue trends"},{"role":"assistant","content":"{\"slug\":\"analyze_revenue_csv\",\"summary\":\"The user wants an attached CSV analyzed for revenue trends.\",\"attachments\":[]}"}]}
