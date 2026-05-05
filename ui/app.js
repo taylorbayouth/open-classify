@@ -530,8 +530,8 @@ function renderOptions(name, result) {
 
   if (name === "downstream_route") {
     return `
-      <div class="option-row">${renderEnumOptions("downstream_execution_mode", result?.execution_mode)}</div>
-      <div class="option-row">${renderEnumOptions("downstream_model_tier", result?.model_tier)}</div>
+      ${renderLabeledEnumOptions("execution", "downstream_execution_mode", result?.execution_mode)}
+      ${renderLabeledEnumOptions("model tier", "downstream_model_tier", result?.model_tier)}
     `;
   }
 
@@ -543,6 +543,15 @@ function renderOptions(name, result) {
       ? result?.value ?? []
       : result?.value ?? result?.terminality;
   return `<div class="option-row">${renderEnumOptions(key, selected)}</div>`;
+}
+
+function renderLabeledEnumOptions(label, key, selected) {
+  return `
+    <div class="option-group">
+      <span class="option-label">${escapeHtml(label)}</span>
+      <div class="option-row">${renderEnumOptions(key, selected)}</div>
+    </div>
+  `;
 }
 
 function renderEnumOptions(key, selected) {
@@ -580,12 +589,10 @@ function renderDetails(name, item) {
 
   if (name === "context_sufficiency") {
     const missing = result.missing_context?.length ? result.missing_context.join(", ") : "none";
-    const summary = result.relevant_context_summary?.trim()
-      ? result.relevant_context_summary
-      : "none";
+    const summary = result.relevant_context_summary?.trim();
     return `
       <div class="detail muted">missing_context: ${escapeHtml(missing)}</div>
-      <div class="detail">${escapeHtml(summary)}</div>
+      ${summary ? `<div class="detail context-summary">${escapeHtml(summary)}</div>` : ""}
     `;
   }
 
