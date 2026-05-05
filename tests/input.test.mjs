@@ -12,20 +12,20 @@ test("sanitizes text in the documented order", () => {
 
 test("rejects empty text after sanitization", () => {
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "\uFEFF\x00 \n\t\r" }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("\uFEFF\x00 \n\t\r")] }),
     /empty after sanitization/,
   );
 });
 
 test("rejects unknown top-level fields", () => {
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "hello", provider_payload: {} }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], provider_payload: {} }),
     /provider_payload is not a supported field/,
   );
 });
 
 test("does not preserve original raw text", () => {
-  const normalized = normalizeOpenClassifyInput({ text: "\uFEFF hello\x00 " });
+  const normalized = normalizeOpenClassifyInput({ conversation_window: [message("\uFEFF hello\x00 ")] });
 
   assert.equal(normalized.text, "hello");
   assert.equal("raw_text" in normalized, false);
@@ -34,19 +34,19 @@ test("does not preserve original raw text", () => {
 
 test("message_hash is scoped to source conversation and thread", () => {
   const base = normalizeOpenClassifyInput({
-    text: "same words",
+    conversation_window: [message("same words")],
     source: "slack",
     conversation_id: "C1",
     thread_id: "T1",
   });
   const differentConversation = normalizeOpenClassifyInput({
-    text: "same words",
+    conversation_window: [message("same words")],
     source: "slack",
     conversation_id: "C2",
     thread_id: "T1",
   });
   const differentThread = normalizeOpenClassifyInput({
-    text: "same words",
+    conversation_window: [message("same words")],
     source: "slack",
     conversation_id: "C1",
     thread_id: "T2",
@@ -58,27 +58,30 @@ test("message_hash is scoped to source conversation and thread", () => {
 
 test("request_hash includes event and attachment metadata", () => {
   const base = normalizeOpenClassifyInput({
-    text: "review this",
+    conversation_window: [message("review this", {
+      message_id: "message-a",
+      timestamp: "2026-05-04T12:00:00Z",
+    })],
     source: "email",
     conversation_id: "thread-a",
-    message_id: "message-a",
-    timestamp: "2026-05-04T12:00:00Z",
     attachments: [{ filename: "a.pdf", mime_type: "application/pdf" }],
   });
   const differentMessage = normalizeOpenClassifyInput({
-    text: "review this",
+    conversation_window: [message("review this", {
+      message_id: "message-b",
+      timestamp: "2026-05-04T12:00:00Z",
+    })],
     source: "email",
     conversation_id: "thread-a",
-    message_id: "message-b",
-    timestamp: "2026-05-04T12:00:00Z",
     attachments: [{ filename: "a.pdf", mime_type: "application/pdf" }],
   });
   const differentAttachment = normalizeOpenClassifyInput({
-    text: "review this",
+    conversation_window: [message("review this", {
+      message_id: "message-a",
+      timestamp: "2026-05-04T12:00:00Z",
+    })],
     source: "email",
     conversation_id: "thread-a",
-    message_id: "message-a",
-    timestamp: "2026-05-04T12:00:00Z",
     attachments: [{ filename: "b.pdf", mime_type: "application/pdf" }],
   });
 
@@ -88,20 +91,18 @@ test("request_hash includes event and attachment metadata", () => {
 
 test("raw and external_request_id do not affect hashes", () => {
   const base = normalizeOpenClassifyInput({
-    text: "same event",
+    conversation_window: [message("same event", { message_id: "m" })],
     source: "api",
     conversation_id: "c",
     thread_id: "t",
-    message_id: "m",
     raw: { delivery: "one" },
     attachments: [{ filename: "a.txt", raw: { provider: "one" } }],
   });
   const withDifferentOpaqueMetadata = normalizeOpenClassifyInput({
-    text: "same event",
+    conversation_window: [message("same event", { message_id: "m" })],
     source: "api",
     conversation_id: "c",
     thread_id: "t",
-    message_id: "m",
     external_request_id: "different",
     raw: { delivery: "two" },
     attachments: [{ filename: "a.txt", raw: { provider: "two" } }],
@@ -113,26 +114,26 @@ test("raw and external_request_id do not affect hashes", () => {
 
 test("enforces payload caps", () => {
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "a".repeat(32_001) }),
-    /32000 characters or fewer/,
+    () => normalizeOpenClassifyInput({ conversation_window: [message("a".repeat(32_001))] }),
+    /32000 characters/,
   );
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "hello", attachments: Array(21).fill({}) }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], attachments: Array(21).fill({}) }),
     /20 items or fewer/,
   );
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "hello", source: "s".repeat(513) }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], source: "s".repeat(513) }),
     /512 characters or fewer/,
   );
   assert.throws(
     () => normalizeOpenClassifyInput({
-      text: "hello",
+      conversation_window: [message("hello")],
       attachments: [{ filename: "s".repeat(513) }],
     }),
     /512 characters or fewer/,
   );
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "hello", raw: { value: "x".repeat(65_536) } }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], raw: { value: "x".repeat(65_536) } }),
     /65536 bytes or fewer/,
   );
 });
@@ -141,22 +142,22 @@ test("validates raw as plain JSON-compatible objects", () => {
   const circular = {};
   circular.self = circular;
 
-  assert.throws(() => normalizeOpenClassifyInput({ text: "hello", raw: [] }), /plain object/);
-  assert.throws(() => normalizeOpenClassifyInput({ text: "hello", raw: new Date() }), /plain object/);
-  assert.throws(() => normalizeOpenClassifyInput({ text: "hello", raw: circular }), /circular/);
+  assert.throws(() => normalizeOpenClassifyInput({ conversation_window: [message("hello")], raw: [] }), /plain object/);
+  assert.throws(() => normalizeOpenClassifyInput({ conversation_window: [message("hello")], raw: new Date() }), /plain object/);
+  assert.throws(() => normalizeOpenClassifyInput({ conversation_window: [message("hello")], raw: circular }), /circular/);
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "hello", raw: { missing: undefined } }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], raw: { missing: undefined } }),
     /JSON values/,
   );
   assert.throws(
-    () => normalizeOpenClassifyInput({ text: "hello", attachments: [{ raw: new Map() }] }),
+    () => normalizeOpenClassifyInput({ conversation_window: [message("hello")], attachments: [{ raw: new Map() }] }),
     /plain object/,
   );
 });
 
 test("accepts arbitrary attachment metadata without file contents", () => {
   const normalized = normalizeOpenClassifyInput({
-    text: "inspect these",
+    conversation_window: [message("inspect these")],
     attachments: [
       {
         filename: "photo.webp",
@@ -187,13 +188,14 @@ test("accepts arbitrary attachment metadata without file contents", () => {
 
 test("toClassifierInput strips raw and exposes sanitized text", () => {
   const normalized = normalizeOpenClassifyInput({
-    text: "\uFEFF hello\x00 ",
+    conversation_window: [message("\uFEFF hello\x00 ", {
+      message_id: "M1",
+      timestamp: "2026-05-04T12:00:00Z",
+    })],
     external_request_id: "delivery-1",
     source: "slack",
     conversation_id: "C1",
     thread_id: "T1",
-    message_id: "M1",
-    timestamp: "2026-05-04T12:00:00Z",
     raw: { provider: "metadata" },
     attachments: [
       {
@@ -208,8 +210,63 @@ test("toClassifierInput strips raw and exposes sanitized text", () => {
   const classifierInput = toClassifierInput(normalized);
 
   assert.equal(classifierInput.text, "hello");
+  assert.deepEqual(classifierInput.conversation_window, [
+    {
+      role: "user",
+      text: "hello",
+      message_id: "M1",
+      timestamp: "2026-05-04T12:00:00Z",
+    },
+  ]);
   assert.equal("raw" in classifierInput, false);
   assert.equal("raw" in classifierInput.attachments[0], false);
   assert.equal(classifierInput.external_request_id, "delivery-1");
   assert.equal(classifierInput.attachments[0].filename, "contract.pdf");
 });
+
+test("normalizes conversation windows as whole-message context", () => {
+  const normalized = normalizeOpenClassifyInput({
+    conversation_window: [
+      message("old"),
+      message("meeting with Dave on Tuesday"),
+      message("remind me at 3 PM"),
+    ],
+  });
+
+  assert.equal(normalized.text, "remind me at 3 PM");
+  assert.deepEqual(
+    normalized.conversation_window.map((item) => item.text),
+    ["old", "meeting with Dave on Tuesday", "remind me at 3 PM"],
+  );
+});
+
+test("requires the final message to be a user message when role is supplied", () => {
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [
+          message("what should I do?"),
+          { role: "assistant", text: "Here is a suggestion." },
+        ],
+      }),
+    /must have role user/,
+  );
+});
+
+test("keeps the newest 20 conversation messages", () => {
+  const normalized = normalizeOpenClassifyInput({
+    conversation_window: Array.from({ length: 25 }, (_, index) => message(`message ${index + 1}`)),
+  });
+
+  assert.equal(normalized.conversation_window.length, 20);
+  assert.equal(normalized.conversation_window[0].text, "message 6");
+  assert.equal(normalized.text, "message 25");
+});
+
+function message(text, extra = {}) {
+  return {
+    role: "user",
+    text,
+    ...extra,
+  };
+}

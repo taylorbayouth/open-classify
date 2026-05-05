@@ -17,7 +17,10 @@ import {
 const validOutputs = {
   preflight: { terminality: "continue", awk: "I'll take a look." },
   downstream_route: { value: "tool_harness_answer" },
-  additional_history_need: { value: "current_message_only" },
+  context_sufficiency: {
+    value: "self_contained",
+    missing: [],
+  },
   memory_retrieval_queries: { queries: ["review request"] },
   tool_family_need: { value: ["workspace"] },
   message_and_attachment_digest: {
@@ -35,6 +38,10 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
+  assert.equal(
+    OLLAMA_CLASSIFIER_ADAPTER_MODELS.context_sufficiency,
+    "open-classify-context-sufficiency:v0.1.0",
+  );
 });
 
 test("createOllamaClassifierRunner posts classifier chat request with model override", async () => {
@@ -56,6 +63,7 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
     "preflight",
     {
       text: "hello",
+      conversation_window: [{ role: "user", text: "hello" }],
       attachments: [
         {
           filename: "Welcome.md",
@@ -82,7 +90,8 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.messages[0].role, "system");
   assert.match(body.messages[0].content, /preflight classifier/);
   assert.equal(body.messages[1].role, "user");
-  assert.match(body.messages[1].content, /User message:\nhello/);
+  assert.match(body.messages[1].content, /Message 1 \(target\):/);
+  assert.match(body.messages[1].content, /Target user message:\nhello/);
   assert.match(body.messages[1].content, /filename: Welcome\.md/);
   assert.match(body.messages[1].content, /mime_type: text\/markdown/);
   assert.match(body.messages[1].content, /size_bytes: 203/);
@@ -106,6 +115,7 @@ test("createOllamaClassifierRunner uses base model for null adapter", async () =
     "preflight",
     {
       text: "hello",
+      conversation_window: [{ role: "user", text: "hello" }],
       attachments: [],
       message_hash: "message",
       request_hash: "request",
@@ -130,6 +140,7 @@ test("createOllamaClassifierRunner validates classifier output", async () => {
       "preflight",
       {
         text: "hello",
+        conversation_window: [{ role: "user", text: "hello" }],
         attachments: [],
         message_hash: "message",
         request_hash: "request",
@@ -154,6 +165,7 @@ test("createOllamaClassifierRunner surfaces Ollama errors", async () => {
       "security_posture",
       {
         text: "hello",
+        conversation_window: [{ role: "user", text: "hello" }],
         attachments: [],
         message_hash: "message",
         request_hash: "request",
@@ -169,7 +181,7 @@ test("createOllamaClassifierRunner surfaces Ollama errors", async () => {
 
 test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
   const result = await classifyWithOllama(
-    { text: "review this", raw: { keep: true } },
+    { conversation_window: [{ role: "user", text: "review this" }], raw: { keep: true } },
     {
       skipResourceCheck: true,
       fetch: async (_url, init) => {
@@ -181,7 +193,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
         );
         assert.ok(name);
 
-        assert.match(body.messages[1].content, /User message:\nreview this/);
+        assert.match(body.messages[1].content, /Target user message:\nreview this/);
         assert.doesNotMatch(body.messages[1].content, /"text"/);
         assert.doesNotMatch(body.messages[1].content, /"raw"/);
 
@@ -215,6 +227,7 @@ test("resource check can fail before fetch is called", async () => {
       "preflight",
       {
         text: "hello",
+        conversation_window: [{ role: "user", text: "hello" }],
         attachments: [],
         message_hash: "message",
         request_hash: "request",

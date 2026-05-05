@@ -15,13 +15,15 @@ export const DOWNSTREAM_ROUTE_VALUES = [
 ] as const;
 export type DownstreamRoute = (typeof DOWNSTREAM_ROUTE_VALUES)[number];
 
-export const ADDITIONAL_HISTORY_NEED_VALUES = [
-  "current_message_only",
-  "summary_of_recent_conversation",
-  "full_recent_conversation",
-  "full_extended_conversation",
+export const CONTEXT_SUFFICIENCY_VALUES = [
+  "self_contained",
+  "adjacent_context_helpful",
+  "referential",
+  "incomplete_information",
+  "long_context",
+  "unable_to_determine",
 ] as const;
-export type AdditionalHistoryNeed = (typeof ADDITIONAL_HISTORY_NEED_VALUES)[number];
+export type ContextSufficiency = (typeof CONTEXT_SUFFICIENCY_VALUES)[number];
 
 export const TOOL_FAMILY_VALUES = [
   "workspace",

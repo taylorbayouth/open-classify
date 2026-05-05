@@ -9,7 +9,10 @@ import {
 const results = {
   preflight: { terminality: "continue", awk: "I'll take a look." },
   downstream_route: { value: "tool_harness_answer" },
-  additional_history_need: { value: "current_message_only" },
+  context_sufficiency: {
+    value: "self_contained",
+    missing: [],
+  },
   memory_retrieval_queries: { queries: ["review request"] },
   tool_family_need: { value: ["workspace"] },
   message_and_attachment_digest: {
@@ -24,11 +27,12 @@ test("starts all classifiers concurrently and returns continue result", async ()
   const started = [];
 
   const result = await classifyOpenClassifyInput(
-    { text: "review this", raw: { kept: true } },
+    { conversation_window: [{ role: "user", text: "review this" }], raw: { kept: true } },
     {
       async runClassifier(name, input) {
         started.push(name);
         assert.equal(input.text, "review this");
+        assert.deepEqual(input.conversation_window, [{ role: "user", text: "review this" }]);
         assert.equal("raw" in input, false);
         return results[name];
       },
@@ -46,7 +50,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   const aborted = [];
 
   const result = await classifyOpenClassifyInput(
-    { text: "thanks" },
+    { conversation_window: [{ role: "user", text: "thanks" }] },
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
@@ -78,7 +82,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
 
 test("unable_to_determine behaves like continue", async () => {
   const result = await classifyOpenClassifyInput(
-    { text: "ambiguous" },
+    { conversation_window: [{ role: "user", text: "ambiguous" }] },
     {
       async runClassifier(name) {
         if (name === "preflight") {
@@ -98,7 +102,7 @@ test("normalization failure rejects before classifiers start", async () => {
 
   await assert.rejects(
     classifyOpenClassifyInput(
-      { text: "\x00 " },
+      { conversation_window: [{ role: "user", text: "\x00 " }] },
       {
         async runClassifier() {
           started = true;
@@ -115,7 +119,7 @@ test("normalization failure rejects before classifiers start", async () => {
 test("classifier failure rejects the whole pipeline", async () => {
   await assert.rejects(
     classifyOpenClassifyInput(
-      { text: "review this" },
+      { conversation_window: [{ role: "user", text: "review this" }] },
       {
         async runClassifier(name) {
           if (name === "security_posture") {

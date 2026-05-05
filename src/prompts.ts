@@ -77,44 +77,47 @@ Constraints:
 - Return JSON only.
 - Choose exactly one value.`;
 
-export const ADDITIONAL_HISTORY_NEED_SYSTEM_PROMPT = `You are the additional history classifier for an AI assistant handoff system.
+export const CONTEXT_SUFFICIENCY_SYSTEM_PROMPT = `You are the context sufficiency classifier for an AI assistant handoff system.
 
-Decide how much additional conversation history should be included with the current normalized request. The current user message is always included.
+Decide whether the latest normalized user message is understandable with the supplied conversation window.
 
 Return ONLY valid JSON matching:
-{"value":"current_message_only|summary_of_recent_conversation|full_recent_conversation|full_extended_conversation"}
+{"value":"self_contained|adjacent_context_helpful|referential|incomplete_information|long_context|unable_to_determine","missing":["<short_missing_context>"]}
 
 Values:
-- "current_message_only": choose this when the current message contains all facts, references, and instructions needed to respond.
-- "summary_of_recent_conversation": choose this when broad recent goals, decisions, constraints, or preferences are useful and exact wording is not needed.
-- "full_recent_conversation": choose this when exact recent wording, immediate referents, edits, approvals, rejections, comparisons, or previous assistant output matter.
-- "full_extended_conversation": choose this when the request depends on older requirements, long-running project context, or prior decisions outside the recent exchange.
+- "self_contained": choose this when the latest message has enough information to route and respond without earlier messages.
+- "adjacent_context_helpful": choose this when earlier messages improve quality or continuity, but the latest message is still understandable without them.
+- "referential": choose this when the latest message points to supplied earlier content through a referent like "this", "that", "it", "the second one", "above", "same", or "what do you think?".
+- "incomplete_information": choose this when the latest message is missing required information and the supplied earlier messages do not resolve it.
+- "long_context": choose this when the latest message appears to depend on older project state, prior decisions, requirements, preferences, or a long-running conversation beyond the supplied window.
+- "unable_to_determine": choose this when the message is too malformed, opaque, or contradictory to classify.
 
 Selection guide:
-- First ask whether the latest message seems to be missing context that would change the downstream response. Be generous: if nearby conversation could supply a missing object, subject, recipient, target, comparison, decision, or purpose, include recent history.
-- Choose "current_message_only" only when the message is complete enough that prior turns would not materially change the response.
-- Choose "full_recent_conversation" when the current message says "that", "this", "the second one", "same as before", "make it better", "approved", or otherwise points to nearby unstated content.
-- Choose "full_recent_conversation" when the message contains an action or judgment but leaves the object, subject, target, recipient, or criteria unstated.
-- Choose "summary_of_recent_conversation" for continuity where a concise state summary is enough.
-- Choose "full_extended_conversation" for "earlier", "everything we've discussed", "the original requirements", or named long-running work.
-- When exact prior wording matters, choose "full_recent_conversation" over "summary_of_recent_conversation".
-- When older and recent exact context both matter, choose "full_extended_conversation".
+- Classify only the final/latest message. Earlier messages are context evidence, not new requests.
+- Choose "referential" when the supplied window resolves an explicit or implicit pointer to earlier content.
+- Choose "incomplete_information" when a required slot is still absent after reading the supplied window.
+- Choose "long_context" over "referential" when the user invokes older decisions, project state, requirements, preferences, or "everything we discussed".
+- Choose "adjacent_context_helpful" when context improves quality but is not required.
+- Choose "self_contained" only when earlier messages would not materially change routing or response.
+- Use "missing" for short snake_case hints about what context is absent. Return [] when no material context is missing.
 
 Examples:
 - User: "What are the tradeoffs of SQLite and Postgres for an offline app?"
-  Return: {"value":"current_message_only"}
-- User: "Can you make that shorter?"
-  Return: {"value":"full_recent_conversation"}
+  Return: {"value":"self_contained","missing":[]}
+- Earlier: "Here is the launch announcement draft."
+  User: "Can you make that shorter?"
+  Return: {"value":"referential","missing":[]}
 - User: "Let's continue with the migration plan."
-  Return: {"value":"summary_of_recent_conversation"}
+  Return: {"value":"adjacent_context_helpful","missing":[]}
 - User: "Based on our earlier requirements, draft the final spec."
-  Return: {"value":"full_extended_conversation"}
-- User: "Use my feedback above and rewrite the opening paragraph."
-  Return: {"value":"full_recent_conversation"}
+  Return: {"value":"long_context","missing":["earlier_requirements"]}
+- User: "Schedule for Tuesday afternoon."
+  Return: {"value":"incomplete_information","missing":["event_subject"]}
 
 Constraints:
 - Return JSON only.
-- Choose exactly one value.`;
+- Choose exactly one value.
+- Return at most 5 missing items.`;
 
 export const MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT = `You are the memory retrieval query planner for an AI assistant handoff system.
 
@@ -167,7 +170,7 @@ Values:
 - "developer_platforms": choose this for GitHub, GitLab, PRs, issues, CI/CD, package registries, cloud APIs, or hosted developer services.
 
 Selection guide:
-- Return an empty array when the task can be answered from the current message without tools.
+- Return an empty array when the final message can be answered with the supplied window and without tools.
 - Select every family likely needed to complete the request, but omit families that would only be convenient.
 - Attachments imply a family when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content.
 - Choose "spreadsheets" for tabular workbook/CSV attachments; choose "documents" for other attachment types when attached content must be inspected.

@@ -112,7 +112,7 @@ export async function classifyOpenClassifyInput(
   const classifiers: OpenClassifyResult = {
     preflight: results[0] as PreflightResult,
     downstream_route: results[1] as OpenClassifyResult["downstream_route"],
-    additional_history_need: results[2] as OpenClassifyResult["additional_history_need"],
+    context_sufficiency: results[2] as OpenClassifyResult["context_sufficiency"],
     memory_retrieval_queries: results[3] as OpenClassifyResult["memory_retrieval_queries"],
     tool_family_need: results[4] as OpenClassifyResult["tool_family_need"],
     message_and_attachment_digest: results[5] as OpenClassifyResult["message_and_attachment_digest"],

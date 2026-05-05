@@ -4,7 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import {
-  ADDITIONAL_HISTORY_NEED_VALUES,
+  CONTEXT_SUFFICIENCY_VALUES,
   DOWNSTREAM_ROUTE_VALUES,
   SECURITY_POSTURE_VALUES,
   SECURITY_SIGNAL_VALUES,
@@ -169,7 +169,7 @@ function metadata(): unknown {
     enums: {
       terminality: TERMINALITY_VALUES,
       downstream_route: DOWNSTREAM_ROUTE_VALUES,
-      additional_history_need: ADDITIONAL_HISTORY_NEED_VALUES,
+      context_sufficiency: CONTEXT_SUFFICIENCY_VALUES,
       tool_family: TOOL_FAMILY_VALUES,
       security_posture: SECURITY_POSTURE_VALUES,
       security_signal: SECURITY_SIGNAL_VALUES,

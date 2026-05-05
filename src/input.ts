@@ -3,25 +3,33 @@ import type {
   AttachmentInput,
   ClassifierAttachmentInput,
   ClassifierInput,
+  ConversationMessageInput,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
 } from "./types.js";
 
 const TEXT_MAX_CHARS = 32_000;
+const CONVERSATION_WINDOW_MAX_COUNT = 20;
 const ATTACHMENT_MAX_COUNT = 20;
 const METADATA_STRING_MAX_CHARS = 512;
 const RAW_MAX_BYTES = 64 * 1024;
 
 const INPUT_FIELDS = new Set([
-  "text",
+  "conversation_window",
   "external_request_id",
   "source",
   "conversation_id",
   "thread_id",
+  "raw",
+  "attachments",
+]);
+
+const CONVERSATION_MESSAGE_FIELDS = new Set([
+  "role",
+  "text",
   "message_id",
   "timestamp",
   "raw",
-  "attachments",
 ]);
 
 const ATTACHMENT_FIELDS = new Set([
@@ -56,19 +64,12 @@ export function normalizeOpenClassifyInput(
   assertPlainObject(input, "input");
   rejectUnknownFields(input, INPUT_FIELDS, "input");
 
-  if (typeof input.text !== "string") {
-    throw new TypeError("input.text must be a string");
-  }
-
-  const text = sanitizeText(input.text);
-  if (text.length === 0) {
-    throw new Error("input.text is empty after sanitization");
-  }
-  if (text.length > TEXT_MAX_CHARS) {
-    throw new RangeError(`input.text must be ${TEXT_MAX_CHARS} characters or fewer`);
-  }
+  const conversationWindow = normalizeConversationWindow(input.conversation_window);
+  const target = conversationWindow[conversationWindow.length - 1];
+  const text = target.text;
 
   const normalized: NormalizedOpenClassifyInput = {
+    conversation_window: conversationWindow,
     text,
     attachments: normalizeAttachments(input.attachments),
     message_hash: "",
@@ -79,8 +80,6 @@ export function normalizeOpenClassifyInput(
   copyMetadataString(input, normalized, "source");
   copyMetadataString(input, normalized, "conversation_id");
   copyMetadataString(input, normalized, "thread_id");
-  copyMetadataString(input, normalized, "message_id");
-  copyMetadataString(input, normalized, "timestamp");
 
   if (input.raw !== undefined) {
     normalized.raw = validateRaw(input.raw, "input.raw");
@@ -97,9 +96,12 @@ export function normalizeOpenClassifyInput(
     source: normalized.source,
     conversation_id: normalized.conversation_id,
     thread_id: normalized.thread_id,
-    message_id: normalized.message_id,
-    timestamp: normalized.timestamp,
-    text,
+    conversation_window: normalized.conversation_window.map((message) => ({
+      role: message.role,
+      message_id: message.message_id,
+      timestamp: message.timestamp,
+      text: message.text,
+    })),
     attachments: normalized.attachments.map((attachment) => ({
       filename: attachment.filename,
       size_bytes: attachment.size_bytes,
@@ -117,6 +119,7 @@ export function toClassifierInput(
 
   const classifierInput: ClassifierInput = {
     text: normalized.text,
+    conversation_window: normalizeClassifierConversationWindow(normalized.conversation_window),
     attachments: normalizeClassifierAttachments(normalized.attachments),
     message_hash: normalized.message_hash,
     request_hash: normalized.request_hash,
@@ -126,10 +129,119 @@ export function toClassifierInput(
   copyClassifierString(normalized, classifierInput, "source");
   copyClassifierString(normalized, classifierInput, "conversation_id");
   copyClassifierString(normalized, classifierInput, "thread_id");
-  copyClassifierString(normalized, classifierInput, "message_id");
-  copyClassifierString(normalized, classifierInput, "timestamp");
 
   return classifierInput;
+}
+
+function normalizeConversationWindow(
+  conversationWindow: ConversationMessageInput[] | undefined,
+): ConversationMessageInput[] {
+  if (!Array.isArray(conversationWindow)) {
+    throw new TypeError("input.conversation_window must be an array");
+  }
+  if (conversationWindow.length === 0) {
+    throw new Error("input.conversation_window must contain at least one message");
+  }
+
+  const newestMessages = conversationWindow.slice(-CONVERSATION_WINDOW_MAX_COUNT);
+  const normalized = newestMessages
+    .map((message, index) =>
+      normalizeConversationMessage(
+        message,
+        `input.conversation_window[${conversationWindow.length - newestMessages.length + index}]`,
+      ),
+    )
+    .filter((message, index, messages) => message.text.length > 0 || index === messages.length - 1);
+
+  if (normalized.length === 0 || normalized[normalized.length - 1].text.length === 0) {
+    throw new Error("final conversation_window message is empty after sanitization");
+  }
+  if (
+    normalized[normalized.length - 1].role !== undefined &&
+    normalized[normalized.length - 1].role !== "user"
+  ) {
+    throw new Error("final conversation_window message must have role user");
+  }
+  if (normalized[normalized.length - 1].text.length > TEXT_MAX_CHARS) {
+    throw new RangeError(`final conversation_window message must be ${TEXT_MAX_CHARS} characters or fewer`);
+  }
+
+  return fitWholeMessagesToTextBudget(normalized);
+}
+
+function normalizeConversationMessage(
+  message: ConversationMessageInput,
+  path: string,
+): ConversationMessageInput {
+  assertPlainObject(message, path);
+  rejectUnknownFields(message, CONVERSATION_MESSAGE_FIELDS, path);
+
+  if (typeof message.text !== "string") {
+    throw new TypeError(`${path}.text must be a string`);
+  }
+
+  const normalized: ConversationMessageInput = {
+    text: sanitizeText(message.text),
+  };
+
+  if (message.role !== undefined) {
+    if (!["user", "assistant", "system", "tool"].includes(message.role)) {
+      throw new TypeError(`${path}.role must be user, assistant, system, or tool`);
+    }
+    normalized.role = message.role;
+  }
+
+  copyConversationMessageString(message, normalized, "message_id", path);
+  copyConversationMessageString(message, normalized, "timestamp", path);
+
+  if (message.raw !== undefined) {
+    normalized.raw = validateRaw(message.raw, `${path}.raw`);
+  }
+
+  return normalized;
+}
+
+function fitWholeMessagesToTextBudget(
+  messages: ConversationMessageInput[],
+): ConversationMessageInput[] {
+  let totalChars = totalMessageChars(messages);
+  let start = 0;
+
+  while (totalChars > TEXT_MAX_CHARS && start < messages.length - 1) {
+    totalChars -= messages[start].text.length;
+    start += 1;
+  }
+
+  if (totalChars > TEXT_MAX_CHARS) {
+    throw new RangeError(`conversation_window text must fit within ${TEXT_MAX_CHARS} characters`);
+  }
+
+  return messages.slice(start);
+}
+
+function totalMessageChars(messages: ConversationMessageInput[]): number {
+  return messages.reduce((total, message) => total + message.text.length, 0);
+}
+
+function normalizeClassifierConversationWindow(
+  messages: ConversationMessageInput[],
+): ConversationMessageInput[] {
+  return messages.map((message, index) => {
+    const path = `normalized.conversation_window[${index}]`;
+    assertPlainObject(message, path);
+
+    const classifierMessage: ConversationMessageInput = {
+      text: message.text,
+    };
+
+    if (message.role !== undefined) {
+      classifierMessage.role = message.role;
+    }
+    copyConversationMessageString(message, classifierMessage, "message_id", path);
+    copyConversationMessageString(message, classifierMessage, "timestamp", path);
+
+    return classifierMessage;
+  });
 }
 
 function normalizeAttachments(attachments: AttachmentInput[] | undefined): AttachmentInput[] {
@@ -222,9 +334,7 @@ function copyMetadataString(
     | "external_request_id"
     | "source"
     | "conversation_id"
-    | "thread_id"
-    | "message_id"
-    | "timestamp",
+    | "thread_id",
 ): void {
   const value = source[key];
   if (value === undefined) {
@@ -248,14 +358,31 @@ function copyClassifierString(
     | "external_request_id"
     | "source"
     | "conversation_id"
-    | "thread_id"
-    | "message_id"
-    | "timestamp",
+    | "thread_id",
 ): void {
   const value = source[key];
   if (value !== undefined) {
     target[key] = value;
   }
+}
+
+function copyConversationMessageString(
+  source: ConversationMessageInput,
+  target: ConversationMessageInput,
+  key: "message_id" | "timestamp",
+  path: string,
+): void {
+  const value = source[key];
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "string") {
+    throw new TypeError(`${path}.${key} must be a string`);
+  }
+  if (value.length > METADATA_STRING_MAX_CHARS) {
+    throw new RangeError(`${path}.${key} must be ${METADATA_STRING_MAX_CHARS} characters or fewer`);
+  }
+  target[key] = value;
 }
 
 function copyAttachmentString(

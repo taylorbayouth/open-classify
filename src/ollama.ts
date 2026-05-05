@@ -2,7 +2,7 @@ import { CLASSIFIERS } from "./classifiers.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  ADDITIONAL_HISTORY_NEED_VALUES,
+  CONTEXT_SUFFICIENCY_VALUES,
   DOWNSTREAM_ROUTE_VALUES,
   SECURITY_POSTURE_VALUES,
   SECURITY_SIGNAL_VALUES,
@@ -11,7 +11,7 @@ import {
 } from "./enums.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type {
-  AdditionalHistoryNeedResult,
+  ContextSufficiencyResult,
   ClassifierInput,
   ClassifierName,
   ClassifierOutput,
@@ -39,7 +39,7 @@ const execFileAsync = promisify(execFile);
 export const OLLAMA_CLASSIFIER_MODELS = {
   preflight: null,
   downstream_route: null,
-  additional_history_need: null,
+  context_sufficiency: null,
   memory_retrieval_queries: null,
   tool_family_need: null,
   message_and_attachment_digest: null,
@@ -49,7 +49,7 @@ export const OLLAMA_CLASSIFIER_MODELS = {
 export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
   preflight: "open-classify-preflight:v0.1.0",
   downstream_route: "open-classify-downstream-route:v0.1.0",
-  additional_history_need: "open-classify-additional-history-need:v0.1.0",
+  context_sufficiency: "open-classify-context-sufficiency:v0.1.0",
   memory_retrieval_queries: "open-classify-memory-retrieval-queries:v0.1.0",
   tool_family_need: "open-classify-tool-family-need:v0.1.0",
   message_and_attachment_digest: "open-classify-message-and-attachment-digest:v0.1.0",
@@ -305,16 +305,40 @@ function readVmStatPages(output: string, label: string): number {
 
 function buildClassifierPrompt(input: ClassifierInput): string {
   const lines = [
-    "Classify the latest normalized user message below.",
-    "It may be part of an ongoing conversation.",
-    "Use the user message as the request. Use attachments as metadata only.",
+    "Classify the final message in the normalized conversation window below.",
+    "Earlier messages are context only; do not classify them as new requests.",
+    "Use attachments as metadata only.",
     "Return JSON only.",
     "",
-    "User message:",
+    "Conversation window:",
+  ];
+
+  for (const [index, message] of input.conversation_window.entries()) {
+    const label =
+      index === input.conversation_window.length - 1
+        ? `Message ${index + 1} (target)`
+        : `Message ${index + 1} (context)`;
+    lines.push(`${label}:`);
+    if (message.role !== undefined) {
+      lines.push(`role: ${message.role}`);
+    }
+    if (message.message_id !== undefined) {
+      lines.push(`message_id: ${message.message_id}`);
+    }
+    if (message.timestamp !== undefined) {
+      lines.push(`timestamp: ${message.timestamp}`);
+    }
+    lines.push("text:");
+    lines.push(message.text);
+    lines.push("");
+  }
+
+  lines.push(
+    "Target user message:",
     input.text,
     "",
     "Attachments:",
-  ];
+  );
 
   if (input.attachments.length === 0) {
     lines.push("none");
@@ -373,8 +397,8 @@ function validateClassifierOutput(
       return validatePreflight(value, name, model);
     case "downstream_route":
       return validateDownstreamRoute(value, name, model);
-    case "additional_history_need":
-      return validateAdditionalHistoryNeed(value, name, model);
+    case "context_sufficiency":
+      return validateContextSufficiency(value, name, model);
     case "memory_retrieval_queries":
       return validateMemoryRetrievalQueries(value, name, model);
     case "tool_family_need":
@@ -406,13 +430,18 @@ function validateDownstreamRoute(
   };
 }
 
-function validateAdditionalHistoryNeed(
+function validateContextSufficiency(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
-): AdditionalHistoryNeedResult {
+): ContextSufficiencyResult {
+  const selected = requireEnum(value.value, CONTEXT_SUFFICIENCY_VALUES, name, model, "value");
+  if (!Array.isArray(value.missing) || !value.missing.every((item) => typeof item === "string")) {
+    throwInvalid(name, model, "missing must be an array of strings");
+  }
   return {
-    value: requireEnum(value.value, ADDITIONAL_HISTORY_NEED_VALUES, name, model, "value"),
+    value: selected,
+    missing: value.missing,
   };
 }
 
@@ -517,6 +546,18 @@ function requireString(
 ): string {
   if (typeof value !== "string") {
     throwInvalid(classifier, model, `${path} must be a string`);
+  }
+  return value;
+}
+
+function requireRecord(
+  value: unknown,
+  classifier: ClassifierName,
+  model: string,
+  path: string,
+): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throwInvalid(classifier, model, `${path} must be an object`);
   }
   return value;
 }

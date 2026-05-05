@@ -2,7 +2,7 @@
 
 Open Classify is a fixed classifier contract for preparing downstream AI model handoffs.
 
-The goal is not to answer the user directly. The goal is to decide what the next model needs: how much history, which memories, which tool families, which execution lane, and whether the input carries security risk.
+The goal is not to answer the user directly. The goal is to classify the latest message, using the supplied conversation window as context, so downstream systems can choose the right model, tools, memory lookup, and security posture.
 
 The classifier set is intentionally static. Integrations should not add project-specific classifiers to the core contract.
 
@@ -12,7 +12,17 @@ Callers pass one adapter object into Open Classify. The library normalizes it be
 
 Required field:
 
-- `text`: inbound user message text.
+- `conversation_window`: chronological message window ending with the message to classify.
+
+Conversation message fields:
+
+- `text`: message text.
+- `role`: optional message role: `user`, `assistant`, `system`, or `tool`.
+- `message_id`: provider message or event ID, when available.
+- `timestamp`: source timestamp, preferably ISO-8601 when the caller can provide it.
+- `raw`: opaque provider metadata for caller trace/debug use.
+
+The final item in `conversation_window` is always the classification target. Earlier items are context only. When a role is supplied on the final item, it must be `user`. Callers should send the best same-conversation or same-thread window they already have. Open Classify does not request history from the caller.
 
 Optional fields:
 
@@ -20,8 +30,6 @@ Optional fields:
 - `source`: integration source, such as `slack`, `email`, `web_chat`, `cli`, or `api`.
 - `conversation_id`: broad conversation container, such as a channel ID or DM ID.
 - `thread_id`: narrower thread inside the conversation, when the source has threads.
-- `message_id`: provider message or event ID, when available.
-- `timestamp`: source timestamp, preferably ISO-8601 when the caller can provide it.
 - `raw`: opaque provider metadata for caller trace/debug use.
 - `attachments`: attachment metadata.
 
@@ -38,18 +46,18 @@ Open Classify accepts metadata for any attachment type. It does not read file by
 
 ### Normalization
 
-Open Classify normalizes input before hashing or classification:
+Open Classify normalizes each message before hashing or classification:
 
-1. Remove one leading BOM from `text`.
+1. Remove one leading BOM from message `text`.
 2. Normalize Unicode to NFC.
 3. Remove unsafe ASCII control characters: `\x00-\x08`, `\x0B`, `\x0C`, `\x0E-\x1F`, and `\x7F`.
 4. Preserve tab, newline, and carriage return.
 5. Trim outer whitespace.
-6. Fail if the sanitized text is empty.
+6. Fail if the final message is empty.
 
-The normalized request contains sanitized `text`, `attachments` defaulted to `[]`, `message_hash`, and `request_hash`. Open Classify does not preserve or expose the original raw text.
+The normalized request contains sanitized `conversation_window`, derived target `text`, `attachments` defaulted to `[]`, `message_hash`, and `request_hash`. Open Classify does not preserve or expose original raw message text.
 
-Use `toClassifierInput(normalized)` to build runner input. It includes all normalized fields except `raw` and strips attachment `raw`. LLM classifier prompts should expose only the sanitized user text and attachment metadata; hashes, IDs, source, timestamp, and `raw` are orchestration metadata.
+Use `toClassifierInput(normalized)` to build runner input. It includes all normalized fields except `raw` and strips attachment `raw`. LLM classifier prompts should expose only the sanitized conversation window and attachment metadata; hashes, source IDs, and `raw` are orchestration metadata.
 
 ### Raw Metadata Safety
 
@@ -63,7 +71,8 @@ Open Classify preserves `raw` for caller trace/debug use only. It is never hashe
 
 Default payload caps:
 
-- Sanitized text: 32,000 characters.
+- Conversation window: newest 20 whole messages.
+- Sanitized conversation text: 32,000 total characters.
 - Attachments: 20.
 - Metadata strings such as IDs, `source`, `filename`, and `mime_type`: 512 characters.
 - Serialized `raw`: 64 KB.
@@ -72,7 +81,9 @@ Default payload caps:
 
 ### Hashing And Idempotency
 
-`message_hash` means "same sanitized message in the same source conversation/thread context."
+When a caller sends more than 20 messages, Open Classify keeps the newest 20. When the sanitized text budget would be exceeded, it drops older whole messages until the window fits. It never slices message text; the final message is always preserved whole or rejected if it is too large.
+
+`message_hash` means "same sanitized target message in the same source conversation/thread context."
 
 It is computed from canonical JSON containing:
 
@@ -88,9 +99,7 @@ It is computed from canonical JSON containing:
 - `source`
 - `conversation_id`
 - `thread_id`
-- `message_id`
-- `timestamp`
-- sanitized `text`
+- sanitized `conversation_window` public message fields
 - attachment public metadata: `filename`, `size_bytes`, and `mime_type`
 
 `external_request_id`, top-level `raw`, and attachment `raw` are excluded from both hashes.
@@ -119,6 +128,12 @@ Terminal result:
 {
   "status": "terminal",
   "request": {
+    "conversation_window": [
+      {
+        "role": "user",
+        "text": "Thanks"
+      }
+    ],
     "text": "Thanks",
     "attachments": [],
     "message_hash": "...",
@@ -137,6 +152,12 @@ Continue result:
 {
   "status": "continue",
   "request": {
+    "conversation_window": [
+      {
+        "role": "user",
+        "text": "Can you review this?"
+      }
+    ],
     "text": "Can you review this?",
     "attachments": [],
     "message_hash": "...",
@@ -151,8 +172,9 @@ Continue result:
     "downstream_route": {
       "value": "tool_harness_answer"
     },
-    "additional_history_need": {
-      "value": "current_message_only"
+    "context_sufficiency": {
+      "value": "self_contained",
+      "missing": []
     },
     "memory_retrieval_queries": {
       "queries": []
@@ -178,6 +200,8 @@ Continue result:
 
 The `request` field is the normalized request for caller logging and tracing. It may include `raw`; classifier input must come from `toClassifierInput`, not from serializing `request`.
 
+`context_sufficiency` describes whether the final message was understandable with the supplied window. Open Classify does not request more history; callers decide the window before classification.
+
 ## Ollama Reference Runtime
 
 Open Classify's reference runtime is Ollama with `gemma4:e4b-it-q4_K_M` as the base model.
@@ -188,7 +212,12 @@ Use `classifyWithOllama(input)` for the default local runtime:
 import { classifyWithOllama } from "open-classify";
 
 const result = await classifyWithOllama({
-  text: "Can you review this?",
+  conversation_window: [
+    {
+      role: "user",
+      text: "Can you review this?"
+    }
+  ],
   source: "api"
 });
 ```
@@ -226,7 +255,7 @@ const result = await classifyWithOllama(input, {
 });
 ```
 
-`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096`, the classifier's system prompt, and a user message containing only the latest sanitized text plus attachment metadata.
+`createOllamaClassifierRunner(config)` returns the `runClassifier` function used by the lower-level pipeline API. It sends each classifier to Ollama's `/api/chat` endpoint with `format: "json"`, `stream: false`, temperature `0`, `num_ctx: 4096`, the classifier's system prompt, and a user message containing only the sanitized conversation window plus attachment metadata.
 
 Supported Ollama runner options:
 
@@ -290,7 +319,7 @@ Open Classify defines seven classifiers:
 
 - `preflight`
 - `downstream_route`
-- `additional_history_need`
+- `context_sufficiency`
 - `memory_retrieval_queries`
 - `tool_family_need`
 - `message_and_attachment_digest`
@@ -418,17 +447,20 @@ Output:
 }
 ```
 
-## 3. Additional History Need
+## 3. Context Sufficiency
 
-Decides how much additional conversation history should be included beyond the current user message.
+Decides whether the final message is understandable with the supplied conversation window.
 
-The current message is always included.
+The final message is always the target. Earlier messages are context only.
 
 ### Output
 
 ```json
 {
-  "value": "summary_of_recent_conversation"
+  "value": "referential",
+  "missing": [
+    "referenced_text"
+  ]
 }
 ```
 
@@ -436,12 +468,14 @@ The current message is always included.
 
 Select one:
 
-- `current_message_only`: include no additional conversation history.
-- `summary_of_recent_conversation`: include a compact summary of recent conversation history.
-- `full_recent_conversation`: include a bounded raw recent conversation window.
-- `full_extended_conversation`: include a larger bounded raw conversation window.
+- `self_contained`: the final message has enough information to route and respond without earlier messages.
+- `adjacent_context_helpful`: earlier messages improve quality or continuity, but the final message is understandable on its own.
+- `referential`: the final message points to supplied earlier content with a referent such as "this", "that", "it", "the second one", "above", "same", or "what do you think?"
+- `incomplete_information`: the final message is missing required information and the supplied earlier messages do not resolve it.
+- `long_context`: the final message appears to depend on older project state, prior decisions, requirements, preferences, or a long-running conversation beyond the supplied window.
+- `unable_to_determine`: the message is too malformed, opaque, or contradictory to classify.
 
-The exact token limits for recent and extended windows are implementation details.
+`missing` contains short snake_case hints for the absent context. It is empty when no material context is missing.
 
 ### Examples
 
@@ -455,7 +489,8 @@ Output:
 
 ```json
 {
-  "value": "current_message_only"
+  "value": "self_contained",
+  "missing": []
 }
 ```
 
@@ -469,7 +504,10 @@ Output:
 
 ```json
 {
-  "value": "full_recent_conversation"
+  "value": "referential",
+  "missing": [
+    "referenced_option"
+  ]
 }
 ```
 
@@ -483,7 +521,10 @@ Output:
 
 ```json
 {
-  "value": "full_extended_conversation"
+  "value": "long_context",
+  "missing": [
+    "prior_discussion"
+  ]
 }
 ```
 
@@ -785,6 +826,12 @@ A complete non-terminal pipeline result contains:
 {
   "status": "continue",
   "request": {
+    "conversation_window": [
+      {
+        "role": "user",
+        "text": "Review this project for risk."
+      }
+    ],
     "text": "Review this project for risk.",
     "attachments": [],
     "message_hash": "...",
@@ -799,8 +846,9 @@ A complete non-terminal pipeline result contains:
     "downstream_route": {
       "value": "tool_harness_answer"
     },
-    "additional_history_need": {
-      "value": "full_recent_conversation"
+    "context_sufficiency": {
+      "value": "self_contained",
+      "missing": []
     },
     "memory_retrieval_queries": {
       "queries": []

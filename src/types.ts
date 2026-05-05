@@ -1,11 +1,13 @@
 import type {
-  AdditionalHistoryNeed,
+  ContextSufficiency,
   DownstreamRoute,
   SecurityPosture,
   SecuritySignal,
   Terminality,
   ToolFamily,
 } from "./enums.js";
+
+export type ConversationMessageRole = "user" | "assistant" | "system" | "tool";
 
 export interface AttachmentInput {
   filename?: string;
@@ -14,19 +16,35 @@ export interface AttachmentInput {
   raw?: Record<string, unknown>;
 }
 
-export interface OpenClassifyInput {
+export interface ConversationMessageInput {
+  role?: ConversationMessageRole;
   text: string;
+  message_id?: string;
+  timestamp?: string;
+  raw?: Record<string, unknown>;
+}
+
+export interface OpenClassifyInput {
+  /**
+   * Chronological conversation slice ending with the message to classify.
+   *
+   * Callers should send the best same-thread/same-conversation context they
+   * already have. Open Classify classifies only the final message and uses
+   * earlier messages as context. Normalization keeps whole messages, caps the
+   * window to the newest 20 messages, and drops older whole messages when the
+   * classifier payload budget is exceeded. It never slices message text.
+   */
+  conversation_window: ConversationMessageInput[];
   external_request_id?: string;
   source?: string;
   conversation_id?: string;
   thread_id?: string;
-  message_id?: string;
-  timestamp?: string;
   raw?: Record<string, unknown>;
   attachments?: AttachmentInput[];
 }
 
 export interface NormalizedOpenClassifyInput extends OpenClassifyInput {
+  conversation_window: ConversationMessageInput[];
   text: string;
   attachments: AttachmentInput[];
   message_hash: string;
@@ -41,6 +59,7 @@ export interface ClassifierAttachmentInput {
 
 export interface ClassifierInput {
   text: string;
+  conversation_window: ConversationMessageInput[];
   attachments: ClassifierAttachmentInput[];
   message_hash: string;
   request_hash: string;
@@ -48,8 +67,6 @@ export interface ClassifierInput {
   source?: string;
   conversation_id?: string;
   thread_id?: string;
-  message_id?: string;
-  timestamp?: string;
 }
 
 export interface PreflightResult {
@@ -61,8 +78,9 @@ export interface DownstreamRouteResult {
   value: DownstreamRoute;
 }
 
-export interface AdditionalHistoryNeedResult {
-  value: AdditionalHistoryNeed;
+export interface ContextSufficiencyResult {
+  value: ContextSufficiency;
+  missing: string[];
 }
 
 export interface MemoryRetrievalQueriesResult {
@@ -95,7 +113,7 @@ export interface SecurityPostureResult {
 export interface OpenClassifyResult {
   preflight: PreflightResult;
   downstream_route: DownstreamRouteResult;
-  additional_history_need: AdditionalHistoryNeedResult;
+  context_sufficiency: ContextSufficiencyResult;
   memory_retrieval_queries: MemoryRetrievalQueriesResult;
   tool_family_need: ToolFamilyNeedResult;
   message_and_attachment_digest: MessageAndAttachmentDigestResult;

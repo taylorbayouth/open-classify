@@ -1,7 +1,7 @@
 const DEFAULT_CLASSIFIER_NAMES = [
   "preflight",
   "downstream_route",
-  "additional_history_need",
+  "context_sufficiency",
   "memory_retrieval_queries",
   "tool_family_need",
   "message_and_attachment_digest",
@@ -11,7 +11,7 @@ const DEFAULT_CLASSIFIER_NAMES = [
 const labels = {
   preflight: "Preflight",
   downstream_route: "Downstream route",
-  additional_history_need: "History need",
+  context_sufficiency: "Context sufficiency",
   memory_retrieval_queries: "Memory queries",
   tool_family_need: "Tool families",
   message_and_attachment_digest: "Message digest",
@@ -21,7 +21,7 @@ const labels = {
 const optionKeys = {
   preflight: "terminality",
   downstream_route: "downstream_route",
-  additional_history_need: "additional_history_need",
+  context_sufficiency: "context_sufficiency",
   tool_family_need: "tool_family",
   security_posture: "security_posture",
 };
@@ -193,8 +193,20 @@ async function classify() {
 
 function buildInput() {
   const data = new FormData(form);
-  const input = {
+  const targetMessage = {
+    role: "user",
     text: String(data.get("text") ?? ""),
+  };
+
+  for (const key of ["message_id", "timestamp"]) {
+    const value = String(data.get(key) ?? "").trim();
+    if (value) {
+      targetMessage[key] = value;
+    }
+  }
+
+  const input = {
+    conversation_window: [targetMessage],
     attachments: state.attachments,
   };
 
@@ -203,8 +215,6 @@ function buildInput() {
     "source",
     "conversation_id",
     "thread_id",
-    "message_id",
-    "timestamp",
   ]) {
     const value = String(data.get(key) ?? "").trim();
     if (value) {
@@ -418,6 +428,13 @@ function renderDetails(name, item) {
     return `<div class="query-row">${queries
       .map((q) => `<span class="query">${escapeHtml(q)}</span>`)
       .join("")}</div>`;
+  }
+
+  if (name === "context_sufficiency") {
+    const missing = result.missing?.length ? result.missing.join(", ") : "none";
+    return `
+      <div class="detail muted">missing: ${escapeHtml(missing)}</div>
+    `;
   }
 
   if (name === "message_and_attachment_digest") {
