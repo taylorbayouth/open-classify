@@ -21,7 +21,7 @@ const validOutputs = {
     value: "self_contained",
     missing: [],
   },
-  memory_retrieval_queries: { queries: ["review request"] },
+  memory_retrieval_queries: { queries: ["user review preferences"] },
   tool_family_need: { value: ["workspace"] },
   message_and_attachment_digest: {
     slug: "review_request",
@@ -154,6 +154,106 @@ test("createOllamaClassifierRunner validates classifier output", async () => {
   );
 });
 
+test("createOllamaClassifierRunner validates memory query shape", async () => {
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({
+        message: { content: JSON.stringify({ queries: ["too short"] }) },
+      }),
+  });
+
+  await assert.rejects(
+    runner(
+      "memory_retrieval_queries",
+      classifierInput(),
+      new AbortController().signal,
+    ),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "memory_retrieval_queries" &&
+      /queries\[0\] must be 3 to 10 words/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({
+        message: { content: JSON.stringify({ value: ["workspace", "workspace"] }) },
+      }),
+  });
+
+  await assert.rejects(
+    runner(
+      "tool_family_need",
+      classifierInput(),
+      new AbortController().signal,
+    ),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "tool_family_need" &&
+      /value must not include duplicates/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner validates digest contract", async () => {
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({
+        message: {
+          content: JSON.stringify({
+            slug: "Review Request",
+            summary: "The user wants a review.",
+            attachments: [],
+          }),
+        },
+      }),
+  });
+
+  await assert.rejects(
+    runner(
+      "message_and_attachment_digest",
+      classifierInput(),
+      new AbortController().signal,
+    ),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "message_and_attachment_digest" &&
+      /slug must be snake_case/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner validates security posture consistency", async () => {
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({
+        message: {
+          content: JSON.stringify({
+            value: "normal",
+            signals: ["system_prompt_probe"],
+            notes: "Conflicting output.",
+          }),
+        },
+      }),
+  });
+
+  await assert.rejects(
+    runner(
+      "security_posture",
+      classifierInput(),
+      new AbortController().signal,
+    ),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "security_posture" &&
+      /normal posture must not include signals/.test(error.message),
+  );
+});
+
 test("createOllamaClassifierRunner surfaces Ollama errors", async () => {
   const runner = createOllamaClassifierRunner({
     skipResourceCheck: true,
@@ -246,5 +346,15 @@ function jsonResponse(payload, overrides = {}) {
     async json() {
       return payload;
     },
+  };
+}
+
+function classifierInput() {
+  return {
+    text: "hello",
+    conversation_window: [{ role: "user", text: "hello" }],
+    attachments: [],
+    message_hash: "message",
+    request_hash: "request",
   };
 }

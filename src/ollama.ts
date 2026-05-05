@@ -34,6 +34,13 @@ export const OLLAMA_CONTEXT_LENGTH = 4096;
 export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
+const CONTEXT_MISSING_MAX_COUNT = 5;
+const MEMORY_QUERY_MAX_COUNT = 3;
+const MEMORY_QUERY_MIN_WORDS = 3;
+const MEMORY_QUERY_MAX_WORDS = 10;
+const DIGEST_SUMMARY_MAX_CHARS = 160;
+const DIGEST_SLUG_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
+
 const execFileAsync = promisify(execFile);
 
 export const OLLAMA_CLASSIFIER_MODELS = {
@@ -436,12 +443,14 @@ function validateContextSufficiency(
   model: string,
 ): ContextSufficiencyResult {
   const selected = requireEnum(value.value, CONTEXT_SUFFICIENCY_VALUES, name, model, "value");
-  if (!Array.isArray(value.missing) || !value.missing.every((item) => typeof item === "string")) {
-    throwInvalid(name, model, "missing must be an array of strings");
+  const missing = requireStringArray(value.missing, name, model, "missing");
+  if (missing.length > CONTEXT_MISSING_MAX_COUNT) {
+    throwInvalid(name, model, `missing must contain ${CONTEXT_MISSING_MAX_COUNT} items or fewer`);
   }
+
   return {
     value: selected,
-    missing: value.missing,
+    missing,
   };
 }
 
@@ -450,10 +459,25 @@ function validateMemoryRetrievalQueries(
   name: ClassifierName,
   model: string,
 ): MemoryRetrievalQueriesResult {
-  if (!Array.isArray(value.queries) || !value.queries.every((query) => typeof query === "string")) {
-    throwInvalid(name, model, "queries must be an array of strings");
+  const queries = requireStringArray(value.queries, name, model, "queries").map((query, index) => {
+    const trimmed = query.trim();
+    const wordCount = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
+    if (wordCount < MEMORY_QUERY_MIN_WORDS || wordCount > MEMORY_QUERY_MAX_WORDS) {
+      throwInvalid(
+        name,
+        model,
+        `queries[${index}] must be ${MEMORY_QUERY_MIN_WORDS} to ${MEMORY_QUERY_MAX_WORDS} words`,
+      );
+    }
+    return trimmed;
+  });
+
+  if (queries.length > MEMORY_QUERY_MAX_COUNT) {
+    throwInvalid(name, model, `queries must contain ${MEMORY_QUERY_MAX_COUNT} items or fewer`);
   }
-  return { queries: value.queries };
+  ensureNoDuplicates(queries, name, model, "queries");
+
+  return { queries };
 }
 
 function validateToolFamilyNeed(
@@ -464,11 +488,12 @@ function validateToolFamilyNeed(
   if (!Array.isArray(value.value)) {
     throwInvalid(name, model, "value must be an array");
   }
-  return {
-    value: value.value.map((item, index) =>
-      requireEnum(item, TOOL_FAMILY_VALUES, name, model, `value[${index}]`),
-    ),
-  };
+  const selected = value.value.map((item, index) =>
+    requireEnum(item, TOOL_FAMILY_VALUES, name, model, `value[${index}]`),
+  );
+  ensureNoDuplicates(selected, name, model, "value");
+
+  return { value: selected };
 }
 
 function validateMessageAndAttachmentDigest(
@@ -480,9 +505,14 @@ function validateMessageAndAttachmentDigest(
     throwInvalid(name, model, "attachments must be an array");
   }
 
+  const slug = requireString(value.slug, name, model, "slug");
+  if (!DIGEST_SLUG_PATTERN.test(slug)) {
+    throwInvalid(name, model, "slug must be snake_case");
+  }
+
   return {
-    slug: requireString(value.slug, name, model, "slug"),
-    summary: requireString(value.summary, name, model, "summary"),
+    slug,
+    summary: requireStringMaxLength(value.summary, name, model, "summary", DIGEST_SUMMARY_MAX_CHARS),
     attachments: value.attachments.map((attachment, index) => {
       if (!isRecord(attachment)) {
         throwInvalid(name, model, `attachments[${index}] must be an object`);
@@ -490,7 +520,13 @@ function validateMessageAndAttachmentDigest(
 
       const result = {
         filename: requireString(attachment.filename, name, model, `attachments[${index}].filename`),
-        summary: requireString(attachment.summary, name, model, `attachments[${index}].summary`),
+        summary: requireStringMaxLength(
+          attachment.summary,
+          name,
+          model,
+          `attachments[${index}].summary`,
+          DIGEST_SUMMARY_MAX_CHARS,
+        ),
       };
 
       return {
@@ -529,11 +565,22 @@ function validateSecurityPosture(
     throwInvalid(name, model, "signals must be an array");
   }
 
+  const selected = requireEnum(value.value, SECURITY_POSTURE_VALUES, name, model, "value");
+  const signals = value.signals.map((item, index) =>
+    requireEnum(item, SECURITY_SIGNAL_VALUES, name, model, `signals[${index}]`),
+  );
+  ensureNoDuplicates(signals, name, model, "signals");
+
+  if (selected === "normal" && signals.length > 0) {
+    throwInvalid(name, model, "normal posture must not include signals");
+  }
+  if (selected !== "normal" && signals.length === 0) {
+    throwInvalid(name, model, "non-normal posture must include at least one signal");
+  }
+
   return {
-    value: requireEnum(value.value, SECURITY_POSTURE_VALUES, name, model, "value"),
-    signals: value.signals.map((item, index) =>
-      requireEnum(item, SECURITY_SIGNAL_VALUES, name, model, `signals[${index}]`),
-    ),
+    value: selected,
+    signals,
     notes: requireString(value.notes, name, model, "notes"),
   };
 }
@@ -550,18 +597,6 @@ function requireString(
   return value;
 }
 
-function requireRecord(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): Record<string, unknown> {
-  if (!isRecord(value)) {
-    throwInvalid(classifier, model, `${path} must be an object`);
-  }
-  return value;
-}
-
 function requireNonNegativeSafeInteger(
   value: unknown,
   classifier: ClassifierName,
@@ -572,6 +607,32 @@ function requireNonNegativeSafeInteger(
     throwInvalid(classifier, model, `${path} must be a non-negative safe integer`);
   }
   return value;
+}
+
+function requireStringArray(
+  value: unknown,
+  classifier: ClassifierName,
+  model: string,
+  path: string,
+): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    throwInvalid(classifier, model, `${path} must be an array of strings`);
+  }
+  return value;
+}
+
+function requireStringMaxLength(
+  value: unknown,
+  classifier: ClassifierName,
+  model: string,
+  path: string,
+  maxChars: number,
+): string {
+  const text = requireString(value, classifier, model, path);
+  if (text.length > maxChars) {
+    throwInvalid(classifier, model, `${path} must be ${maxChars} characters or fewer`);
+  }
+  return text;
 }
 
 function requireEnum<const Values extends readonly string[]>(
@@ -597,6 +658,17 @@ function throwInvalid(
     model,
     `${classifier} classifier returned invalid output: ${message}`,
   );
+}
+
+function ensureNoDuplicates(
+  values: string[],
+  classifier: ClassifierName,
+  model: string,
+  path: string,
+): void {
+  if (new Set(values).size !== values.length) {
+    throwInvalid(classifier, model, `${path} must not include duplicates`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

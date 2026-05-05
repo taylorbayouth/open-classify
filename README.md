@@ -530,7 +530,7 @@ Output:
 
 ## 4. Memory Retrieval Queries
 
-Generates short retrieval queries for memory lookup when prior user-specific context would materially improve the downstream response.
+Generates short saved-memory query hints for the downstream assistant. Open Classify does not fetch memory; it only predicts searches the next model may want to run before answering.
 
 ### Output
 
@@ -545,12 +545,13 @@ Generates short retrieval queries for memory lookup when prior user-specific con
 
 ### Rules
 
-- Return an empty array when memory is not needed.
+- Return an empty array when saved memory is not likely to help, or when the supplied conversation window already contains the needed facts.
 - Return at most 3 queries.
 - Each query should be 3 to 10 words.
 - Avoid full sentences unless necessary.
 - Do not answer the user.
 - Do not include secrets or sensitive content verbatim.
+- A named person or project is not enough by itself; emit queries only when the requested action likely needs saved facts about that person or project.
 
 ### Examples
 
@@ -566,6 +567,39 @@ Output:
 {
   "queries": [
     "user client update writing style"
+  ]
+}
+```
+
+Input:
+
+```text
+Earlier: I have a meeting with Dave on Tuesday.
+User: remind me at 3 PM
+```
+
+Output:
+
+```json
+{
+  "queries": []
+}
+```
+
+Input:
+
+```text
+Earlier: I have a meeting with Dave on Tuesday.
+User: remind me at his usual prep time
+```
+
+Output:
+
+```json
+{
+  "queries": [
+    "Dave usual prep time",
+    "user Dave meeting preferences"
   ]
 }
 ```
@@ -690,7 +724,7 @@ This is a digest generator, not a routing decision.
 ### Fields
 
 - `slug`: short stable snake_case identifier for the request.
-- `summary`: short summary of the user's request or intent.
+- `summary`: short summary of the user's request or intent. For referential messages, it may resolve the referenced object from the supplied conversation window when unambiguous.
 - `attachments`: one object per attachment.
 
 Attachment fields:
@@ -699,6 +733,12 @@ Attachment fields:
 - `size_bytes`: file size in bytes, when available.
 - `mime_type`: MIME type, when available.
 - `summary`: concise metadata-only description unless extracted content is explicitly provided by another system.
+
+Rules:
+
+- `slug` must be snake_case.
+- Top-level and attachment summaries must be 160 characters or fewer.
+- Do not invent attachment contents.
 
 ### Examples
 
@@ -727,6 +767,23 @@ Output:
       "summary": "A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."
     }
   ]
+}
+```
+
+Input:
+
+```text
+Earlier: I have a meeting with Dave on Tuesday.
+User: remind me at 3 PM
+```
+
+Output:
+
+```json
+{
+  "slug": "set_meeting_reminder",
+  "summary": "The user wants a 3 PM reminder for their Tuesday meeting with Dave.",
+  "attachments": []
 }
 ```
 

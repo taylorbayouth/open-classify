@@ -33,7 +33,7 @@ export const CLASSIFIERS = {
   },
   memory_retrieval_queries: {
     name: "memory_retrieval_queries",
-    purpose: "Generate short queries for retrieving relevant memory.",
+    purpose: "Generate short saved-memory query hints for the downstream assistant.",
     systemPrompt: MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
   },
   tool_family_need: {

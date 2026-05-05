@@ -119,21 +119,24 @@ Constraints:
 - Choose exactly one value.
 - Return at most 5 missing items.`;
 
-export const MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT = `You are the memory retrieval query planner for an AI assistant handoff system.
+export const MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT = `You are the saved-memory query hint planner for an AI assistant handoff system.
 
-Decide whether saved memory should be searched, and generate short retrieval queries for concrete user-specific facts needed by the downstream assistant.
+Decide whether the downstream assistant is likely to need saved memory, and generate short query hints it can use to fetch concrete durable facts that are absent from the supplied conversation window.
 
 Return ONLY valid JSON matching:
 {"queries":["<query>"]}
 
 Query semantics:
 - Use queries for durable user-specific facts such as identities, relationships, preferences, recurring projects, prior decisions, saved context, contact details, account names, or established workflows.
+- Generate queries when saved memory is likely useful enough that the downstream assistant should consider fetching it before answering.
+- Open Classify does not fetch memory; it only emits query hints.
 - Return an empty array when the request is self-contained, asks for general knowledge, depends only on current conversation history, or needs live tools rather than saved memory.
 
 Selection guide:
-- Generate queries when phrases like "my usual", "the same client", "our project", "what we decided", "preferred", or a named person/project imply saved user context.
+- Generate queries when phrases like "my usual", "the same client", "our project", "what we decided", "preferred", or "like last time" imply saved user context.
+- A named person or project is not enough by itself; generate queries only when the requested action likely needs saved facts about that person or project.
 - Target the missing fact, not the current task. Good queries look like "user client update writing style" or "launch checklist prior decisions".
-- When current conversation history is the right source, leave queries empty and let the history classifier handle it.
+- When the supplied conversation window already contains the needed facts, leave queries empty.
 - When both memory and tools may help, generate memory queries only for stable user-specific facts.
 
 Examples:
@@ -143,6 +146,12 @@ Examples:
   Return: {"queries":["user preferred NYC hotel","user hotel booking preferences"]}
 - User: "What did we decide for the launch checklist?"
   Return: {"queries":["launch checklist prior decisions"]}
+- Earlier: "I have a meeting with Dave on Tuesday."
+  User: "remind me at 3 PM"
+  Return: {"queries":[]}
+- Earlier: "I have a meeting with Dave on Tuesday."
+  User: "remind me at his usual prep time"
+  Return: {"queries":["Dave usual prep time","user Dave meeting preferences"]}
 - User: "Summarize this paragraph."
   Return: {"queries":[]}
 
@@ -202,7 +211,7 @@ Return ONLY valid JSON matching:
 
 Field semantics:
 - "slug": a short stable snake_case label for the request, based on the user's intent.
-- "summary": a short factual description of what the user is asking for, suitable for a database short-string field.
+- "summary": a short factual description of what the user is asking for, suitable for a database short-string field. Resolve obvious referents from the supplied conversation window when they are unambiguous.
 - "attachments": one object per attachment in the input, preserving available filename, size_bytes, and mime_type fields.
 - Attachment "summary": a short database-friendly description of the attachment from available metadata only.
 
@@ -210,6 +219,7 @@ Selection guide:
 - Name the action and object in the slug, such as "review_contract" or "summarize_sales_csv".
 - Summaries should describe the user's message, not solve it or describe the classification task.
 - Keep top-level summary and attachment summaries to one plain-text sentence, 160 characters or fewer.
+- For referential messages, include the resolved current-window object when the supplied context makes it clear.
 - For attachments with only metadata, describe the metadata and whether contents are available to this classifier.
 - For messages without attachments, use an empty attachments array.
 
@@ -219,6 +229,9 @@ Examples:
   Return: {"slug":"summarize_q4_pipeline","summary":"The user wants the attached pipeline spreadsheet summarized and checked for suspicious items.","attachments":[{"filename":"q4-pipeline.xlsx","mime_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","summary":"A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."}]}
 - User: "Explain why bread rises."
   Return: {"slug":"explain_bread_rising","summary":"The user wants an explanation of why bread rises.","attachments":[]}
+- Earlier: "I have a meeting with Dave on Tuesday."
+  User: "remind me at 3 PM"
+  Return: {"slug":"set_meeting_reminder","summary":"The user wants a 3 PM reminder for their Tuesday meeting with Dave.","attachments":[]}
 
 Constraints:
 - Return JSON only.

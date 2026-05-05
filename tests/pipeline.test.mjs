@@ -13,7 +13,7 @@ const results = {
     value: "self_contained",
     missing: [],
   },
-  memory_retrieval_queries: { queries: ["review request"] },
+  memory_retrieval_queries: { queries: ["user review preferences"] },
   tool_family_need: { value: ["workspace"] },
   message_and_attachment_digest: {
     slug: "review_request",
