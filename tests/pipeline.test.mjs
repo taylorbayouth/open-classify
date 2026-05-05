@@ -4,35 +4,18 @@ import {
   classifyOpenClassifyInput,
   OpenClassifyNormalizationError,
 } from "../dist/src/pipeline.js";
+import { userMessage, validClassifierOutputs as results } from "./fixtures.mjs";
 
-const results = {
-  preflight: { terminality: "continue", awk: "Let me check." },
-  routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
-  context_sufficiency: {
-    value: "self_contained",
-    missing_context: [],
-    relevant_context_summary: "",
-  },
-  memory_retrieval_queries: { queries: ["user review preferences"] },
-  tools: { needed: true, families: ["workspace"] },
-  message_and_attachment_digest: {
-    slug: "review_request",
-    summary: "The user wants a review.",
-    attachments: [],
-  },
-  security: { risk_level: "normal", signals: [], notes: "No notable risk." },
-};
-
-test("starts all classifiers concurrently and returns continue result", async () => {
+test("starts all classifiers concurrently and returns route result", async () => {
   const started = [];
 
   const result = await classifyOpenClassifyInput(
-    { conversation_window: [{ role: "user", text: "review this" }], raw: { kept: true } },
+    { conversation_window: [userMessage("review this")], raw: { kept: true } },
     {
       async runClassifier(name, input) {
         started.push(name);
         assert.equal(input.text, "review this");
-        assert.deepEqual(input.conversation_window, [{ role: "user", text: "review this" }]);
+        assert.deepEqual(input.conversation_window, [userMessage("review this")]);
         assert.equal("raw" in input, false);
         return results[name];
       },
@@ -44,13 +27,18 @@ test("starts all classifiers concurrently and returns continue result", async ()
   assert.equal(result.awk, "Let me check.");
   assert.equal(result.request.raw.kept, true);
   assert.deepEqual(result.classifiers, results);
+  assert.deepEqual(
+    Object.keys(result.classifier_status).sort(),
+    Object.keys(results).sort(),
+    "every classifier should appear in classifier_status",
+  );
 });
 
 test("terminal preflight aborts other classifiers and returns only preflight", async () => {
   const aborted = [];
 
   const result = await classifyOpenClassifyInput(
-    { conversation_window: [{ role: "user", text: "thanks" }] },
+    { conversation_window: [userMessage("thanks")] },
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
@@ -78,13 +66,19 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   });
   assert.equal("classifiers" in result, false);
   assert.equal(aborted.length, 6);
+  assert.equal(result.classifier_status.preflight.ok, true);
+  assert.equal(
+    Object.keys(result.classifier_status).length,
+    1,
+    "terminal result reports status only for preflight",
+  );
 });
 
 test("terminal preflight returns without waiting for slow aborted classifiers", async () => {
   const settledAfterAbort = [];
 
   const result = await classifyOpenClassifyInput(
-    { conversation_window: [{ role: "user", text: "thanks" }] },
+    { conversation_window: [userMessage("thanks")] },
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
@@ -111,9 +105,9 @@ test("terminal preflight returns without waiting for slow aborted classifiers", 
   assert.equal(settledAfterAbort.length, 0);
 });
 
-test("unable_to_determine behaves like continue", async () => {
+test("unable_to_determine preflight behaves like continue", async () => {
   const result = await classifyOpenClassifyInput(
-    { conversation_window: [{ role: "user", text: "ambiguous" }] },
+    { conversation_window: [userMessage("ambiguous")] },
     {
       async runClassifier(name) {
         if (name === "preflight") {
@@ -133,7 +127,7 @@ test("normalization failure rejects before classifiers start", async () => {
 
   await assert.rejects(
     classifyOpenClassifyInput(
-      { conversation_window: [{ role: "user", text: "\x00 " }] },
+      { conversation_window: [userMessage("\x00 ")] },
       {
         async runClassifier() {
           started = true;
@@ -151,7 +145,7 @@ test("classifier failure retries once and falls back", async () => {
   const attempts = {};
 
   const result = await classifyOpenClassifyInput(
-    { conversation_window: [{ role: "user", text: "review this" }] },
+    { conversation_window: [userMessage("review this")] },
     {
       async runClassifier(name) {
         attempts[name] = (attempts[name] ?? 0) + 1;
@@ -180,7 +174,7 @@ test("classifier timeout retries once and falls back even if signal is ignored",
   const attempts = {};
 
   const result = await classifyOpenClassifyInput(
-    { conversation_window: [{ role: "user", text: "review this" }] },
+    { conversation_window: [userMessage("review this")] },
     {
       classifierTimeoutMs: 5,
       async runClassifier(name) {
@@ -201,4 +195,51 @@ test("classifier timeout retries once and falls back even if signal is ignored",
   });
   assert.equal(result.classifier_status.routing.ok, false);
   assert.equal(result.classifier_status.routing.reason, "timeout");
+});
+
+test("preflight failure falls back to unable_to_determine and still routes", async () => {
+  const attempts = {};
+
+  const result = await classifyOpenClassifyInput(
+    { conversation_window: [userMessage("review this")] },
+    {
+      async runClassifier(name) {
+        attempts[name] = (attempts[name] ?? 0) + 1;
+        if (name === "preflight") {
+          throw new Error("preflight model crashed");
+        }
+        return results[name];
+      },
+    },
+  );
+
+  assert.equal(result.decision, "route");
+  assert.equal(attempts.preflight, 2);
+  assert.equal(result.classifiers.preflight.terminality, "unable_to_determine");
+  assert.equal(result.classifier_status.preflight.ok, false);
+  assert.equal(result.classifier_status.preflight.source, "fallback");
+  assert.equal(result.awk, result.classifiers.preflight.awk);
+});
+
+test("classifierRetryCount of 0 attempts each classifier exactly once", async () => {
+  const attempts = {};
+
+  const result = await classifyOpenClassifyInput(
+    { conversation_window: [userMessage("review this")] },
+    {
+      classifierRetryCount: 0,
+      async runClassifier(name) {
+        attempts[name] = (attempts[name] ?? 0) + 1;
+        if (name === "tools") {
+          throw new Error("model unavailable");
+        }
+        return results[name];
+      },
+    },
+  );
+
+  assert.equal(result.decision, "route");
+  assert.equal(attempts.tools, 1);
+  assert.equal(result.classifier_status.tools.attempts, 1);
+  assert.equal(result.classifier_status.tools.ok, false);
 });

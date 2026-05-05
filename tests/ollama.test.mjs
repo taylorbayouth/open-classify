@@ -19,24 +19,11 @@ import {
   OLLAMA_DEFAULT_HOST,
   OLLAMA_REQUIRED_PARALLELISM,
 } from "../dist/src/ollama.js";
-
-const validOutputs = {
-  preflight: { terminality: "continue", awk: "Let me check." },
-  routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
-  context_sufficiency: {
-    value: "self_contained",
-    missing_context: [],
-    relevant_context_summary: "",
-  },
-  memory_retrieval_queries: { queries: ["user review preferences"] },
-  tools: { needed: true, families: ["workspace"] },
-  message_and_attachment_digest: {
-    slug: "review_request",
-    summary: "The user wants a review.",
-    attachments: [],
-  },
-  security: { risk_level: "normal", signals: [], notes: "No notable risk." },
-};
+import {
+  classifierInput,
+  jsonResponse,
+  validClassifierOutputs as validOutputs,
+} from "./fixtures.mjs";
 
 test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_DEFAULT_HOST, "http://localhost:11434");
@@ -127,19 +114,11 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   const signal = new AbortController().signal;
   const result = await runner(
     "preflight",
-    {
-      text: "hello",
-      conversation_window: [{ role: "user", text: "hello" }],
+    classifierInput({
       attachments: [
-        {
-          filename: "Welcome.md",
-          mime_type: "text/markdown",
-          size_bytes: 203,
-        },
+        { filename: "Welcome.md", mime_type: "text/markdown", size_bytes: 203 },
       ],
-      message_hash: "message",
-      request_hash: "request",
-    },
+    }),
     signal,
   );
 
@@ -180,16 +159,13 @@ test("createOllamaClassifierRunner drops older whole messages to fit estimated c
 
   await runner(
     "preflight",
-    {
+    classifierInput({
       text: "final request",
       conversation_window: [
         { role: "user", text: `older context ${"x".repeat(1200)}` },
         { role: "user", text: "final request" },
       ],
-      attachments: [],
-      message_hash: "message",
-      request_hash: "request",
-    },
+    }),
     new AbortController().signal,
   );
 
@@ -215,13 +191,10 @@ test("createOllamaClassifierRunner rejects when target alone exceeds estimated c
   await assert.rejects(
     runner(
       "preflight",
-      {
+      classifierInput({
         text: "x".repeat(10_000),
         conversation_window: [{ role: "user", text: "x".repeat(10_000) }],
-        attachments: [],
-        message_hash: "message",
-        request_hash: "request",
-      },
+      }),
       new AbortController().signal,
     ),
     (error) =>
@@ -245,42 +218,16 @@ test("createOllamaClassifierRunner uses base model for null adapter", async () =
     },
   });
 
-  await runner(
-    "preflight",
-    {
-      text: "hello",
-      conversation_window: [{ role: "user", text: "hello" }],
-      attachments: [],
-      message_hash: "message",
-      request_hash: "request",
-    },
-    new AbortController().signal,
-  );
+  await runner("preflight", classifierInput(), new AbortController().signal);
 
   assert.equal(calls[0].model, OLLAMA_BASE_MODEL);
 });
 
-test("createOllamaClassifierRunner validates classifier output", async () => {
-  const runner = createOllamaClassifierRunner({
-    skipResourceCheck: true,
-    fetch: async () =>
-      jsonResponse({
-        message: { content: JSON.stringify({ terminality: "bad", awk: "Nope." }) },
-      }),
-  });
+test("createOllamaClassifierRunner validates preflight terminality enum", async () => {
+  const runner = runnerReturning({ terminality: "bad", awk: "Nope." });
 
   await assert.rejects(
-    runner(
-      "preflight",
-      {
-        text: "hello",
-        conversation_window: [{ role: "user", text: "hello" }],
-        attachments: [],
-        message_hash: "message",
-        request_hash: "request",
-      },
-      new AbortController().signal,
-    ),
+    runner("preflight", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
@@ -288,21 +235,42 @@ test("createOllamaClassifierRunner validates classifier output", async () => {
   );
 });
 
-test("createOllamaClassifierRunner validates memory query shape", async () => {
-  const runner = createOllamaClassifierRunner({
-    skipResourceCheck: true,
-    fetch: async () =>
-      jsonResponse({
-        message: { content: JSON.stringify({ queries: ["too short"] }) },
-      }),
+test("createOllamaClassifierRunner validates routing enum values", async () => {
+  const runner = runnerReturning({
+    execution_mode: "tool_assisted",
+    model_tier: "ultra_strong",
   });
 
   await assert.rejects(
-    runner(
-      "memory_retrieval_queries",
-      classifierInput(),
-      new AbortController().signal,
-    ),
+    runner("routing", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "routing" &&
+      /unsupported value/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner validates context_sufficiency missing_context cap", async () => {
+  const runner = runnerReturning({
+    value: "referential",
+    missing_context: ["a", "b", "c", "d", "e", "f"],
+    relevant_context_summary: "",
+  });
+
+  await assert.rejects(
+    runner("context_sufficiency", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "context_sufficiency" &&
+      /missing_context/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner validates memory query word count", async () => {
+  const runner = runnerReturning({ queries: ["too short"] });
+
+  await assert.rejects(
+    runner("memory_retrieval_queries", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "memory_retrieval_queries" &&
@@ -311,20 +279,10 @@ test("createOllamaClassifierRunner validates memory query shape", async () => {
 });
 
 test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
-  const runner = createOllamaClassifierRunner({
-    skipResourceCheck: true,
-    fetch: async () =>
-      jsonResponse({
-        message: { content: JSON.stringify({ needed: true, families: ["workspace", "workspace"] }) },
-      }),
-  });
+  const runner = runnerReturning({ needed: true, families: ["workspace", "workspace"] });
 
   await assert.rejects(
-    runner(
-      "tools",
-      classifierInput(),
-      new AbortController().signal,
-    ),
+    runner("tools", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "tools" &&
@@ -332,27 +290,15 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
   );
 });
 
-test("createOllamaClassifierRunner validates digest contract", async () => {
-  const runner = createOllamaClassifierRunner({
-    skipResourceCheck: true,
-    fetch: async () =>
-      jsonResponse({
-        message: {
-          content: JSON.stringify({
-            slug: "Review Request",
-            summary: "The user wants a review.",
-            attachments: [],
-          }),
-        },
-      }),
+test("createOllamaClassifierRunner validates digest slug format", async () => {
+  const runner = runnerReturning({
+    slug: "Review Request",
+    summary: "The user wants a review.",
+    attachments: [],
   });
 
   await assert.rejects(
-    runner(
-      "message_and_attachment_digest",
-      classifierInput(),
-      new AbortController().signal,
-    ),
+    runner("message_and_attachment_digest", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "message_and_attachment_digest" &&
@@ -360,27 +306,15 @@ test("createOllamaClassifierRunner validates digest contract", async () => {
   );
 });
 
-test("createOllamaClassifierRunner validates security risk-level consistency", async () => {
-  const runner = createOllamaClassifierRunner({
-    skipResourceCheck: true,
-    fetch: async () =>
-      jsonResponse({
-        message: {
-          content: JSON.stringify({
-            risk_level: "normal",
-            signals: ["instruction_attack"],
-            notes: "Conflicting output.",
-          }),
-        },
-      }),
+test("createOllamaClassifierRunner validates security risk-level / signals consistency", async () => {
+  const runner = runnerReturning({
+    risk_level: "normal",
+    signals: ["instruction_attack"],
+    notes: "Conflicting output.",
   });
 
   await assert.rejects(
-    runner(
-      "security",
-      classifierInput(),
-      new AbortController().signal,
-    ),
+    runner("security", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "security" &&
@@ -388,24 +322,29 @@ test("createOllamaClassifierRunner validates security risk-level consistency", a
   );
 });
 
-test("createOllamaClassifierRunner surfaces Ollama errors", async () => {
+test("createOllamaClassifierRunner surfaces non-JSON model output", async () => {
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({ message: { content: "this is not json" } }),
+  });
+
+  await assert.rejects(
+    runner("preflight", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "preflight",
+  );
+});
+
+test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
   const runner = createOllamaClassifierRunner({
     skipResourceCheck: true,
     fetch: async () => jsonResponse({ error: "model not found" }, { ok: false, statusText: "Not Found" }),
   });
 
   await assert.rejects(
-    runner(
-      "security",
-      {
-        text: "hello",
-        conversation_window: [{ role: "user", text: "hello" }],
-        attachments: [],
-        message_hash: "message",
-        request_hash: "request",
-      },
-      new AbortController().signal,
-    ),
+    runner("security", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "security" &&
@@ -457,38 +396,16 @@ test("resource check can fail before fetch is called", async () => {
   });
 
   await assert.rejects(
-    runner(
-      "preflight",
-      {
-        text: "hello",
-        conversation_window: [{ role: "user", text: "hello" }],
-        attachments: [],
-        message_hash: "message",
-        request_hash: "request",
-      },
-      new AbortController().signal,
-    ),
+    runner("preflight", classifierInput(), new AbortController().signal),
     OllamaResourceError,
   );
   assert.equal(called, false);
 });
 
-function jsonResponse(payload, overrides = {}) {
-  return {
-    ok: overrides.ok ?? true,
-    statusText: overrides.statusText ?? "OK",
-    async json() {
-      return payload;
-    },
-  };
-}
-
-function classifierInput() {
-  return {
-    text: "hello",
-    conversation_window: [{ role: "user", text: "hello" }],
-    attachments: [],
-    message_hash: "message",
-    request_hash: "request",
-  };
+function runnerReturning(payload) {
+  return createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({ message: { content: JSON.stringify(payload) } }),
+  });
 }

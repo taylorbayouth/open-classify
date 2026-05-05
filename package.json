@@ -2,6 +2,28 @@
   "name": "open-classify",
   "version": "0.1.0",
   "description": "Fixed classifier contract for downstream model handoff planning",
+  "license": "MIT",
+  "author": "Taylor Bayouth <taylorb@gmail.com>",
+  "homepage": "https://github.com/taylorbayouth/open-classify#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/taylorbayouth/open-classify.git"
+  },
+  "bugs": {
+    "url": "https://github.com/taylorbayouth/open-classify/issues"
+  },
+  "keywords": [
+    "classifier",
+    "llm",
+    "routing",
+    "ollama",
+    "gemma",
+    "ai",
+    "agent",
+    "prompt-injection",
+    "preflight",
+    "handoff"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -9,12 +31,22 @@
       "default": "./dist/src/index.js"
     }
   },
+  "files": [
+    "dist/src",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "setup": "node scripts/setup.mjs",
     "start": "node scripts/start.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "ui": "npm run build && node dist/src/ui-server.js"
+    "ui": "npm run build && node dist/src/ui-server.js",
+    "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

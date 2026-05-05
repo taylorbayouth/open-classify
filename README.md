@@ -6,6 +6,14 @@ The goal is not to answer the user directly. The goal is to classify the latest 
 
 The classifier set is intentionally static. Integrations should not add project-specific classifiers to the core contract.
 
+## Runtime
+
+Open Classify targets one runtime: **Ollama running `gemma4:e4b-it-q4_K_M`, with optional per-classifier fine-tuned adapters.** This is a deliberate constraint, not a default.
+
+The contract is designed to run local, fast, and free. The 5,000-character conversation budget, the seven-classifier parallelism target, the `num_ctx: 4096` setting, the validation rules, and the adapter scaffolding are all sized around this one runtime. Other LLM providers are not supported and not on the roadmap. Callers who need hosted-model classification should run their own classifier system; this project will not grow runner adapters for OpenAI, Anthropic, vLLM, llama.cpp, or anything else.
+
+The lower-level `classifyOpenClassifyInput(input, { runClassifier })` API exists for testing the orchestration layer in isolation. Production callers should use `classifyWithOllama`.
+
 ## Library Input Contract
 
 Callers pass one adapter object into Open Classify. The library normalizes it before hashing or classification. This is not an HTTP contract.
@@ -222,9 +230,9 @@ The `request` field is the normalized request for caller logging and tracing. It
 
 `context_sufficiency` describes whether the final message was understandable with the supplied window. Open Classify does not request more history; callers decide the window before classification.
 
-## Ollama Reference Runtime
+## Ollama Runtime
 
-Open Classify's reference runtime is Ollama with `gemma4:e4b-it-q4_K_M` as the base model. That model's native context length is 131,072 tokens; the reference local classifier runtime deliberately uses a smaller configured context length for parallelism and memory predictability.
+Open Classify runs on Ollama with `gemma4:e4b-it-q4_K_M` as the base model. That model's native context length is 131,072 tokens; the local classifier runtime deliberately uses a smaller configured context length for parallelism and memory predictability.
 
 Use `classifyWithOllama(input)` for the default local runtime:
 

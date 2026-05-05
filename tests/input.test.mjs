@@ -5,6 +5,7 @@ import {
   sanitizeText,
   toClassifierInput,
 } from "../dist/src/input.js";
+import { userMessage } from "./fixtures.mjs";
 
 test("sanitizes text in the documented order", () => {
   assert.equal(sanitizeText("\uFEFFcafe\u0301\x00\n\t\rb\x7F"), "café\n\t\rb");
@@ -294,10 +295,93 @@ test("keeps the newest 20 conversation messages", () => {
   assert.equal(normalized.text, "message 25");
 });
 
+test("strips a single leading BOM and preserves later BOMs", () => {
+  assert.equal(sanitizeText("﻿hello﻿world"), "hello﻿world");
+});
+
+test("normalizes Unicode to NFC", () => {
+  assert.equal(sanitizeText("café"), "café");
+  assert.equal(sanitizeText("café"), "café");
+});
+
+test("preserves tab, newline, and carriage return inside text", () => {
+  assert.equal(sanitizeText("a\tb\nc\rd"), "a\tb\nc\rd");
+});
+
+test("rejects an empty conversation_window", () => {
+  assert.throws(
+    () => normalizeOpenClassifyInput({ conversation_window: [] }),
+    /at least one message/,
+  );
+});
+
+test("rejects context messages with role other than user or assistant", () => {
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [
+          { role: "system", text: "you are helpful" },
+          message("now what?"),
+        ],
+      }),
+    /role must be user or assistant/,
+  );
+});
+
+test("rejects oversize message_id and timestamp metadata", () => {
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [message("hi", { message_id: "m".repeat(513) })],
+      }),
+    /512 characters or fewer/,
+  );
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [message("hi", { timestamp: "t".repeat(513) })],
+      }),
+    /512 characters or fewer/,
+  );
+});
+
+test("rejects unknown fields on conversation messages and attachments", () => {
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [{ role: "user", text: "hi", reactions: 1 }],
+      }),
+    /reactions is not a supported field/,
+  );
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [message("hi")],
+        attachments: [{ filename: "a.txt", checksum: "abc" }],
+      }),
+    /checksum is not a supported field/,
+  );
+});
+
+test("rejects attachments with negative or non-integer size_bytes", () => {
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [message("hi")],
+        attachments: [{ filename: "a.txt", size_bytes: -1 }],
+      }),
+    /non-negative safe integer/,
+  );
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput({
+        conversation_window: [message("hi")],
+        attachments: [{ filename: "a.txt", size_bytes: 1.5 }],
+      }),
+    /non-negative safe integer/,
+  );
+});
+
 function message(text, extra = {}) {
-  return {
-    role: "user",
-    text,
-    ...extra,
-  };
+  return userMessage(text, extra);
 }
