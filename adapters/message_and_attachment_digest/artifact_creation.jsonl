@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\ncreate a project brief for the launch plan"},{"role":"assistant","content":"{\"slug\":\"create_launch_brief\",\"summary\":\"The user wants a project brief created for a launch plan.\",\"attachments\":[]}"}]}

@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nschedule a 30 minute meeting with Sam tomorrow afternoon"},{"role":"assistant","content":"{\"queries\":[]}"}]}

@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\ngenerate an image of a minimalist mountain cabin at sunrise"},{"role":"assistant","content":"{\"value\":[\"web\"]}"}]}

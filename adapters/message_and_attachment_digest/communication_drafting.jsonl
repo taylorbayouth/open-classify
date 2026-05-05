@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\ndraft a polite reply declining the dinner invite"},{"role":"assistant","content":"{\"slug\":\"draft_decline_invite_reply\",\"summary\":\"The user wants a polite reply declining a dinner invite.\",\"attachments\":[]}"}]}

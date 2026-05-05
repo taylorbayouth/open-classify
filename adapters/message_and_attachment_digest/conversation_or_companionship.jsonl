@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Latest user message:\nI'm feeling overwhelmed and need to talk"},{"role":"assistant","content":"{\"slug\":\"talk_through_overwhelm\",\"summary\":\"The user says they feel overwhelmed and wants to talk.\",\"attachments\":[]}"}]}

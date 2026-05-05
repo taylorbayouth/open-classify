@@ -2,20 +2,23 @@
 
 Open Classify checks this folder before each Ollama runner is created.
 
-Use one folder per classifier:
+Use one folder per classifier. Each folder can contain JSONL training buckets and, later, an optional `model.txt` file:
 
 ```txt
 adapters/
-  preflight/model.txt
-  downstream_route/model.txt
-  context_sufficiency/model.txt
-  memory_retrieval_queries/model.txt
-  tool_family_need/model.txt
-  message_and_attachment_digest/model.txt
-  security_posture/model.txt
+  preflight/
+    creative_generation.jsonl
+    model.txt
+  downstream_route/
+    creative_generation.jsonl
+    model.txt
 ```
 
-Each `model.txt` should contain the Ollama model name for that classifier's adapter. The first non-empty, non-comment line is used.
+The `.jsonl` files are scenario buckets. They currently contain one sample row each so the schema and taxonomy are explicit; future training sets can add many rows to the same files.
+
+Each adapter output must match its classifier's schema. Do not train the seven adapters on a combined classifier object.
+
+When an adapter model exists in Ollama, add `model.txt` to that classifier folder. It should contain the Ollama model name for that classifier's adapter. The first non-empty, non-comment line is used.
 
 ```txt
 # optional comment
