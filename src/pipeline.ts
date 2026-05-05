@@ -85,7 +85,7 @@ export async function classifyOpenClassifyInput(
 
   if (preflight.terminality === "terminal") {
     controller.abort();
-    observeNonPreflightRuns(runs);
+    await settleNonPreflightRuns(runs);
 
     return {
       status: "terminal",
@@ -153,14 +153,14 @@ async function unwrapClassifierResult<Name extends ClassifierName>(
   throw new OpenClassifyClassifierError(settled.name, request, settled.error);
 }
 
-function observeNonPreflightRuns(
+async function settleNonPreflightRuns(
   runs: ReadonlyMap<ClassifierName, Promise<SettledClassifierResult<ClassifierName>>>,
-): void {
-  for (const [name, run] of runs) {
-    if (name !== "preflight") {
-      void run;
-    }
-  }
+): Promise<void> {
+  await Promise.all(
+    [...runs]
+      .filter(([name]) => name !== "preflight")
+      .map(([, run]) => run),
+  );
 }
 
 function errorMessage(error: unknown): string {
