@@ -49,7 +49,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-button, input, textarea {
+button, input, textarea, select {
   font: inherit;
   color: inherit;
 }
@@ -220,6 +220,7 @@ h1 {
 .field { display: grid; gap: 6px; }
 
 .field span,
+.section-head span,
 .event-log header span:first-child {
   color: var(--muted);
   font-size: 10.5px;
@@ -228,7 +229,7 @@ h1 {
   text-transform: uppercase;
 }
 
-textarea, input {
+textarea, input, select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -246,15 +247,74 @@ textarea {
   font-size: 13.5px;
 }
 
-input {
+input, select {
   height: 36px;
   padding: 0 11px;
   font-size: 13px;
 }
 
-textarea:focus, input:focus {
+select {
+  appearance: none;
+  cursor: pointer;
+}
+
+textarea:focus, input:focus, select:focus {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+}
+
+.conversation-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.context-message-list {
+  display: grid;
+  gap: 10px;
+}
+
+.message-editor {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 11px;
+}
+
+.target-message {
+  border-color: rgba(94, 234, 212, 0.35);
+}
+
+.message-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.message-editor-head strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.message-editor-head span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.message-meta-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.7fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
 }
 
 .field-details {
@@ -355,6 +415,29 @@ button {
 }
 
 button:disabled { cursor: wait; opacity: 0.55; }
+
+.compact {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--panel-3);
+  color: var(--ink-2);
+}
 
 .primary {
   flex: 1;
@@ -717,6 +800,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   .awk-display { align-items: flex-start; }
   .awk-display strong { text-align: left; }
   .field-grid { grid-template-columns: 1fr; }
+  .message-meta-row { grid-template-columns: 1fr; }
   .ev { grid-template-columns: 70px 1fr; }
   .ev-classifier, .ev-message { grid-column: 2; text-align: left; }
 }

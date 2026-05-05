@@ -25,16 +25,29 @@
 
       <section class="workspace">
         <form class="composer" id="classifyForm">
-          <label class="field wide">
-            <span>Message</span>
-            <textarea
-              id="textInput"
-              name="text"
-              rows="8"
-              placeholder="Paste an inbound user message..."
-              required
-            ></textarea>
-          </label>
+          <section class="conversation-editor">
+            <header class="section-head">
+              <span>Conversation window</span>
+              <button class="secondary compact" type="button" id="addMessageButton">Add context</button>
+            </header>
+            <div class="context-message-list" id="contextMessageList"></div>
+            <article class="message-editor target-message">
+              <div class="message-editor-head">
+                <strong>Target message</strong>
+                <span>final user message</span>
+              </div>
+              <label class="field wide">
+                <span>Text</span>
+                <textarea
+                  id="textInput"
+                  name="text"
+                  rows="7"
+                  placeholder="Paste the triggering user message..."
+                  required
+                ></textarea>
+              </label>
+            </article>
+          </section>
 
           <details class="field-details">
             <summary>Request metadata</summary>
@@ -56,11 +69,11 @@
                 <input name="thread_id" placeholder="T123" />
               </label>
               <label class="field">
-                <span>Message ID</span>
+                <span>Target message ID</span>
                 <input name="message_id" placeholder="M123" />
               </label>
               <label class="field">
-                <span>Timestamp</span>
+                <span>Target timestamp</span>
                 <input name="timestamp" placeholder="2026-05-04T12:00:00Z" />
               </label>
             </div>

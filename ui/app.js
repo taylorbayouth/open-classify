@@ -35,6 +35,7 @@ const PHASE_LABELS = {
 const state = {
   metadata: null,
   attachments: [],
+  contextMessages: [],
   classifierNames: [...DEFAULT_CLASSIFIER_NAMES],
   classifiers: {},
   events: [],
@@ -45,6 +46,8 @@ const state = {
 
 const form = document.querySelector("#classifyForm");
 const textInput = document.querySelector("#textInput");
+const contextMessageList = document.querySelector("#contextMessageList");
+const addMessageButton = document.querySelector("#addMessageButton");
 const attachmentInput = document.querySelector("#attachmentInput");
 const attachmentList = document.querySelector("#attachmentList");
 const classifierGrid = document.querySelector("#classifierGrid");
@@ -69,6 +72,7 @@ async function init() {
   state.metadata = await response.json();
   renderMetaChips();
   resetClassifiers("idle");
+  renderContextMessages();
   renderAttachments();
   startTicker();
 
@@ -103,14 +107,52 @@ async function init() {
     renderAttachments();
   });
 
+  addMessageButton.addEventListener("click", () => {
+    state.contextMessages.push(createContextMessage());
+    renderContextMessages();
+    focusLastContextMessage();
+  });
+
+  contextMessageList.addEventListener("input", (event) => {
+    const field = event.target.closest("[data-field]");
+    const item = event.target.closest("[data-message-id]");
+    if (!field || !item) return;
+
+    const message = state.contextMessages.find((candidate) => candidate.id === item.dataset.messageId);
+    if (!message) return;
+    message[field.dataset.field] = event.target.value;
+  });
+
+  contextMessageList.addEventListener("change", (event) => {
+    const field = event.target.closest("[data-field]");
+    const item = event.target.closest("[data-message-id]");
+    if (!field || !item) return;
+
+    const message = state.contextMessages.find((candidate) => candidate.id === item.dataset.messageId);
+    if (!message) return;
+    message[field.dataset.field] = event.target.value;
+  });
+
+  contextMessageList.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-message]");
+    if (!removeButton) return;
+
+    state.contextMessages = state.contextMessages.filter(
+      (message) => message.id !== removeButton.dataset.removeMessage,
+    );
+    renderContextMessages();
+  });
+
   clearButton.addEventListener("click", () => {
     form.reset();
     state.attachments = [];
+    state.contextMessages = [];
     attachmentInput.value = "";
     state.events = [];
     state.eventCount = 0;
     renderEventLog();
     resetClassifiers("idle");
+    renderContextMessages();
     renderAttachments();
     setRunState("idle");
     awkDisplay.hidden = true;
@@ -206,7 +248,10 @@ function buildInput() {
   }
 
   const input = {
-    conversation_window: [targetMessage],
+    conversation_window: [
+      ...state.contextMessages.map(toConversationMessage).filter((message) => message.text.trim()),
+      targetMessage,
+    ],
     attachments: state.attachments,
   };
 
@@ -223,6 +268,81 @@ function buildInput() {
   }
 
   return input;
+}
+
+function createContextMessage() {
+  return {
+    id: crypto.randomUUID(),
+    role: "user",
+    text: "",
+    message_id: "",
+    timestamp: "",
+  };
+}
+
+function toConversationMessage(message) {
+  const output = {
+    role: message.role || "user",
+    text: message.text,
+  };
+
+  for (const key of ["message_id", "timestamp"]) {
+    const value = String(message[key] ?? "").trim();
+    if (value) {
+      output[key] = value;
+    }
+  }
+
+  return output;
+}
+
+function renderContextMessages() {
+  if (state.contextMessages.length === 0) {
+    contextMessageList.innerHTML = "";
+    return;
+  }
+
+  contextMessageList.innerHTML = state.contextMessages
+    .map((message, index) => renderContextMessage(message, index))
+    .join("");
+}
+
+function renderContextMessage(message, index) {
+  return `
+    <article class="message-editor context-message" data-message-id="${escapeHtml(message.id)}">
+      <div class="message-editor-head">
+        <strong>Context message ${index + 1}</strong>
+        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove context message" aria-label="Remove context message">×</button>
+      </div>
+      <div class="message-meta-row">
+        <label class="field">
+          <span>Role</span>
+          <select data-field="role">
+            ${["user", "assistant", "system", "tool"]
+              .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>Message ID</span>
+          <input data-field="message_id" value="${escapeHtml(message.message_id)}" placeholder="M122" />
+        </label>
+        <label class="field">
+          <span>Timestamp</span>
+          <input data-field="timestamp" value="${escapeHtml(message.timestamp)}" placeholder="2026-05-04T11:59:00Z" />
+        </label>
+      </div>
+      <label class="field wide">
+        <span>Text</span>
+        <textarea data-field="text" rows="4" placeholder="Earlier message text...">${escapeHtml(message.text)}</textarea>
+      </label>
+    </article>
+  `;
+}
+
+function focusLastContextMessage() {
+  const inputs = contextMessageList.querySelectorAll("textarea[data-field='text']");
+  inputs[inputs.length - 1]?.focus();
 }
 
 function handleStreamEvent(event, data) {
