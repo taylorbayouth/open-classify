@@ -1,5 +1,7 @@
-import { CLASSIFIERS } from "./classifiers.js";
+import { CLASSIFIERS, CLASSIFIER_NAMES } from "./classifiers.js";
 import { execFile } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   CONTEXT_SUFFICIENCY_VALUES,
@@ -32,6 +34,8 @@ export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
+export const OLLAMA_DEFAULT_ADAPTER_ROOT = "adapters";
+export const OLLAMA_ADAPTER_MODEL_FILE = "model.txt";
 
 /*
  * Gemma 4 E4B's native context is 131,072 tokens (128K). The reference local
@@ -45,6 +49,7 @@ export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
 const CONTEXT_MISSING_MAX_COUNT = 5;
+const CONTEXT_SUMMARY_MAX_CHARS = 1_000;
 const MEMORY_QUERY_MAX_COUNT = 3;
 const MEMORY_QUERY_MIN_WORDS = 3;
 const MEMORY_QUERY_MAX_WORDS = 10;
@@ -82,6 +87,7 @@ export interface OllamaOptions {
 
 export interface OllamaClassifierRunnerConfig {
   host?: string;
+  adapterRoot?: string;
   models?: Partial<Record<ClassifierName, string | null>>;
   options?: OllamaOptions;
   fetch?: typeof fetch;
@@ -140,7 +146,10 @@ export function createOllamaClassifierRunner(
 ): RunClassifier {
   const host = trimTrailingSlash(config.host ?? OLLAMA_DEFAULT_HOST);
   const fetchImpl = config.fetch ?? fetch;
-  const models = { ...OLLAMA_CLASSIFIER_MODELS, ...config.models };
+  const models = {
+    ...discoverOllamaClassifierAdapterModels(config.adapterRoot),
+    ...config.models,
+  };
   const options = {
     temperature: 0,
     num_ctx: OLLAMA_CONTEXT_LENGTH,
@@ -166,6 +175,23 @@ export function createOllamaClassifierRunner(
     const model = models[name] ?? OLLAMA_BASE_MODEL;
     return runOllamaClassifier(name, input, signal, fetchImpl, host, model, options);
   };
+}
+
+export function discoverOllamaClassifierAdapterModels(
+  adapterRoot = OLLAMA_DEFAULT_ADAPTER_ROOT,
+): Record<ClassifierName, string | null> {
+  const models: Record<ClassifierName, string | null> = { ...OLLAMA_CLASSIFIER_MODELS };
+  if (!isDirectory(adapterRoot)) {
+    return models;
+  }
+
+  for (const name of CLASSIFIER_NAMES) {
+    models[name] = readAdapterModelName(
+      join(adapterRoot, name, OLLAMA_ADAPTER_MODEL_FILE),
+    );
+  }
+
+  return models;
 }
 
 export async function assertOllamaResources(
@@ -540,14 +566,30 @@ function validateContextSufficiency(
   model: string,
 ): ContextSufficiencyResult {
   const selected = requireEnum(value.value, CONTEXT_SUFFICIENCY_VALUES, name, model, "value");
-  const missing = requireStringArray(value.missing, name, model, "missing");
-  if (missing.length > CONTEXT_MISSING_MAX_COUNT) {
-    throwInvalid(name, model, `missing must contain ${CONTEXT_MISSING_MAX_COUNT} items or fewer`);
+  const missingContext = requireStringArray(
+    value.missing_context,
+    name,
+    model,
+    "missing_context",
+  );
+  if (missingContext.length > CONTEXT_MISSING_MAX_COUNT) {
+    throwInvalid(
+      name,
+      model,
+      `missing_context must contain ${CONTEXT_MISSING_MAX_COUNT} items or fewer`,
+    );
   }
 
   return {
     value: selected,
-    missing,
+    missing_context: missingContext,
+    relevant_context_summary: requireStringMaxLength(
+      value.relevant_context_summary,
+      name,
+      model,
+      "relevant_context_summary",
+      CONTEXT_SUMMARY_MAX_CHARS,
+    ),
   };
 }
 
@@ -770,6 +812,39 @@ function ensureNoDuplicates(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readAdapterModelName(path: string): string | null {
+  if (!isFile(path)) {
+    return null;
+  }
+
+  try {
+    const model = readFileSync(path, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0 && !line.startsWith("#"));
+
+    return model ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function trimTrailingSlash(value: string): string {

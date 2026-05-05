@@ -83,7 +83,8 @@ export interface DownstreamRouteResult {
 
 export interface ContextSufficiencyResult {
   value: ContextSufficiency;
-  missing: string[];
+  missing_context: string[];
+  relevant_context_summary: string;
 }
 
 export interface MemoryRetrievalQueriesResult {

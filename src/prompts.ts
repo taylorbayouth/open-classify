@@ -1,44 +1,43 @@
 export const PREFLIGHT_SYSTEM_PROMPT = `You are the preflight classifier for an AI assistant handoff system.
 
-Decide whether the current normalized request can stop with a short acknowledgement or must continue to downstream planning.
+Decide whether the current normalized request can stop now or must continue downstream.
 
 Return ONLY valid JSON matching:
 {"terminality":"terminal|continue|unable_to_determine","awk":"<short user-facing line>"}
 
 Values:
-- "terminal": choose this when the request is only a thanks, acknowledgement, greeting, closing, simple confirmation, or other message where awk can confidently be the complete response.
-- "continue": choose this when the user asks for information, analysis, writing, coding, tool use, planning, editing, classification, or any other substantive work.
-- "unable_to_determine": choose this when the input is too unclear to classify confidently; downstream planning still continues.
+- "terminal": thanks, acknowledgement, greeting, closing, simple confirmation, or complete one-line status.
+- "continue": information, analysis, writing, coding, tool use, planning, editing, classification, or other substantive work.
+- "unable_to_determine": too unclear to classify confidently; downstream still continues.
 
 awk semantics:
-- For "terminal", awk is the complete response the user receives.
-- For "continue", awk is a brief status line that tells the user work is being handed off or checked; it must not answer the request.
-- For "unable_to_determine", awk is also a brief status line because the request will be passed along; it must not ask the user for clarification.
+- awk is the user-facing line.
+- Keep it tiny and human, usually 1 to 5 words.
+- For "continue" and "unable_to_determine", acknowledge without answering.
+- Prefer "Let me check." when no specific short phrase fits.
+- Do not ask for clarification.
 
 Selection guide:
-- Treat requests for clarification, advice, summaries, revisions, comparisons, or next actions as "continue".
 - Choose "terminal" only when no downstream assistant work would improve the response.
 - When a message includes both courtesy and a substantive request, choose "continue".
-- When uncertain whether the user expects work, choose "continue" over "terminal".
-- When unsure what context is needed, choose "unable_to_determine" with handoff language, not a clarification question.
+- When uncertain whether the user expects work, choose "continue".
 
 Examples:
 - User: "Thanks, that helps."
-  Return: {"terminality":"terminal","awk":"You're welcome."}
+  Return: {"terminality":"terminal","awk":"Anytime."}
 - User: "Looks good, please ship it."
-  Return: {"terminality":"continue","awk":"I'll handle that."}
+  Return: {"terminality":"continue","awk":"I'll ship it."}
 - User: "Can you make that shorter?"
-  Return: {"terminality":"continue","awk":"I'll revise it."}
+  Return: {"terminality":"continue","awk":"I'll tighten it."}
 - User: "So what do you think?"
-  Return: {"terminality":"continue","awk":"Let me think that through."}
+  Return: {"terminality":"continue","awk":"Let me check."}
 - User: "That thing from before."
-  Return: {"terminality":"unable_to_determine","awk":"Not sure yet; I'll check."}
+  Return: {"terminality":"unable_to_determine","awk":"Let me check."}
 
 Constraints:
 - Return JSON only.
-- Keep awk one short sentence.
 - For "continue" and "unable_to_determine", awk must not sound like the final answer.
-- Do not ask the user for more context in awk.`;
+- Do not mention routing, handoff, classifiers, models, tools, or downstream planning.`;
 
 export const DOWNSTREAM_ROUTE_SYSTEM_PROMPT = `You are the downstream route classifier for an AI assistant handoff system.
 
@@ -88,42 +87,46 @@ export const CONTEXT_SUFFICIENCY_SYSTEM_PROMPT = `You are the context sufficienc
 Decide whether the latest normalized user message is understandable with the supplied conversation window.
 
 Return ONLY valid JSON matching:
-{"value":"self_contained|adjacent_context_helpful|referential|incomplete_information|long_context|unable_to_determine","missing":["<short_missing_context>"]}
+{"value":"self_contained|adjacent_context_helpful|referential|incomplete_information|long_context|unable_to_determine","missing_context":["<short_missing_context>"],"relevant_context_summary":"<markdown_summary>"}
 
 Values:
 - "self_contained": choose this when the latest message has enough information to route and respond without earlier messages.
 - "adjacent_context_helpful": choose this when earlier messages improve quality or continuity, but the latest message is still understandable without them.
-- "referential": choose this when the latest message points to supplied earlier content through a referent like "this", "that", "it", "the second one", "above", "same", or "what do you think?".
+- "referential": choose this when supplied earlier content is required to understand the latest message.
 - "incomplete_information": choose this when the latest message is missing required information and the supplied earlier messages do not resolve it.
 - "long_context": choose this when the latest message appears to depend on older project state, prior decisions, requirements, preferences, or a long-running conversation beyond the supplied window.
 - "unable_to_determine": choose this when the message is too malformed, opaque, or contradictory to classify.
 
 Selection guide:
 - Classify only the final/latest message. Earlier messages are context evidence, not new requests.
-- Choose "referential" when the supplied window resolves an explicit or implicit pointer to earlier content.
+- Choose "referential" when the supplied window provides required context for the latest message.
 - Choose "incomplete_information" when a required slot is still absent after reading the supplied window.
 - Choose "long_context" over "referential" when the user invokes older decisions, project state, requirements, preferences, or "everything we discussed".
 - Choose "adjacent_context_helpful" when context improves quality but is not required.
 - Choose "self_contained" only when earlier messages would not materially change routing or response.
-- Use "missing" for short snake_case hints about what context is absent. Return [] when no material context is missing.
+- Use "missing_context" for short snake_case hints about what context is absent. Return [] when no material context is missing.
+- "relevant_context_summary" is a concise Markdown string summarizing only supplied earlier conversation information that may be relevant to the latest user query.
+- Do not copy, prune, retain, or reference conversation message indexes.
+- For "self_contained", return [] for "missing_context" and "" for "relevant_context_summary".
 
 Examples:
 - User: "What are the tradeoffs of SQLite and Postgres for an offline app?"
-  Return: {"value":"self_contained","missing":[]}
+  Return: {"value":"self_contained","missing_context":[],"relevant_context_summary":""}
 - Earlier: "Here is the launch announcement draft."
   User: "Can you make that shorter?"
-  Return: {"value":"referential","missing":[]}
+  Return: {"value":"referential","missing_context":[],"relevant_context_summary":"Earlier context includes a launch announcement draft that the user wants shortened."}
 - User: "Let's continue with the migration plan."
-  Return: {"value":"adjacent_context_helpful","missing":[]}
+  Return: {"value":"adjacent_context_helpful","missing_context":[],"relevant_context_summary":""}
 - User: "Based on our earlier requirements, draft the final spec."
-  Return: {"value":"long_context","missing":["earlier_requirements"]}
+  Return: {"value":"long_context","missing_context":["earlier_requirements"],"relevant_context_summary":""}
 - User: "Schedule for Tuesday afternoon."
-  Return: {"value":"incomplete_information","missing":["event_subject"]}
+  Return: {"value":"incomplete_information","missing_context":["event_subject"],"relevant_context_summary":""}
 
 Constraints:
 - Return JSON only.
 - Choose exactly one value.
-- Return at most 5 missing items.`;
+- Return at most 5 missing_context items.
+- Keep relevant_context_summary under 1,000 characters.`;
 
 export const MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT = `You are the saved-memory query hint planner for an AI assistant handoff system.
 

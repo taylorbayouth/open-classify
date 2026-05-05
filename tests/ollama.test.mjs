@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { CLASSIFIERS } from "../dist/src/classifiers.js";
 import {
   classifyWithOllama,
   createOllamaClassifierRunner,
+  discoverOllamaClassifierAdapterModels,
+  OLLAMA_ADAPTER_MODEL_FILE,
   OllamaClassifierError,
   OllamaResourceError,
+  OLLAMA_DEFAULT_ADAPTER_ROOT,
   OLLAMA_CLASSIFIER_ADAPTER_MODELS,
   OLLAMA_BASE_MODEL,
   OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH,
@@ -16,11 +22,12 @@ import {
 } from "../dist/src/ollama.js";
 
 const validOutputs = {
-  preflight: { terminality: "continue", awk: "I'll take a look." },
+  preflight: { terminality: "continue", awk: "Let me check." },
   downstream_route: { execution_mode: "tool_assisted", model_tier: "local_strong" },
   context_sufficiency: {
     value: "self_contained",
-    missing: [],
+    missing_context: [],
+    relevant_context_summary: "",
   },
   memory_retrieval_queries: { queries: ["user review preferences"] },
   tool_family_need: { value: ["workspace"] },
@@ -38,12 +45,73 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH, 131_072);
   assert.equal(OLLAMA_REQUIRED_PARALLELISM, 7);
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
+  assert.equal(OLLAMA_DEFAULT_ADAPTER_ROOT, "adapters");
+  assert.equal(OLLAMA_ADAPTER_MODEL_FILE, "model.txt");
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
   assert.equal(
     OLLAMA_CLASSIFIER_ADAPTER_MODELS.context_sufficiency,
     "open-classify-context-sufficiency:v0.1.0",
   );
+});
+
+test("discovers classifier adapters from model files incrementally", async () => {
+  const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
+  try {
+    await mkdir(join(root, "preflight"), { recursive: true });
+    await writeFile(
+      join(root, "preflight", OLLAMA_ADAPTER_MODEL_FILE),
+      "# first non-empty non-comment line wins\nopen-classify-preflight:v0.1.0\n",
+    );
+    await mkdir(join(root, "security_posture"), { recursive: true });
+    await writeFile(join(root, "security_posture", OLLAMA_ADAPTER_MODEL_FILE), "\n");
+
+    const models = discoverOllamaClassifierAdapterModels(root);
+
+    assert.equal(models.preflight, "open-classify-preflight:v0.1.0");
+    assert.equal(models.security_posture, null);
+    assert.equal(models.downstream_route, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("createOllamaClassifierRunner falls back to base model for missing adapter files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
+  try {
+    await mkdir(join(root, "preflight"), { recursive: true });
+    await writeFile(
+      join(root, "preflight", OLLAMA_ADAPTER_MODEL_FILE),
+      "open-classify-preflight:v0.1.0\n",
+    );
+
+    const calls = [];
+    const runner = createOllamaClassifierRunner({
+      adapterRoot: root,
+      skipResourceCheck: true,
+      fetch: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        calls.push(body);
+        return jsonResponse({
+          message: {
+            content: JSON.stringify(
+              body.model === "open-classify-preflight:v0.1.0"
+                ? validOutputs.preflight
+                : validOutputs.downstream_route,
+            ),
+          },
+        });
+      },
+    });
+
+    await runner("preflight", classifierInput(), new AbortController().signal);
+    await runner("downstream_route", classifierInput(), new AbortController().signal);
+
+    assert.equal(calls[0].model, "open-classify-preflight:v0.1.0");
+    assert.equal(calls[1].model, OLLAMA_BASE_MODEL);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("createOllamaClassifierRunner posts classifier chat request with model override", async () => {

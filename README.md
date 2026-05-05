@@ -143,7 +143,7 @@ Terminal result:
   },
   "preflight": {
     "terminality": "terminal",
-    "awk": "You're welcome."
+    "awk": "Anytime."
   }
 }
 ```
@@ -165,11 +165,11 @@ Continue result:
     "message_hash": "...",
     "request_hash": "..."
   },
-  "awk": "I'll take a look.",
+  "awk": "Let me check.",
   "classifiers": {
     "preflight": {
       "terminality": "continue",
-      "awk": "I'll take a look."
+      "awk": "Let me check."
     },
     "downstream_route": {
       "execution_mode": "tool_assisted",
@@ -177,7 +177,8 @@ Continue result:
     },
     "context_sufficiency": {
       "value": "self_contained",
-      "missing": []
+      "missing_context": [],
+      "relevant_context_summary": ""
     },
     "memory_retrieval_queries": {
       "queries": []
@@ -234,6 +235,28 @@ console.log(OLLAMA_BASE_MODEL);
 console.log(OLLAMA_CLASSIFIER_MODELS.preflight); // null
 ```
 
+The runner also checks an `adapters/` folder by default. Each classifier can opt into an adapter model by placing the Ollama model name in `adapters/<classifier>/model.txt`. Missing folders, missing files, empty files, and unreadable files are treated as `null`, so a partial adapter set falls back to `gemma4:e4b-it-q4_K_M` for the classifiers that are not ready.
+
+```txt
+adapters/
+  preflight/model.txt
+  downstream_route/model.txt
+  context_sufficiency/model.txt
+  memory_retrieval_queries/model.txt
+  tool_family_need/model.txt
+  message_and_attachment_digest/model.txt
+  security_posture/model.txt
+```
+
+`model.txt` uses the first non-empty, non-comment line:
+
+```txt
+# optional comment
+open-classify-preflight:v0.1.0
+```
+
+Ollama chat requests select a model name; they do not attach adapter files directly per request. Create/register each fine-tuned adapter as an Ollama model first, then write that model name into the matching `model.txt`.
+
 When fine-tuned adapter models are installed in Ollama, pass the adapter model map:
 
 ```ts
@@ -263,6 +286,7 @@ const result = await classifyWithOllama(input, {
 Supported Ollama runner options:
 
 - `host`: Ollama host. The library default is `http://localhost:11434`.
+- `adapterRoot`: folder to scan for `<classifier>/model.txt`. Defaults to `adapters`.
 - `models`: partial classifier-to-model map. `null` means use the base model.
 - `options`: Ollama generation options. These override the default `temperature` and `num_ctx`.
 - `fetch`: custom fetch implementation, mainly for tests.
@@ -339,7 +363,7 @@ Determines whether the current message can stop immediately or should continue t
 ```json
 {
   "terminality": "continue",
-  "awk": "I'll take a look."
+  "awk": "Let me check."
 }
 ```
 
@@ -364,7 +388,7 @@ Output:
 ```json
 {
   "terminality": "terminal",
-  "awk": "You're welcome."
+  "awk": "Anytime."
 }
 ```
 
@@ -471,9 +495,10 @@ The final message is always the target. Earlier messages are context only.
 ```json
 {
   "value": "referential",
-  "missing": [
+  "missing_context": [
     "referenced_text"
-  ]
+  ],
+  "relevant_context_summary": "Earlier context includes the text the user wants revised."
 }
 ```
 
@@ -483,12 +508,14 @@ Select one:
 
 - `self_contained`: the final message has enough information to route and respond without earlier messages.
 - `adjacent_context_helpful`: earlier messages improve quality or continuity, but the final message is understandable on its own.
-- `referential`: the final message points to supplied earlier content with a referent such as "this", "that", "it", "the second one", "above", "same", or "what do you think?"
+- `referential`: supplied earlier content is required to understand the final message.
 - `incomplete_information`: the final message is missing required information and the supplied earlier messages do not resolve it.
 - `long_context`: the final message appears to depend on older project state, prior decisions, requirements, preferences, or a long-running conversation beyond the supplied window.
 - `unable_to_determine`: the message is too malformed, opaque, or contradictory to classify.
 
-`missing` contains short snake_case hints for the absent context. It is empty when no material context is missing.
+`missing_context` contains short snake_case hints for absent context. It is empty when no material context is missing.
+
+`relevant_context_summary` is a concise Markdown string summarizing only the supplied earlier conversation information that may be relevant to the latest user query. For `self_contained`, it is an empty string.
 
 ### Examples
 
@@ -503,7 +530,8 @@ Output:
 ```json
 {
   "value": "self_contained",
-  "missing": []
+  "missing_context": [],
+  "relevant_context_summary": ""
 }
 ```
 
@@ -518,9 +546,10 @@ Output:
 ```json
 {
   "value": "referential",
-  "missing": [
+  "missing_context": [
     "referenced_option"
-  ]
+  ],
+  "relevant_context_summary": "Earlier context includes the option the user wants made more direct."
 }
 ```
 
@@ -535,9 +564,10 @@ Output:
 ```json
 {
   "value": "long_context",
-  "missing": [
+  "missing_context": [
     "prior_discussion"
-  ]
+  ],
+  "relevant_context_summary": ""
 }
 ```
 
@@ -907,11 +937,11 @@ A complete non-terminal pipeline result contains:
     "message_hash": "...",
     "request_hash": "..."
   },
-  "awk": "I'll take a look.",
+  "awk": "Let me check.",
   "classifiers": {
     "preflight": {
       "terminality": "continue",
-      "awk": "I'll take a look."
+      "awk": "Let me check."
     },
     "downstream_route": {
       "execution_mode": "tool_assisted",
@@ -919,7 +949,8 @@ A complete non-terminal pipeline result contains:
     },
     "context_sufficiency": {
       "value": "self_contained",
-      "missing": []
+      "missing_context": [],
+      "relevant_context_summary": ""
     },
     "memory_retrieval_queries": {
       "queries": []

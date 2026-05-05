@@ -7,11 +7,12 @@ import {
 } from "../dist/src/pipeline.js";
 
 const results = {
-  preflight: { terminality: "continue", awk: "I'll take a look." },
+  preflight: { terminality: "continue", awk: "Let me check." },
   downstream_route: { execution_mode: "tool_assisted", model_tier: "local_strong" },
   context_sufficiency: {
     value: "self_contained",
-    missing: [],
+    missing_context: [],
+    relevant_context_summary: "",
   },
   memory_retrieval_queries: { queries: ["user review preferences"] },
   tool_family_need: { value: ["workspace"] },
@@ -41,7 +42,7 @@ test("starts all classifiers concurrently and returns continue result", async ()
 
   assert.equal(result.status, "continue");
   assert.deepEqual(started.sort(), Object.keys(results).sort());
-  assert.equal(result.awk, "I'll take a look.");
+  assert.equal(result.awk, "Let me check.");
   assert.equal(result.request.raw.kept, true);
   assert.deepEqual(result.classifiers, results);
 });
@@ -54,7 +55,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
-          return Promise.resolve({ terminality: "terminal", awk: "You're welcome." });
+          return Promise.resolve({ terminality: "terminal", awk: "Anytime." });
         }
 
         return new Promise((resolve) => {
@@ -74,7 +75,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.equal(result.status, "terminal");
   assert.deepEqual(result.preflight, {
     terminality: "terminal",
-    awk: "You're welcome.",
+    awk: "Anytime.",
   });
   assert.equal("classifiers" in result, false);
   assert.equal(aborted.length, 6);
@@ -88,7 +89,7 @@ test("terminal preflight waits for aborted classifier runs to settle", async () 
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
-          return Promise.resolve({ terminality: "terminal", awk: "You're welcome." });
+          return Promise.resolve({ terminality: "terminal", awk: "Anytime." });
         }
 
         return new Promise((resolve) => {
@@ -117,7 +118,7 @@ test("unable_to_determine behaves like continue", async () => {
     {
       async runClassifier(name) {
         if (name === "preflight") {
-          return { terminality: "unable_to_determine", awk: "I'll take a look." };
+          return { terminality: "unable_to_determine", awk: "Let me check." };
         }
         return results[name];
       },
