@@ -35,7 +35,7 @@ const PHASE_LABELS = {
 const state = {
   metadata: null,
   attachments: [],
-  contextMessages: [],
+  messages: [createMessage()],
   classifierNames: [...DEFAULT_CLASSIFIER_NAMES],
   classifiers: {},
   events: [],
@@ -45,8 +45,7 @@ const state = {
 };
 
 const form = document.querySelector("#classifyForm");
-const textInput = document.querySelector("#textInput");
-const contextMessageList = document.querySelector("#contextMessageList");
+const messageList = document.querySelector("#messageList");
 const addMessageButton = document.querySelector("#addMessageButton");
 const attachmentInput = document.querySelector("#attachmentInput");
 const attachmentList = document.querySelector("#attachmentList");
@@ -72,11 +71,12 @@ async function init() {
   state.metadata = await response.json();
   renderMetaChips();
   resetClassifiers("idle");
-  renderContextMessages();
+  renderMessages();
   renderAttachments();
   startTicker();
 
-  textInput.addEventListener("keydown", (event) => {
+  messageList.addEventListener("keydown", (event) => {
+    if (!event.target.matches("textarea")) return;
     if (
       event.key !== "Enter" ||
       event.shiftKey ||
@@ -108,51 +108,53 @@ async function init() {
   });
 
   addMessageButton.addEventListener("click", () => {
-    state.contextMessages.push(createContextMessage());
-    renderContextMessages();
-    focusLastContextMessage();
+    state.messages.push(createMessage());
+    renderMessages();
+    focusLastMessage();
   });
 
-  contextMessageList.addEventListener("input", (event) => {
+  messageList.addEventListener("input", (event) => {
     const field = event.target.closest("[data-field]");
     const item = event.target.closest("[data-message-id]");
     if (!field || !item) return;
 
-    const message = state.contextMessages.find((candidate) => candidate.id === item.dataset.messageId);
+    const message = state.messages.find((candidate) => candidate.id === item.dataset.messageId);
     if (!message) return;
     message[field.dataset.field] = event.target.value;
   });
 
-  contextMessageList.addEventListener("change", (event) => {
+  messageList.addEventListener("change", (event) => {
     const field = event.target.closest("[data-field]");
     const item = event.target.closest("[data-message-id]");
     if (!field || !item) return;
 
-    const message = state.contextMessages.find((candidate) => candidate.id === item.dataset.messageId);
+    const message = state.messages.find((candidate) => candidate.id === item.dataset.messageId);
     if (!message) return;
     message[field.dataset.field] = event.target.value;
   });
 
-  contextMessageList.addEventListener("click", (event) => {
+  messageList.addEventListener("click", (event) => {
     const removeButton = event.target.closest("[data-remove-message]");
     if (!removeButton) return;
 
-    state.contextMessages = state.contextMessages.filter(
+    if (state.messages.length === 1) return;
+    state.messages = state.messages.filter(
       (message) => message.id !== removeButton.dataset.removeMessage,
     );
-    renderContextMessages();
+    state.messages[state.messages.length - 1].role = "user";
+    renderMessages();
   });
 
   clearButton.addEventListener("click", () => {
     form.reset();
     state.attachments = [];
-    state.contextMessages = [];
+    state.messages = [createMessage()];
     attachmentInput.value = "";
     state.events = [];
     state.eventCount = 0;
     renderEventLog();
     resetClassifiers("idle");
-    renderContextMessages();
+    renderMessages();
     renderAttachments();
     setRunState("idle");
     awkDisplay.hidden = true;
@@ -235,23 +237,11 @@ async function classify() {
 
 function buildInput() {
   const data = new FormData(form);
-  const targetMessage = {
-    role: "user",
-    text: String(data.get("text") ?? ""),
-  };
-
-  for (const key of ["message_id", "timestamp"]) {
-    const value = String(data.get(key) ?? "").trim();
-    if (value) {
-      targetMessage[key] = value;
-    }
-  }
+  const messages = state.messages.map(toConversationMessage);
+  messages[messages.length - 1].role = "user";
 
   const input = {
-    conversation_window: [
-      ...state.contextMessages.map(toConversationMessage).filter((message) => message.text.trim()),
-      targetMessage,
-    ],
+    conversation_window: messages,
     attachments: state.attachments,
   };
 
@@ -270,7 +260,7 @@ function buildInput() {
   return input;
 }
 
-function createContextMessage() {
+function createMessage() {
   return {
     id: crypto.randomUUID(),
     role: "user",
@@ -296,28 +286,30 @@ function toConversationMessage(message) {
   return output;
 }
 
-function renderContextMessages() {
-  if (state.contextMessages.length === 0) {
-    contextMessageList.innerHTML = "";
-    return;
-  }
-
-  contextMessageList.innerHTML = state.contextMessages
-    .map((message, index) => renderContextMessage(message, index))
+function renderMessages() {
+  messageList.innerHTML = state.messages
+    .map((message, index) => renderMessage(message, index))
     .join("");
 }
 
-function renderContextMessage(message, index) {
+function renderMessage(message, index) {
+  const isFinal = index === state.messages.length - 1;
+  const canRemove = state.messages.length > 1;
+  if (isFinal) {
+    message.role = "user";
+  }
+
   return `
-    <article class="message-editor context-message" data-message-id="${escapeHtml(message.id)}">
+    <article class="message-editor ${isFinal ? "target-message" : "context-message"}" data-message-id="${escapeHtml(message.id)}">
       <div class="message-editor-head">
-        <strong>Context message ${index + 1}</strong>
-        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove context message" aria-label="Remove context message">×</button>
+        <strong>Message ${index + 1}</strong>
+        <span>${isFinal ? "classified message" : "context"}</span>
+        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove message" aria-label="Remove message"${canRemove ? "" : " disabled"}>×</button>
       </div>
       <div class="message-meta-row">
         <label class="field">
           <span>Role</span>
-          <select data-field="role">
+          <select data-field="role"${isFinal ? " disabled" : ""}>
             ${["user", "assistant", "system", "tool"]
               .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
               .join("")}
@@ -334,14 +326,14 @@ function renderContextMessage(message, index) {
       </div>
       <label class="field wide">
         <span>Text</span>
-        <textarea data-field="text" rows="4" placeholder="Earlier message text...">${escapeHtml(message.text)}</textarea>
+        <textarea data-field="text" rows="${isFinal ? 5 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
       </label>
     </article>
   `;
 }
 
-function focusLastContextMessage() {
-  const inputs = contextMessageList.querySelectorAll("textarea[data-field='text']");
+function focusLastMessage() {
+  const inputs = messageList.querySelectorAll("textarea[data-field='text']");
   inputs[inputs.length - 1]?.focus();
 }
 

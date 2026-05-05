@@ -28,25 +28,9 @@
           <section class="conversation-editor">
             <header class="section-head">
               <span>Conversation window</span>
-              <button class="secondary compact" type="button" id="addMessageButton">Add context</button>
+              <button class="secondary compact" type="button" id="addMessageButton">Add message</button>
             </header>
-            <div class="context-message-list" id="contextMessageList"></div>
-            <article class="message-editor target-message">
-              <div class="message-editor-head">
-                <strong>Target message</strong>
-                <span>final user message</span>
-              </div>
-              <label class="field wide">
-                <span>Text</span>
-                <textarea
-                  id="textInput"
-                  name="text"
-                  rows="7"
-                  placeholder="Paste the triggering user message..."
-                  required
-                ></textarea>
-              </label>
-            </article>
+            <div class="message-list" id="messageList"></div>
           </section>
 
           <details class="field-details">
@@ -69,12 +53,8 @@
                 <input name="thread_id" placeholder="T123" />
               </label>
               <label class="field">
-                <span>Target message ID</span>
-                <input name="message_id" placeholder="M123" />
-              </label>
-              <label class="field">
-                <span>Target timestamp</span>
-                <input name="timestamp" placeholder="2026-05-04T12:00:00Z" />
+                <span>Window note</span>
+                <input name="window_note" placeholder="Messages are entered oldest to newest" disabled />
               </label>
             </div>
           </details>
