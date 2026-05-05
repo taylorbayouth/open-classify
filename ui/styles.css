@@ -136,6 +136,18 @@ h1 {
 .run-state[data-state="terminal"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .run-state[data-state="failed"]   { background: var(--err-soft); color: var(--err); border-color: transparent; }
 
+.phase-trail {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.phase-step { letter-spacing: 0.02em; }
+.phase-step-active { color: var(--info); }
+.phase-sep { color: var(--muted-2); }
+
 .meta-chips {
   display: flex;
   flex-wrap: wrap;

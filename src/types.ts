@@ -1,13 +1,14 @@
 import type {
   ContextSufficiency,
-  DownstreamRoute,
+  DownstreamExecutionMode,
+  DownstreamModelTier,
   SecurityPosture,
   SecuritySignal,
   Terminality,
   ToolFamily,
 } from "./enums.js";
 
-export type ConversationMessageRole = "user" | "assistant" | "system" | "tool";
+export type ConversationMessageRole = "user" | "assistant";
 
 export interface AttachmentInput {
   filename?: string;
@@ -76,7 +77,8 @@ export interface PreflightResult {
 }
 
 export interface DownstreamRouteResult {
-  value: DownstreamRoute;
+  execution_mode: DownstreamExecutionMode;
+  model_tier: DownstreamModelTier;
 }
 
 export interface ContextSufficiencyResult {

@@ -8,7 +8,7 @@ import {
 
 const results = {
   preflight: { terminality: "continue", awk: "I'll take a look." },
-  downstream_route: { value: "tool_harness_answer" },
+  downstream_route: { execution_mode: "tool_assisted", model_tier: "local_strong" },
   context_sufficiency: {
     value: "self_contained",
     missing: [],

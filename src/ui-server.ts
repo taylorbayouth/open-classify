@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import {
   CONTEXT_SUFFICIENCY_VALUES,
-  DOWNSTREAM_ROUTE_VALUES,
+  DOWNSTREAM_EXECUTION_MODE_VALUES,
+  DOWNSTREAM_MODEL_TIER_VALUES,
   SECURITY_POSTURE_VALUES,
   SECURITY_SIGNAL_VALUES,
   TERMINALITY_VALUES,
@@ -168,7 +169,8 @@ function metadata(): unknown {
     classifiers: CLASSIFIER_NAMES,
     enums: {
       terminality: TERMINALITY_VALUES,
-      downstream_route: DOWNSTREAM_ROUTE_VALUES,
+      downstream_execution_mode: DOWNSTREAM_EXECUTION_MODE_VALUES,
+      downstream_model_tier: DOWNSTREAM_MODEL_TIER_VALUES,
       context_sufficiency: CONTEXT_SUFFICIENCY_VALUES,
       tool_family: TOOL_FAMILY_VALUES,
       security_posture: SECURITY_POSTURE_VALUES,

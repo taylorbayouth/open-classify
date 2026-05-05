@@ -172,7 +172,8 @@ Continue result:
       "awk": "I'll take a look."
     },
     "downstream_route": {
-      "value": "tool_harness_answer"
+      "execution_mode": "tool_assisted",
+      "model_tier": "local_strong"
     },
     "context_sufficiency": {
       "value": "self_contained",
@@ -384,26 +385,33 @@ Output:
 
 ## 2. Downstream Route
 
-Chooses the execution lane that should handle the request after classification.
+Chooses the execution mode and model tier that should handle the request after classification.
 
 ### Output
 
 ```json
 {
-  "value": "tool_harness_answer"
+  "execution_mode": "tool_assisted",
+  "model_tier": "local_strong"
 }
 ```
 
 ### Values
 
-Select one:
+Select one execution mode:
 
-- `cheap_local_answer`: a small local model can answer directly.
-- `large_local_answer`: a stronger local model is useful, but frontier quality and tools are not required.
-- `frontier_model_answer`: the request needs highest-quality reasoning, writing, coding judgment, or synthesis.
-- `tool_harness_answer`: tools are needed during this turn.
+- `direct`: can complete in one normal assistant turn without tools or durable orchestration.
+- `tool_assisted`: tools are needed during this turn.
 - `workflow`: durable, scheduled, resumable, multi-stage, or stateful work beyond one normal turn.
-- `unable_to_determine`: the route cannot be safely determined.
+- `unable_to_determine`: the execution mode cannot be safely determined.
+
+Select one model tier:
+
+- `local_fast`: cheapest viable local model for simple self-contained tasks.
+- `local_strong`: stronger local model for careful reasoning, writing, coding, or moderate synthesis.
+- `frontier_fast`: frontier quality is useful, but deep deliberation is not required.
+- `frontier_strong`: strongest tier for high-stakes, complex, ambiguous, strategic, or expert-level work.
+- `unable_to_determine`: the model tier cannot be safely determined.
 
 ### Examples
 
@@ -417,7 +425,8 @@ Output:
 
 ```json
 {
-  "value": "cheap_local_answer"
+  "execution_mode": "direct",
+  "model_tier": "local_fast"
 }
 ```
 
@@ -431,7 +440,8 @@ Output:
 
 ```json
 {
-  "value": "tool_harness_answer"
+  "execution_mode": "tool_assisted",
+  "model_tier": "local_strong"
 }
 ```
 
@@ -445,7 +455,8 @@ Output:
 
 ```json
 {
-  "value": "workflow"
+  "execution_mode": "workflow",
+  "model_tier": "local_fast"
 }
 ```
 
@@ -903,7 +914,8 @@ A complete non-terminal pipeline result contains:
       "awk": "I'll take a look."
     },
     "downstream_route": {
-      "value": "tool_harness_answer"
+      "execution_mode": "tool_assisted",
+      "model_tier": "local_strong"
     },
     "context_sufficiency": {
       "value": "self_contained",

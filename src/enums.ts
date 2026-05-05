@@ -5,15 +5,22 @@ export const TERMINALITY_VALUES = [
 ] as const;
 export type Terminality = (typeof TERMINALITY_VALUES)[number];
 
-export const DOWNSTREAM_ROUTE_VALUES = [
-  "cheap_local_answer",
-  "large_local_answer",
-  "frontier_model_answer",
-  "tool_harness_answer",
+export const DOWNSTREAM_EXECUTION_MODE_VALUES = [
+  "direct",
+  "tool_assisted",
   "workflow",
   "unable_to_determine",
 ] as const;
-export type DownstreamRoute = (typeof DOWNSTREAM_ROUTE_VALUES)[number];
+export type DownstreamExecutionMode = (typeof DOWNSTREAM_EXECUTION_MODE_VALUES)[number];
+
+export const DOWNSTREAM_MODEL_TIER_VALUES = [
+  "local_fast",
+  "local_strong",
+  "frontier_fast",
+  "frontier_strong",
+  "unable_to_determine",
+] as const;
+export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 
 export const CONTEXT_SUFFICIENCY_VALUES = [
   "self_contained",

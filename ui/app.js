@@ -20,7 +20,6 @@ const labels = {
 
 const optionKeys = {
   preflight: "terminality",
-  downstream_route: "downstream_route",
   context_sufficiency: "context_sufficiency",
   tool_family_need: "tool_family",
   security_posture: "security_posture",
@@ -41,6 +40,7 @@ const state = {
   events: [],
   eventCount: 0,
   phase: "idle",
+  phases: [],
   tickerHandle: null,
 };
 
@@ -63,6 +63,7 @@ const runButton = document.querySelector("#runButton");
 const copyJsonButton = document.querySelector("#copyJsonButton");
 const eventLogList = document.querySelector("#eventLogList");
 const eventLogCount = document.querySelector("#eventLogCount");
+const phaseTrail = document.querySelector("#phaseTrail");
 
 init();
 
@@ -310,7 +311,7 @@ function renderMessage(message, index) {
         <label class="field">
           <span>Role</span>
           <select data-field="role"${isFinal ? " disabled" : ""}>
-            ${["user", "assistant", "system", "tool"]
+            ${["user", "assistant"]
               .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
               .join("")}
           </select>
@@ -338,17 +339,21 @@ function focusLastMessage() {
 }
 
 function handleStreamEvent(event, data) {
-  appendEvent(event, data?.name ?? null);
+  if (event !== "pipeline_phase") appendEvent(event, data?.name ?? null);
 
   switch (event) {
     case "pipeline_started":
       if (Array.isArray(data.classifiers) && data.classifiers.length > 0) {
         state.classifierNames = data.classifiers;
       }
+      state.phases = [];
+      renderPhaseTrail();
       resetClassifiers();
       break;
     case "pipeline_phase":
       setRunState(data.phase === "running" ? "running" : data.phase);
+      state.phases.push(data.phase);
+      renderPhaseTrail();
       break;
     case "classifier_started":
       updateClassifier(data.name, {
@@ -523,6 +528,13 @@ function renderOptions(name, result) {
     `;
   }
 
+  if (name === "downstream_route") {
+    return `
+      <div class="option-row">${renderEnumOptions("downstream_execution_mode", result?.execution_mode)}</div>
+      <div class="option-row">${renderEnumOptions("downstream_model_tier", result?.model_tier)}</div>
+    `;
+  }
+
   const key = optionKeys[name];
   if (!key) return "";
 
@@ -659,7 +671,7 @@ function eventTag(name) {
   if (name.endsWith("_completed") || name === "pipeline_completed") return { kind: "ok" };
   if (name.endsWith("_failed") || name === "error") return { kind: "err" };
   if (name.endsWith("_canceled")) return { kind: "warn" };
-  if (name.endsWith("_started") || name === "pipeline_phase") return { kind: "info" };
+  if (name.endsWith("_started")) return { kind: "info" };
   return { kind: "info" };
 }
 
@@ -713,6 +725,22 @@ function setRunState(value) {
   runState.textContent = labelMap[value] ?? value;
   runState.dataset.state = value;
   liveDot.dataset.state = value;
+}
+
+function renderPhaseTrail() {
+  const labels = { normalizing: "normalizing", resource_check: "resource check", running: "running" };
+  if (state.phases.length === 0) {
+    phaseTrail.hidden = true;
+    phaseTrail.textContent = "";
+    return;
+  }
+  phaseTrail.hidden = false;
+  phaseTrail.innerHTML = state.phases
+    .map((p, i) => {
+      const isLast = i === state.phases.length - 1;
+      return `<span class="phase-step${isLast ? " phase-step-active" : ""}">${labels[p] ?? p}</span>`;
+    })
+    .join('<span class="phase-sep">→</span>');
 }
 
 function formatBytes(value) {

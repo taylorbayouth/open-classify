@@ -74,7 +74,7 @@ export function sanitizeText(raw: string): string {
 }
 
 function hashCanonicalValue(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+  return createHash("sha256").update(canonicalJson(value)).digest("hex").slice(0, 8);
 }
 
 export function normalizeOpenClassifyInput(
@@ -181,8 +181,8 @@ function normalizeConversationMessage(
   };
 
   if (message.role !== undefined) {
-    if (!["user", "assistant", "system", "tool"].includes(message.role)) {
-      throw new TypeError(`${path}.role must be user, assistant, system, or tool`);
+    if (!["user", "assistant"].includes(message.role)) {
+      throw new TypeError(`${path}.role must be user or assistant`);
     }
     normalized.role = message.role;
   }

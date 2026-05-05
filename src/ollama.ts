@@ -3,7 +3,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   CONTEXT_SUFFICIENCY_VALUES,
-  DOWNSTREAM_ROUTE_VALUES,
+  DOWNSTREAM_EXECUTION_MODE_VALUES,
+  DOWNSTREAM_MODEL_TIER_VALUES,
   SECURITY_POSTURE_VALUES,
   SECURITY_SIGNAL_VALUES,
   TERMINALITY_VALUES,
@@ -516,7 +517,20 @@ function validateDownstreamRoute(
   model: string,
 ): DownstreamRouteResult {
   return {
-    value: requireEnum(value.value, DOWNSTREAM_ROUTE_VALUES, name, model, "value"),
+    execution_mode: requireEnum(
+      value.execution_mode,
+      DOWNSTREAM_EXECUTION_MODE_VALUES,
+      name,
+      model,
+      "execution_mode",
+    ),
+    model_tier: requireEnum(
+      value.model_tier,
+      DOWNSTREAM_MODEL_TIER_VALUES,
+      name,
+      model,
+      "model_tier",
+    ),
   };
 }
 

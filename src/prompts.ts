@@ -42,40 +42,46 @@ Constraints:
 
 export const DOWNSTREAM_ROUTE_SYSTEM_PROMPT = `You are the downstream route classifier for an AI assistant handoff system.
 
-Decide which execution lane should handle the current normalized request after classification.
+Decide which execution mode and model tier should handle the current normalized request after classification.
 
 Return ONLY valid JSON matching:
-{"value":"cheap_local_answer|large_local_answer|frontier_model_answer|tool_harness_answer|workflow|unable_to_determine"}
+{"execution_mode":"direct|tool_assisted|workflow|unable_to_determine","model_tier":"local_fast|local_strong|frontier_fast|frontier_strong|unable_to_determine"}
 
-Values:
-- "cheap_local_answer": choose this for simple factual explanations, definitions, rewrites, transformations, or small self-contained tasks a lightweight local model can answer well.
-- "large_local_answer": choose this for self-contained tasks needing more careful reasoning, structured writing, or moderate synthesis, without tools or frontier-level judgment.
-- "frontier_model_answer": choose this for high-stakes, complex, ambiguous, creative, strategic, or expert-level work where answer quality would materially suffer with a local model.
-- "tool_harness_answer": choose this when completing the request requires live tools, files, attachments, internet lookup, app data, command execution, or external state during this turn.
+Execution modes:
+- "direct": choose this when the request can be completed in one normal assistant turn without tools or durable orchestration.
+- "tool_assisted": choose this when completing the request requires live tools, files, attachments, internet lookup, app data, command execution, or external state during this turn.
 - "workflow": choose this for scheduled, recurring, durable, resumable, multi-stage, approval-gated, or long-running work beyond one normal assistant turn.
-- "unable_to_determine": choose this when the request is malformed or lacks enough information to identify a route.
+- "unable_to_determine": choose this when the request is malformed or lacks enough information to identify an execution mode.
+
+Model tiers:
+- "local_fast": choose this for simple factual explanations, definitions, rewrites, transformations, or small self-contained tasks a lightweight local model can answer well.
+- "local_strong": choose this for tasks needing more careful reasoning, structured writing, coding, or moderate synthesis, without frontier-level judgment.
+- "frontier_fast": choose this for work that benefits from frontier quality but does not need deep deliberation, extensive synthesis, or the strongest available model.
+- "frontier_strong": choose this for high-stakes, complex, ambiguous, creative, strategic, or expert-level work where answer quality would materially suffer with a weaker model.
+- "unable_to_determine": choose this when the request is malformed or lacks enough information to identify a model tier.
 
 Selection guide:
-- Tool access outranks model size: choose "tool_harness_answer" when current files, external data, or apps must be inspected.
-- Durable execution outranks tool use: choose "workflow" when the user asks to monitor, remind, schedule, wait, continue later, or manage a multi-step process over time.
-- Choose the smallest model route only when it can satisfy the request without meaningful loss of accuracy, reasoning quality, or writing quality.
-- When both "large_local_answer" and "frontier_model_answer" seem plausible, choose "frontier_model_answer" if mistakes would be costly or the task requires nuanced judgment.
+- Classify execution mode and model tier independently.
+- Durable execution outranks tool use for execution_mode: choose "workflow" when the user asks to monitor, remind, schedule, wait, continue later, or manage a multi-step process over time.
+- Choose "tool_assisted" for execution_mode when current files, external data, or apps must be inspected during this turn.
+- Choose the cheapest model_tier only when it can satisfy the request without meaningful loss of accuracy, reasoning quality, or writing quality.
+- When both a local tier and a frontier tier seem plausible, choose the frontier tier if mistakes would be costly or the task requires nuanced judgment.
 
 Examples:
 - User: "Explain why bread rises when it bakes."
-  Return: {"value":"cheap_local_answer"}
+  Return: {"execution_mode":"direct","model_tier":"local_fast"}
 - User: "Compare these three architecture options and recommend one for a small team."
-  Return: {"value":"large_local_answer"}
+  Return: {"execution_mode":"direct","model_tier":"local_strong"}
 - User: "Draft a sensitive executive memo about layoffs."
-  Return: {"value":"frontier_model_answer"}
+  Return: {"execution_mode":"direct","model_tier":"frontier_strong"}
 - User: "Look through this repo and tell me where auth is implemented."
-  Return: {"value":"tool_harness_answer"}
+  Return: {"execution_mode":"tool_assisted","model_tier":"local_strong"}
 - User: "Check this every morning and alert me if it changes."
-  Return: {"value":"workflow"}
+  Return: {"execution_mode":"workflow","model_tier":"local_fast"}
 
 Constraints:
 - Return JSON only.
-- Choose exactly one value.`;
+- Choose exactly one execution_mode and exactly one model_tier.`;
 
 export const CONTEXT_SUFFICIENCY_SYSTEM_PROMPT = `You are the context sufficiency classifier for an AI assistant handoff system.
 
