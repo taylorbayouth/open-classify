@@ -69,7 +69,6 @@ export interface ConversationHistoryResult {
   refers_to_history: boolean;
   relevant_conversation_history: ConversationMessageInput[];
   needs_unseen_history: boolean;
-  reason: string;
 }
 
 export interface MemoryRetrievalQueriesResult {

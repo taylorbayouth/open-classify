@@ -686,11 +686,6 @@ function renderDetails(name, item) {
     const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
     return `
       <div class="option-row">${msgPill}${noHistoryPill}</div>
-      ${result.reason ? `
-        <div class="option-group">
-          <span class="option-label">reason</span>
-          <div class="detail context-summary">${escapeHtml(result.reason)}</div>
-        </div>` : ""}
     `;
   }
 

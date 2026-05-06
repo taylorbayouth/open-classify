@@ -47,7 +47,6 @@ export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
 const CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT = 19;
-const CONVERSATION_HISTORY_REASON_MAX_CHARS = 200;
 const MEMORY_QUERY_MAX_COUNT = 3;
 const MEMORY_QUERY_MIN_WORDS = 3;
 const MEMORY_QUERY_MAX_WORDS = 10;
@@ -576,7 +575,6 @@ function validateConversationHistory(
       "refers_to_history",
       "prior_messages_needed",
       "needs_unseen_history",
-      "reason",
     ],
     name,
     model,
@@ -631,13 +629,6 @@ function validateConversationHistory(
     refers_to_history: refersToHistory,
     relevant_conversation_history: relevantConversationHistory,
     needs_unseen_history: needsUnseenHistory,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CONVERSATION_HISTORY_REASON_MAX_CHARS,
-    ),
   };
 }
 

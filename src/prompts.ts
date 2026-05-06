@@ -105,14 +105,13 @@ export const CONVERSATION_HISTORY_SYSTEM_PROMPT = `You are the conversation hist
 Recommend how much visible prior conversation history should be included with the latest normalized user message, and whether unseen history may be needed.
 
 Return ONLY valid JSON matching:
-{"is_standalone":true,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":false,"reason":"<one sentence>"}
+{"is_standalone":true,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":false}
 
 Fields:
 - "is_standalone": true when the latest message can be routed and answered well without any prior visible messages.
 - "refers_to_history": true when the latest message points to prior conversation content, such as "that", "it", "the second one", "use the above", "continue", or "same as before".
 - "prior_messages_needed": number of visible prior messages to include with the latest message. Exclude the latest message from this count. Use the smallest sufficient recent suffix, but err high when uncertain.
 - "needs_unseen_history": true when useful or required context appears to be outside the supplied window, stripped, omitted, in saved memory, in another thread, or in older project history.
-- "reason": compact one-sentence explanation for the recommendation.
 
 Selection guide:
 - Classify only the final/latest message. Earlier messages are context evidence, not new requests.
@@ -125,22 +124,21 @@ Selection guide:
 
 Examples:
 - User: "What are the tradeoffs of SQLite and Postgres for an offline app?"
-  Return: {"is_standalone":true,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":false,"reason":"The latest message can be handled without prior messages."}
+  Return: {"is_standalone":true,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":false}
 - Earlier: "Here is the launch announcement draft."
   User: "Can you make that shorter?"
-  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":1,"needs_unseen_history":false,"reason":"The latest message refers to the announcement draft in the prior message."}
+  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":1,"needs_unseen_history":false}
 - User: "Let's continue with the migration plan."
-  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":0,"needs_unseen_history":true,"reason":"The latest message depends on a migration plan that is not visible in the supplied window."}
+  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":0,"needs_unseen_history":true}
 - User: "Based on our earlier requirements, draft the final spec."
-  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":0,"needs_unseen_history":true,"reason":"The latest message invokes earlier requirements that are not visible in the supplied window."}
+  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":0,"needs_unseen_history":true}
 - User: "Schedule for Tuesday afternoon."
-  Return: {"is_standalone":false,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":true,"reason":"The latest message lacks the event details needed to act on the schedule request."}
+  Return: {"is_standalone":false,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":true}
 
 Constraints:
 - Return JSON only.
-- Use exactly these five keys.
-- "prior_messages_needed" must be a non-negative integer.
-- Keep "reason" under 200 characters.`;
+- Use exactly these four keys.
+- "prior_messages_needed" must be a non-negative integer.`;
 
 export const MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT = `You are the saved-memory query hint planner for an AI assistant handoff system.
 
