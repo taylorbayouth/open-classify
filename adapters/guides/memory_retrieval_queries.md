@@ -6,7 +6,7 @@ Append output to `adapters/memory_retrieval_queries.jsonl`. Hold back 10-20% as 
 
 ## Quick-Start (Human Curator)
 
-A row is one JSON line. Emit short saved-memory query hints only when durable user-specific facts would materially help downstream. Most rows should return an empty array.
+A row is one JSON line. Emit short saved-memory query hints when searchable context could materially help downstream. Use an empty array only when prior-context search is unlikely to add value.
 
 ```json
 {"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[]}"}]}
@@ -16,24 +16,24 @@ A row is one JSON line. Emit short saved-memory query hints only when durable us
 
 This classifier plans **saved-memory query hints**. It does not retrieve memory, answer the user, choose tools, or decide model tier.
 
-It should emit compact queries only when durable user-specific facts are likely useful enough for the downstream assistant to consider fetching memory before answering.
+It should emit compact query hints when saved memory or prior context could help the downstream assistant answer with richer, more consistent context.
 
-It must be excellent at saying no:
+It must be excellent at choosing useful retrieval surfaces:
 
 - General knowledge requests do not need memory.
 - Current/live data requests need tools, not memory.
-- Supplied conversation facts do not need memory.
-- A named person, company, or project is not enough by itself.
-- Stable user preferences, prior decisions, routines, relationships, and "usual" patterns are memory signals.
+- Self-contained transformations usually do not need memory.
+- Names, companies, projects, artifacts, distinctive phrases, stable preferences, prior decisions, routines, relationships, and "usual" patterns are useful memory signals.
+- Supplied conversation facts can still provide good query terms when related saved context would help the downstream answer.
 
 ## What Failure Costs In Production
 
-- **False positive memory query.** The downstream assistant fetches irrelevant saved memory, adding latency and possible privacy surface. Too many false positives make local routing expensive.
-- **False negative memory query.** The downstream assistant answers without durable user context, missing the user's preferences, prior decisions, contacts, or recurring workflow. Quality suffers.
-- **Over-specific query.** The memory search misses relevant facts because the hint copied the current wording instead of targeting the durable fact.
+- **False positive memory query.** The downstream assistant fetches irrelevant saved memory, adding latency and possible privacy surface.
+- **False negative memory query.** The downstream assistant answers without useful context, missing the user's preferences, prior decisions, contacts, recurring workflow, or related history. Quality suffers.
+- **Over-specific query.** The memory search misses relevant facts because the hint copied too much of the current wording instead of targeting searchable terms.
 - **Leaking sensitive values.** Queries should ask for a category of durable fact, not repeat secrets, addresses, tokens, or personal data verbatim.
 
-**Bias the training data accordingly.** Prefer `[]` unless a durable saved fact is genuinely useful. When a memory signal is real, emit 1-3 broad noun-phrase queries that target the missing stable fact.
+**Bias the training data accordingly.** Lean toward emitting 1-3 useful query hints when the request contains searchable context that could improve the downstream answer. Use `[]` only when memory or prior-context search is unlikely to add value.
 
 ## Output Contract
 
@@ -42,6 +42,8 @@ It must be excellent at saying no:
 ```
 
 - `queries` (required): array of 0-3 strings.
+- Always emit a `queries` array; use `[]` when there are no useful query hints.
+- Do not emit `null` for `queries` or for the assistant JSON.
 - Each query must be 3-10 words.
 - Query strings should be short noun phrases, not questions, commands, URLs, or full sentences.
 - No duplicate queries. No secrets or sensitive values verbatim.
@@ -52,16 +54,16 @@ JSON key order: `queries` only. No extra keys. No whitespace inside the assistan
 
 Watch for these:
 
-1. **Treating names as automatic memory needs.** "Email Sarah" needs communications tools, not memory, unless the request depends on who Sarah is, her address, or her preferences.
+1. **Treating every name as equally useful.** Names are useful query terms when related context could improve the answer, but not when the task is purely mechanical.
 2. **Querying memory for live state.** "Latest", "today", "check", "search", "open", "current price", and "what's in this file" usually point to tools, not saved memory.
-3. **Ignoring supplied context.** If the window already says the user's preferred tone, vendor, client, or deadline, return `[]`.
-4. **Targeting the task instead of the missing durable fact.** Bad: "book hotel nyc trip". Good: "user preferred NYC hotel".
+3. **Ignoring useful supplied context.** The conversation window can contain names, phrases, or decisions that make strong query hints.
+4. **Targeting the task instead of the retrieval surface.** Bad: "write the final response". Good: "user client update writing style".
 5. **Over-querying.** Do not emit three queries when one clear query is enough.
 6. **Output-shape drift.** Lock the single-key JSON shape. Vary only the user message and query strings.
 
 ## Query Rules
 
-Generate queries for durable facts such as:
+Generate queries for searchable contextual signals such as:
 
 - User preferences and defaults.
 - Recurring projects, clients, vendors, locations, or routines.
@@ -70,19 +72,20 @@ Generate queries for durable facts such as:
 - Relationships, contact facts, roles, and team/client context.
 - Writing style preferences and "how I usually do X" facts.
 - Personal logistics that are stable enough to save, such as usual airport, hotel, time zone, or calendar conventions.
+- Specific names, project labels, artifacts, and distinctive phrases that could retrieve related history.
 
-Return `[]` when the request is self-contained, depends only on supplied conversation context, asks for general knowledge, needs live tools instead of saved memory, or mentions a named entity without requiring saved facts about it.
+Return `[]` when the request is self-contained, asks for general knowledge, needs live tools instead of saved memory, or contains no useful searchable context.
 
-Queries should target the missing durable fact, not the current task. Use broad but concrete noun phrases.
+Queries should target useful retrieval surfaces, not merely restate the current task. Use broad but concrete noun phrases.
 
 ## Decision Tests
 
 Ask these in order:
 
-1. Would saved user-specific memory materially improve the downstream answer?
-2. Is the needed fact durable rather than current/live?
-3. Is the needed fact absent from the supplied conversation window?
-4. Can the missing fact be expressed as a 3-10 word noun phrase?
+1. Could saved memory or prior context materially improve the downstream answer?
+2. Does the request or conversation window contain searchable terms that could retrieve that context?
+3. Is the useful context something memory could contain, rather than current/live data?
+4. Can the query hint be expressed as a 3-10 word noun phrase?
 
 Only emit queries when all four answers are yes. Otherwise return `[]`.
 
@@ -102,26 +105,26 @@ Sample combinations from these axes:
 
 **User personas:** founder, engineer, PM, sales rep, recruiter, lawyer, consultant, parent, executive assistant, support lead.
 
-**Multi-message windows:** 20-30% of rows. Include context-resolves-memory cases where the right answer is `[]`.
+**Multi-message windows:** 20-30% of rows. Include cases where supplied context contributes useful query terms.
 
 ## Boundary Pairs (Generate These Adjacent In Output)
 
-Generate 8-12 boundary pairs per batch. Each pair has near-identical wording but flips between `[]` and queries.
+Generate 8-12 boundary pairs per batch. Each pair has near-identical wording but changes whether memory query hints are useful.
 
 Example pair shapes (do not copy these inputs verbatim):
 
-- **Named person no memory vs relationship needed.** "Email Jordan that I am late" -> `[]`. "Email Jordan in the tone she prefers from me" -> query for Jordan/user relationship and tone.
+- **Mechanical task vs contextual task.** "Email Jordan that I am late" -> usually `[]`. "Email Jordan in the tone she prefers from me" -> query for Jordan/user relationship and tone.
 - **Current data vs durable preference.** "Find a hotel near the venue" -> `[]` (tools). "Book my usual hotel near the venue" -> hotel preference queries.
-- **Supplied context vs absent memory.** Prior message says "our client tone is concise and warm"; target says "use our client tone" -> `[]`. Same target without prior context -> writing preference query.
+- **Supplied context as query surface.** Prior message names a project, client, or decision; target refers back to it -> query using those searchable terms when related history could help.
 - **General project vs prior decisions.** "Draft an onboarding checklist" -> `[]`. "What did we decide for the onboarding checklist" -> prior decision query.
 - **Generic style vs saved user style.** "Make this more concise" -> `[]`. "Make this sound like my normal investor update" -> saved writing style queries.
 - **Tool need vs memory need.** "Open my calendar and find free time" -> `[]`. "Use my usual meeting buffer when scheduling this" -> meeting preference query.
 
 ## Gotchas
 
-- A named person alone is not enough. "Email Sarah" may need communications tools, but not memory unless the request depends on Sarah's identity, contact details, or preferences.
+- A named person is a possible query term, but only use it when related context could improve the answer.
 - "Latest", "check", "look up", "search", "open the file", and "current" usually need tools, not saved memory.
-- If supplied context already includes the needed fact, return `[]`.
+- If supplied context includes specific language that could retrieve related history, use it in a query hint.
 - "My usual", "like last time", "our agreed plan", "the client style", and "preferred" are strong memory signals.
 - Do not include secrets or sensitive values verbatim in queries.
 - Do not generate queries for generic domain knowledge like "Postgres tradeoffs".
@@ -132,10 +135,10 @@ Example pair shapes (do not copy these inputs verbatim):
 When generating a batch:
 
 - **Row count:** minimum 100, hard cap 200.
-- **Query-count distribution (per 100):** 60-70 rows with `[]`, 20-30 rows with 1 query, 5-10 rows with 2 or 3 queries.
-- **Negative examples:** at least 25 no-memory rows should contain tempting false-positive cues such as names, projects, files, live lookups, tools, or supplied context.
-- **Positive examples:** cover all durable fact types listed above.
-- **Multi-message windows:** 20-30% of rows, including context-resolves-memory negatives.
+- **Query-count distribution (per 100):** 30-40 rows with `[]`, 40-50 rows with 1 query, 10-20 rows with 2 or 3 queries.
+- **Negative examples:** at least 15 no-memory rows should contain tempting cues where memory would still not add value, especially purely mechanical tasks, live lookups, tools, or generic knowledge.
+- **Positive examples:** cover all query signal types listed above.
+- **Multi-message windows:** 20-30% of rows, including supplied-context-as-query-surface positives.
 - **Boundary pairs:** 8-12 pairs per batch, emitted on adjacent lines.
 
 **Per-record self-check (HARD GATE -- do not emit on failure):**
@@ -143,7 +146,7 @@ When generating a batch:
 1. Apply every hard gate from `adapters/README.md`.
 2. Parsed assistant JSON has exactly one key: `queries`.
 3. `queries` contains 0-3 unique strings; each string is 3-10 words.
-4. Each non-empty query targets a durable user-specific fact absent from the supplied window.
+4. Each non-empty query targets a useful searchable context surface.
 5. No query includes a secret, token, private address, phone number, or other sensitive value verbatim.
 6. The user message is not a near-duplicate of any prior row in this batch and not copied from this guide's examples or appendix.
 
@@ -153,10 +156,9 @@ If any check fails, regenerate the record or skip it.
 
 Refuse to emit a record when:
 
-- You cannot tell whether memory is materially useful after applying the decision tests. Skip rather than guess.
+- You cannot identify any useful searchable context after applying the decision tests. Skip rather than guess.
 - The query would need to include real secrets, personal contact details, or identifiers. Generalize the query.
 - The row depends on live state but you are tempted to make it a memory query. Use `[]`.
-- The supplied context already resolves the missing fact but the output still contains queries. Fix or skip.
 
 ## Worked Examples
 
@@ -200,26 +202,29 @@ This is the system prompt the production runtime sends to Gemma at inference tim
 ```
 You are the saved-memory query hint planner for an AI assistant handoff system.
 
-Decide whether the downstream assistant is likely to need saved memory, and generate short query hints it can use to fetch concrete durable facts that are absent from the supplied conversation window.
+Generate short query hints the downstream assistant can use to search saved memory or prior context before answering.
 
 Return ONLY valid JSON matching:
 {"queries":["<query>"]}
 
 Query semantics:
-- Use queries for durable user-specific facts such as identities, relationships, preferences, recurring projects, prior decisions, saved context, contact details, account names, or established workflows.
-- Generate queries when saved memory is likely useful enough that the downstream assistant should consider fetching it before answering.
-- Open Classify does not fetch memory; it only emits query hints.
-- Return an empty array when the request is self-contained, asks for general knowledge, depends only on current conversation history, or needs live tools rather than saved memory.
+- Open Classify does not fetch memory; it only emits possible search query hints.
+- Query hints are searchable keywords, phrases, names, project labels, prior decisions, preferences, workflows, or specific language that could surface contextual data useful to the downstream assistant.
+- Prefer emitting query hints when prior context could make the answer richer, more consistent with the user, or better grounded.
+- Return an empty array only when no saved-memory or prior-context search is likely to help, such as self-contained transformations, general knowledge, or requests that only need live tools.
 
 Selection guide:
-- Generate queries when phrases like "my usual", "the same client", "our project", "what we decided", "preferred", or "like last time" imply saved user context.
-- A named person or project is not enough by itself; generate queries only when the requested action likely needs saved facts about that person or project.
-- Target the missing fact, not the current task. Good queries look like "user client update writing style" or "launch checklist prior decisions".
-- When the supplied conversation window already contains the needed facts, leave queries empty.
-- When both memory and tools may help, generate memory queries only for stable user-specific facts.
+- Classify only the final user message; earlier messages are context only.
+- Generate queries from specific references in the final message and useful context from the conversation window.
+- Include names, projects, accounts, artifacts, preferences, prior decisions, recurring workflows, and distinctive phrases when they could retrieve helpful context.
+- Target useful retrieval surfaces, not a full restatement of the task. Good queries look like "user client update writing style" or "launch checklist prior decisions".
+- When the supplied conversation window contains enough to answer directly, still emit query hints if related saved context could improve the downstream response.
+- When both memory and tools may help, emit memory query hints for the contextual part and leave live facts to tools.
 
 Constraints:
 - Return JSON only.
+- Always return a "queries" array; use [] when there are no useful query hints.
+- Do not return null for "queries" or for the classifier result.
 - Return at most 3 queries.
 - Each query should be 3 to 10 words.
 - Do not answer the user.

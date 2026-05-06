@@ -591,7 +591,7 @@ Output:
 
 ## 4. Memory Retrieval Queries
 
-Generates short saved-memory query hints for the downstream assistant. Open Classify does not fetch memory; it only predicts searches the next model may want to run before answering.
+Generates short saved-memory query hints for the downstream assistant. Open Classify does not fetch memory; it only predicts possible searches the next model may want to run before answering.
 
 ### Output
 
@@ -606,13 +606,15 @@ Generates short saved-memory query hints for the downstream assistant. Open Clas
 
 ### Rules
 
-- Return an empty array when saved memory is not likely to help, or when the supplied conversation window already contains the needed facts.
+- Return an empty array only when no saved-memory or prior-context search is likely to help.
+- Always return a `queries` array; use `[]` when there are no useful query hints.
+- Do not return `null` for `queries` or for the classifier result.
 - Return at most 3 queries.
 - Each query should be 3 to 10 words.
 - Avoid full sentences unless necessary.
 - Do not answer the user.
 - Do not include secrets or sensitive content verbatim.
-- A named person or project is not enough by itself; emit queries only when the requested action likely needs saved facts about that person or project.
+- Query hints should be searchable keywords, phrases, names, project labels, prior decisions, preferences, workflows, or specific language that could surface useful context.
 
 ### Examples
 
