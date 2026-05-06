@@ -116,7 +116,17 @@ export async function assertOllamaServerConfig() {
     return;
   }
 
-  const { stdout } = await execFileAsync("pgrep", ["-f", "ollama serve"]);
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync("pgrep", ["-f", "ollama serve"]));
+  } catch (error) {
+    // pgrep exits with code 1 when no matching process is found.
+    if (error?.code === 1) {
+      throw new Error("Ollama server process was not found.");
+    }
+    throw error;
+  }
+
   const pid = stdout
     .split("\n")
     .map((value) => value.trim())
