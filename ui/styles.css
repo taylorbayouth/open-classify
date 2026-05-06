@@ -288,6 +288,13 @@ textarea:focus, input:focus, select:focus {
   gap: 10px;
 }
 
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .message-list {
   display: grid;
   gap: 10px;

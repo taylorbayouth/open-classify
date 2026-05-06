@@ -35,6 +35,7 @@ const state = {
   metadata: null,
   attachments: [],
   messages: [createMessage()],
+  samples: [],
   classifierNames: [...DEFAULT_CLASSIFIER_NAMES],
   classifiers: {},
   events: [],
@@ -46,6 +47,7 @@ const state = {
 const form = document.querySelector("#classifyForm");
 const messageList = document.querySelector("#messageList");
 const addMessageButton = document.querySelector("#addMessageButton");
+const sampleButton = document.querySelector("#sampleButton");
 const attachmentInput = document.querySelector("#attachmentInput");
 const attachmentList = document.querySelector("#attachmentList");
 const classifierGrid = document.querySelector("#classifierGrid");
@@ -69,6 +71,7 @@ init();
 async function init() {
   const response = await fetch("/api/metadata");
   state.metadata = await response.json();
+  state.samples = await loadSamples();
   renderMetaChips();
   resetClassifiers("idle");
   renderMessages();
@@ -113,6 +116,10 @@ async function init() {
     focusLastMessage();
   });
 
+  sampleButton.addEventListener("click", () => {
+    loadRandomSample();
+  });
+
   messageList.addEventListener("input", (event) => {
     const field = event.target.closest("[data-field]");
     const item = event.target.closest("[data-message-id]");
@@ -150,17 +157,9 @@ async function init() {
     state.attachments = [];
     state.messages = [createMessage()];
     attachmentInput.value = "";
-    state.events = [];
-    state.eventCount = 0;
-    renderEventLog();
-    resetClassifiers("idle");
+    resetRunOutput();
     renderMessages();
     renderAttachments();
-    setRunState("idle");
-    replyDisplay.hidden = true;
-    hashes.hidden = true;
-    jsonToggle.hidden = true;
-    jsonToggle.removeAttribute("open");
   });
 
   form.addEventListener("submit", (event) => {
@@ -182,6 +181,56 @@ async function init() {
       setTimeout(() => (copyJsonButton.textContent = "Copy"), 1500);
     }
   });
+}
+
+async function loadSamples() {
+  try {
+    const response = await fetch("/test-conversations.jsonl");
+    if (!response.ok) return [];
+    const text = await response.text();
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch {
+    sampleButton.disabled = true;
+    sampleButton.title = "Sample data could not be loaded";
+    return [];
+  }
+}
+
+function loadRandomSample() {
+  if (state.samples.length === 0) return;
+
+  const sample = state.samples[Math.floor(Math.random() * state.samples.length)];
+  for (const key of ["source", "external_request_id", "conversation_id", "thread_id"]) {
+    form.elements[key].value = sample[key] ?? "";
+  }
+
+  state.attachments = Array.isArray(sample.attachments) ? sample.attachments : [];
+  state.messages = sample.conversation_window.map((message) => ({
+    ...createMessage(),
+    ...message,
+  }));
+  state.messages[state.messages.length - 1].role = "user";
+  attachmentInput.value = "";
+  resetRunOutput();
+  renderMessages();
+  renderAttachments();
+  focusLastMessage();
+}
+
+function resetRunOutput() {
+  state.events = [];
+  state.eventCount = 0;
+  renderEventLog();
+  resetClassifiers("idle");
+  setRunState("idle");
+  replyDisplay.hidden = true;
+  hashes.hidden = true;
+  jsonToggle.hidden = true;
+  jsonToggle.removeAttribute("open");
 }
 
 function renderMetaChips() {
