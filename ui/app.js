@@ -564,7 +564,6 @@ function renderClassifier(name) {
       <div class="classifier-head">
         <div class="title-block">
           <h2 class="classifier-title">${labels[name] ?? name}</h2>
-          <code class="classifier-slug">${name}</code>
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">
@@ -674,11 +673,25 @@ function renderDetails(name, item) {
   }
 
   if (name === "conversation_history") {
+    const history = result.relevant_conversation_history ?? [];
+    const historyHtml = history.length
+      ? `<div class="history-preview">${history
+          .map(
+            (msg) => `
+          <div class="history-msg">
+            <span class="history-role">${escapeHtml(msg.role === "assistant" ? "asst" : (msg.role ?? "user"))}</span>
+            <span class="history-text">${escapeHtml(String(msg.text ?? "").slice(0, 120))}</span>
+          </div>`,
+          )
+          .join("")}</div>`
+      : "";
     return `
-      <div class="detail">prior_messages_needed: ${escapeHtml(String(result.prior_messages_needed ?? ""))}</div>
-      <div class="detail muted">is_standalone: ${result.is_standalone ? "true" : "false"}</div>
-      <div class="detail muted">refers_to_history: ${result.refers_to_history ? "true" : "false"}</div>
-      <div class="detail muted">needs_unseen_history: ${result.needs_unseen_history ? "true" : "false"}</div>
+      <div class="option-row">
+        <span class="option${result.is_standalone ? " selected" : ""}">Standalone</span>
+        <span class="option${result.refers_to_history ? " selected" : ""}">Refers to history</span>
+        <span class="option${result.needs_unseen_history ? " selected" : ""}">Needs unseen history</span>
+      </div>
+      ${historyHtml}
       ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
     `;
   }

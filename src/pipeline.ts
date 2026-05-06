@@ -332,7 +332,7 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
       return {
         is_standalone: false,
         refers_to_history: false,
-        prior_messages_needed: 0,
+        relevant_conversation_history: [],
         needs_unseen_history: true,
         reason: "Conversation history classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;

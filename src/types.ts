@@ -67,7 +67,7 @@ export interface RoutingResult {
 export interface ConversationHistoryResult {
   is_standalone: boolean;
   refers_to_history: boolean;
-  prior_messages_needed: number;
+  relevant_conversation_history: ConversationMessageInput[];
   needs_unseen_history: boolean;
   reason: string;
 }

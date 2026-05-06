@@ -16,6 +16,7 @@ import type {
   ClassifierName,
   ClassifierOutput,
   ConversationHistoryResult,
+  ConversationMessageInput,
   RoutingResult,
   MemoryRetrievalQueriesResult,
   MessageAndAttachmentDigestResult,
@@ -311,7 +312,7 @@ async function runOllamaClassifier<Name extends ClassifierName>(
   }
 
   const parsed = parseJsonObject(content, name, model);
-  return validateClassifierOutput(name, parsed, model) as ClassifierOutput<Name>;
+  return validateClassifierOutput(name, parsed, model, input) as ClassifierOutput<Name>;
 }
 
 async function getSystemMemoryBytes(): Promise<{
@@ -509,6 +510,7 @@ function validateClassifierOutput(
   name: ClassifierName,
   value: Record<string, unknown>,
   model: string,
+  input?: ClassifierInput,
 ): OpenClassifyResult[ClassifierName] {
   switch (name) {
     case "preflight":
@@ -516,7 +518,7 @@ function validateClassifierOutput(
     case "routing":
       return validateRouting(value, name, model);
     case "conversation_history":
-      return validateConversationHistory(value, name, model);
+      return validateConversationHistory(value, name, model, input?.messages ?? []);
     case "memory_retrieval_queries":
       return validateMemoryRetrievalQueries(value, name, model);
     case "tools":
@@ -565,6 +567,7 @@ function validateConversationHistory(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  inputMessages: ConversationMessageInput[],
 ): ConversationHistoryResult {
   ensureExactKeys(
     value,
@@ -618,10 +621,15 @@ function validateConversationHistory(
     );
   }
 
+  const relevantConversationHistory =
+    priorMessagesNeeded > 0 && inputMessages.length > 1
+      ? inputMessages.slice(-1 - priorMessagesNeeded, -1)
+      : [];
+
   return {
     is_standalone: isStandalone,
     refers_to_history: refersToHistory,
-    prior_messages_needed: priorMessagesNeeded,
+    relevant_conversation_history: relevantConversationHistory,
     needs_unseen_history: needsUnseenHistory,
     reason: requireStringMaxLength(
       value.reason,

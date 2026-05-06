@@ -6,7 +6,7 @@ export const validClassifierOutputs = {
   conversation_history: {
     is_standalone: true,
     refers_to_history: false,
-    prior_messages_needed: 0,
+    relevant_conversation_history: [],
     needs_unseen_history: false,
     reason: "The latest message can be handled without prior messages.",
   },

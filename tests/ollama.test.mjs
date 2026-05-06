@@ -392,6 +392,18 @@ test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
 });
 
 test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
+  // conversation_history: the model still emits prior_messages_needed; the runner transforms it
+  const modelOutputs = {
+    ...validOutputs,
+    conversation_history: {
+      is_standalone: true,
+      refers_to_history: false,
+      prior_messages_needed: 0,
+      needs_unseen_history: false,
+      reason: "The latest message can be handled without prior messages.",
+    },
+  };
+
   const result = await classifyWithOllama(
     { messages: [{ role: "user", text: "review this" }] },
     {
@@ -410,7 +422,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
         assert.doesNotMatch(body.messages[1].content, /"raw"/);
 
         return jsonResponse({
-          message: { content: JSON.stringify(validOutputs[name]) },
+          message: { content: JSON.stringify(modelOutputs[name]) },
         });
       },
     },
