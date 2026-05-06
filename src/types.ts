@@ -1,11 +1,24 @@
 import type {
   DownstreamExecutionMode,
   DownstreamModelTier,
+  ModelSpecialization,
   SecurityRiskLevel,
   SecuritySignal,
   Terminality,
   ToolFamily,
 } from "./enums.js";
+
+export type ConcreteDownstreamModelTier = Exclude<
+  DownstreamModelTier,
+  "unable_to_determine"
+>;
+export type ConcreteModelSpecialization = Exclude<ModelSpecialization, "unclear">;
+export type DownstreamModelConfigKey =
+  | `${ConcreteModelSpecialization}.${ConcreteDownstreamModelTier}`
+  | ConcreteDownstreamModelTier
+  | ConcreteModelSpecialization
+  | "default";
+export type DownstreamModelConfig = Partial<Record<DownstreamModelConfigKey, string>>;
 
 export type ConversationMessageRole = "user" | "assistant";
 
@@ -56,12 +69,14 @@ export interface ClassifierInput {
 
 export interface PreflightResult {
   terminality: Terminality;
-  reply?: string;
+  reply: string;
+  reason: string;
 }
 
 export interface RoutingResult {
   execution_mode: DownstreamExecutionMode;
   model_tier: DownstreamModelTier;
+  reason: string;
 }
 
 export interface ConversationHistoryResult {
@@ -74,29 +89,24 @@ export interface ConversationHistoryResult {
 
 export interface MemoryRetrievalQueriesResult {
   queries: string[];
+  reason: string;
 }
 
 export interface ToolsResult {
+  needed: boolean;
   families: ToolFamily[];
+  reason: string;
 }
 
-export interface AttachmentDigest {
-  filename: string;
-  size_bytes?: number;
-  mime_type?: string;
-  metadata_summary: string;
-}
-
-export interface MessageAndAttachmentDigestResult {
-  slug: string;
-  summary: string;
-  attachments: AttachmentDigest[];
+export interface ModelSpecializationResult {
+  model_specialization: ModelSpecialization;
+  reason: string;
 }
 
 export interface SecurityResult {
   risk_level: SecurityRiskLevel;
   signals: SecuritySignal[];
-  notes: string;
+  reason: string;
 }
 
 export interface OpenClassifyResult {
@@ -105,8 +115,39 @@ export interface OpenClassifyResult {
   conversation_history: ConversationHistoryResult;
   memory_retrieval_queries: MemoryRetrievalQueriesResult;
   tools: ToolsResult;
-  message_and_attachment_digest: MessageAndAttachmentDigestResult;
+  model_specialization: ModelSpecializationResult;
   security: SecurityResult;
+}
+
+export interface OpenClassifyModelRecommendation {
+  key: DownstreamModelConfigKey;
+  model: string | null;
+  resolved_from: DownstreamModelConfigKey | null;
+  tier: DownstreamModelTier;
+  specialization: ModelSpecialization;
+}
+
+export interface OpenClassifyHandoff {
+  execution_mode: DownstreamExecutionMode;
+  model: OpenClassifyModelRecommendation;
+  context: {
+    conversation: {
+      prior_messages_needed: number;
+      messages: ConversationMessageInput[];
+      needs_unseen_history: boolean;
+    };
+    memory: {
+      queries: string[];
+    };
+    tools: {
+      needed: boolean;
+      families: ToolFamily[];
+    };
+  };
+  safety: {
+    risk_level: SecurityRiskLevel;
+    signals: SecuritySignal[];
+  };
 }
 
 export type ClassifierName = keyof OpenClassifyResult;
@@ -132,30 +173,32 @@ export interface ClassifierRunStatus {
 export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRunStatus>>;
 
 export interface OpenClassifyTerminalPipelineResult {
+  stop_downstream: true;
   decision: "terminal";
   target_message_hash: string;
   reply: string;
-  classifiers: { preflight: PreflightResult };
-  classifier_status: { preflight: ClassifierRunStatus };
+  preflight: PreflightResult;
+  classifier_status: ClassifierRunStatusMap;
 }
 
 export interface OpenClassifyBlockPipelineResult {
+  stop_downstream: true;
   decision: "block";
   target_message_hash: string;
-  reply?: string;
-  classifiers: { preflight: PreflightResult; security: SecurityResult };
-  classifier_status: {
-    preflight: ClassifierRunStatus;
-    security: ClassifierRunStatus;
-  };
+  reply: string;
+  preflight: PreflightResult;
+  security: SecurityResult;
+  classifier_status: ClassifierRunStatusMap;
 }
 
 export interface OpenClassifyRoutePipelineResult {
+  stop_downstream: false;
   decision: "route";
   target_message_hash: string;
-  reply?: string;
+  reply: string;
+  handoff: OpenClassifyHandoff;
   classifiers: OpenClassifyResult;
-  classifier_status: Record<ClassifierName, ClassifierRunStatus>;
+  classifier_status: ClassifierRunStatusMap;
 }
 
 export type OpenClassifyPipelineResult =

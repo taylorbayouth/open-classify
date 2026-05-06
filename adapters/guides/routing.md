@@ -9,7 +9,7 @@ Append output to `adapters/routing.jsonl`. Hold back 10–20% as an eval split p
 A row is one JSON line. Pick an execution_mode and a model_tier, write a realistic message, paste into a new line.
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits tool-assisted handling with a stronger local model.\"}"}]}
 ```
 
 ## What We Are Fine Tuning For
@@ -38,13 +38,14 @@ Routing has the most economically asymmetric error costs:
 ## Output Contract
 
 ```json
-{"execution_mode":"direct|tool_assisted|workflow|unable_to_determine","model_tier":"local_fast|local_strong|frontier_fast|frontier_strong|unable_to_determine"}
+{"execution_mode":"direct|tool_assisted|workflow|unable_to_determine","model_tier":"local_fast|local_strong|frontier_fast|frontier_strong|unable_to_determine","reason":"<one sentence>"}
 ```
 
 - `execution_mode` (required): exactly one of the four enum values, lowercase, snake_case.
 - `model_tier` (required): exactly one of the five enum values, lowercase, snake_case.
+- `reason` (required): compact diagnostic explanation for both routing choices, under 200 characters.
 
-JSON key order: `execution_mode`, then `model_tier`. No extra keys. No whitespace inside the assistant JSON.
+JSON key order: `execution_mode`, then `model_tier`, then `reason`. No extra keys. No whitespace inside the assistant JSON.
 
 ## Common LLM Failure Modes When Generating Routing Data
 
@@ -157,10 +158,11 @@ When generating a batch:
 **Per-record self-check (HARD GATE — do not emit on failure):**
 
 1. Apply every hard gate from `adapters/README.md`.
-2. Parsed assistant JSON has exactly two keys: `execution_mode` and `model_tier`.
+2. Parsed assistant JSON has exactly three keys: `execution_mode`, `model_tier`, and `reason`.
 3. The execution_mode is consistent with the message: `tool_assisted` only if live state must be inspected; `workflow` only if work persists past this turn.
 4. The model_tier is consistent with the stakes and complexity, biased upward on boundary cases.
-5. The user message is not a near-duplicate of any prior row in this batch and not a string copied from this guide's worked examples or appendix.
+5. `reason` is short, factual, and consistent with both selected values.
+6. The user message is not a near-duplicate of any prior row in this batch and not a string copied from this guide's worked examples or appendix.
 
 If any check fails, regenerate the record or skip it.
 
@@ -179,93 +181,93 @@ These illustrate shape only. Do not copy any string into a generated row.
 Direct + local_fast (general-knowledge):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nexplain what DNS does in one paragraph\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_fast\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nexplain what DNS does in one paragraph\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_fast\",\"reason\":\"The request fits one-turn handling with a lightweight local model.\"}"}]}
 ```
 
 Direct + local_strong (structured comparison):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\ncompare event sourcing and CRUD for a small back-office app and recommend one\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\ncompare event sourcing and CRUD for a small back-office app and recommend one\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits one-turn handling with a stronger local model.\"}"}]}
 ```
 
 Direct + frontier_fast (polished short writing):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwrite a sharp 60-word LinkedIn post announcing our seed round\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"frontier_fast\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwrite a sharp 60-word LinkedIn post announcing our seed round\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"frontier_fast\",\"reason\":\"The request fits one-turn handling with a fast frontier model.\"}"}]}
 ```
 
 Direct + frontier_strong (high-stakes verbal advice):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nhelp me decide whether to accept a risky acquisition offer with serious legal and team implications\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"frontier_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nhelp me decide whether to accept a risky acquisition offer with serious legal and team implications\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"frontier_strong\",\"reason\":\"The request fits one-turn handling with the strongest frontier model.\"}"}]}
 ```
 
 Tool_assisted + local_fast (tiny live op):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat process is currently listening on port 5432\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_fast\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat process is currently listening on port 5432\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_fast\",\"reason\":\"The request fits tool-assisted handling with a lightweight local model.\"}"}]}
 ```
 
 Tool_assisted + local_strong (repo debug):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nlook through this repo and find why uploads fail in production\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nlook through this repo and find why uploads fail in production\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits tool-assisted handling with a stronger local model.\"}"}]}
 ```
 
 Tool_assisted + frontier_fast (research with web):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\npull the latest pricing from each of our top three competitors and write a one-paragraph summary for the team\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"frontier_fast\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\npull the latest pricing from each of our top three competitors and write a one-paragraph summary for the team\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"frontier_fast\",\"reason\":\"The request fits tool-assisted handling with a fast frontier model.\"}"}]}
 ```
 
 Tool_assisted + frontier_strong (sensitive multi-source synthesis):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nreview the attached vendor contract against our standard playbook and the latest data residency rules and flag every clause that puts us at risk\n\nAttachments:\n- Attachment 1:\n  filename: vendor-msa.pdf\n  mime_type: application/pdf"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"frontier_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nreview the attached vendor contract against our standard playbook and the latest data residency rules and flag every clause that puts us at risk\n\nAttachments:\n- Attachment 1:\n  filename: vendor-msa.pdf\n  mime_type: application/pdf"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"frontier_strong\",\"reason\":\"The request fits tool-assisted handling with the strongest frontier model.\"}"}]}
 ```
 
 Workflow + local_fast (simple recurring reminder):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nremind me tomorrow morning to submit the expense report\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"local_fast\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nremind me tomorrow morning to submit the expense report\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"local_fast\",\"reason\":\"The request fits durable workflow handling with a lightweight local model.\"}"}]}
 ```
 
 Workflow + local_strong (scheduled maintenance):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nevery sunday night, run the dependency upgrade script and open a PR if the tests pass\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"local_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nevery sunday night, run the dependency upgrade script and open a PR if the tests pass\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits durable workflow handling with a stronger local model.\"}"}]}
 ```
 
 Workflow + frontier_fast (periodic curated digest):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nevery friday, send me a one-paragraph thoughtful retro on the week's PRs and slack activity\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"frontier_fast\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nevery friday, send me a one-paragraph thoughtful retro on the week's PRs and slack activity\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"frontier_fast\",\"reason\":\"The request fits durable workflow handling with a fast frontier model.\"}"}]}
 ```
 
 Workflow + frontier_strong (long-running expert work):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nover the next two weeks, work with legal to negotiate the master services agreement, escalating to me at each unresolved clause\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"frontier_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nover the next two weeks, work with legal to negotiate the master services agreement, escalating to me at each unresolved clause\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"workflow\",\"model_tier\":\"frontier_strong\",\"reason\":\"The request fits durable workflow handling with the strongest frontier model.\"}"}]}
 ```
 
 Unable_to_determine on both:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthe other way you did it last time, just like before\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"unable_to_determine\",\"model_tier\":\"unable_to_determine\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthe other way you did it last time, just like before\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"unable_to_determine\",\"model_tier\":\"unable_to_determine\",\"reason\":\"The request fits unclear execution handling with an unclear model tier.\"}"}]}
 ```
 
 Boundary pair — direct vs tool_assisted (emit adjacent):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nexplain why postgres uses mvcc instead of locking\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_strong\"}"}]}
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nlook at our postgres logs from the last hour and explain the mvcc contention we're seeing\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nexplain why postgres uses mvcc instead of locking\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits one-turn handling with a stronger local model.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nlook at our postgres logs from the last hour and explain the mvcc contention we're seeing\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"tool_assisted\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits tool-assisted handling with a stronger local model.\"}"}]}
 ```
 
 Boundary pair — local_strong vs frontier_strong on stakes (emit adjacent):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwrite a thank-you note to the engineering team for shipping the redesign\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_strong\"}"}]}
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwrite the layoff message i'll send to the engineering team tomorrow morning\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"frontier_strong\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwrite a thank-you note to the engineering team for shipping the redesign\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"local_strong\",\"reason\":\"The request fits one-turn handling with a stronger local model.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwrite the layoff message i'll send to the engineering team tomorrow morning\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"execution_mode\":\"direct\",\"model_tier\":\"frontier_strong\",\"reason\":\"The request fits one-turn handling with the strongest frontier model.\"}"}]}
 ```
 
 ## Appendix — Runtime System Prompt (Reference Only, Do Not Copy)
@@ -278,7 +280,7 @@ You are the routing classifier for an AI assistant handoff system.
 Decide which execution mode and model tier should handle the current normalized request after classification.
 
 Return ONLY valid JSON matching:
-{"execution_mode":"direct|tool_assisted|workflow|unable_to_determine","model_tier":"local_fast|local_strong|frontier_fast|frontier_strong|unable_to_determine"}
+{"execution_mode":"direct|tool_assisted|workflow|unable_to_determine","model_tier":"local_fast|local_strong|frontier_fast|frontier_strong|unable_to_determine","reason":"<one sentence>"}
 
 Execution modes:
 - "direct": choose this when the request can be completed in one normal assistant turn without tools or durable orchestration.

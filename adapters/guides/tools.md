@@ -9,7 +9,7 @@ Append output to `adapters/tools.jsonl`. Hold back 10-20% as an eval split per t
 A row is one JSON line. Pick only the broad tool families required for the downstream assistant to complete the latest request. Return no tools for self-contained work.
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":false,\"families\":[],\"reason\":\"The request can be handled without exposing tool families.\"}"}]}
 ```
 
 ## What We Are Fine Tuning For
@@ -36,18 +36,20 @@ The desired behavior is precise but practical:
 ## Output Contract
 
 ```json
-{"families":["workspace|web|communications|documents|spreadsheets|project_management|developer_platforms"]}
+{"needed":false,"families":["workspace|web|communications|documents|spreadsheets|project_management|developer_platforms"],"reason":"<one sentence>"}
 ```
 
-- `families` (required): array of unique family strings drawn from the allowed list. Empty array means no tools are needed.
+- `needed` (required): boolean. Must be `true` exactly when `families` is non-empty.
+- `families` (required): array of unique family strings drawn from the allowed list.
+- `reason` (required): compact diagnostic explanation for why tool families are or are not needed, under 200 characters.
 
 When no tools are needed, return exactly:
 
 ```json
-{"families":[]}
+{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}
 ```
 
-Single key: `families`. No extra keys. No whitespace inside the assistant JSON.
+JSON key order: `needed`, then `families`, then `reason`. No extra keys. No whitespace inside the assistant JSON.
 
 ## Family Rules
 
@@ -67,7 +69,7 @@ Use `developer_platforms` for GitHub, GitLab, PRs, issues, CI/CD, package regist
 
 ## Selection Rules
 
-- Return `{"families":[]}` when the final message can be answered with the supplied window and without tools.
+- Return `needed:false` with an empty `families` array when the final message can be answered with the supplied window and without tools.
 - Select every family required to complete the request, but omit families that would only be convenient.
 - Attachments imply a family only when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content.
 - Choose `spreadsheets` for tabular workbook/CSV attachments; choose `documents` for other attachment types when attached content must be inspected.
@@ -85,7 +87,7 @@ Watch for these:
 4. **Using `documents` for CSVs.** CSV/TSV/workbooks/tables are `spreadsheets`.
 5. **Using `project_management` for all planning.** "Make a launch plan" is no tools. "Create the tasks in Linear" is `project_management`.
 6. **Over-selecting convenience families.** If a direct answer can be produced from supplied context, do not add tools because they might enrich the answer.
-7. **Output-shape drift.** Emit only the `families` key. No extra keys, no whitespace inside the assistant JSON.
+7. **Output-shape drift.** Lock `needed`/`families` key order and make `needed` match family count exactly.
 
 ## Diversity Dimensions And Seed Lists
 
@@ -147,10 +149,12 @@ When generating a batch:
 **Per-record self-check (HARD GATE -- do not emit on failure):**
 
 1. Apply every hard gate from `adapters/README.md`.
-2. Parsed assistant JSON has exactly one key: `families`.
-3. `families` contains only allowed values, no duplicates, ordered by the family order in the Output Contract unless a worked example already shows the same combination.
-4. Every selected family is required, and no required family is missing.
-5. The user message is not a near-duplicate of any prior row in this batch and not copied from this guide's examples or appendix.
+2. Parsed assistant JSON has exactly three keys: `needed`, `families`, and `reason`.
+3. `needed` is `true` exactly when `families.length > 0`.
+4. `families` contains only allowed values, no duplicates, ordered by the family order in the Output Contract unless a worked example already shows the same combination.
+5. Every selected family is required, and no required family is missing.
+6. `reason` is short, factual, and consistent with the selected families.
+7. The user message is not a near-duplicate of any prior row in this batch and not copied from this guide's examples or appendix.
 
 If any check fails, regenerate the record or skip it.
 
@@ -170,38 +174,38 @@ These illustrate shape only. Do not copy any string into a generated row.
 No tools:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nmake this sentence clearer: we maybe should possibly ship later\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nmake this sentence clearer: we maybe should possibly ship later\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":false,\"families\":[],\"reason\":\"The request can be handled without exposing tool families.\"}"}]}
 ```
 
 Workspace:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nrun the test suite and fix the failing upload test\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[\"workspace\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nrun the test suite and fix the failing upload test\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":true,\"families\":[\"workspace\"],\"reason\":\"The selected tool families are required to complete the request.\"}"}]}
 ```
 
 Spreadsheet plus web:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\ncompare the attached pricing CSV against the current public pricing page\n\nAttachments:\n- Attachment 1:\n  filename: pricing.csv\n  mime_type: text/csv"},{"role":"assistant","content":"{\"families\":[\"web\",\"spreadsheets\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\ncompare the attached pricing CSV against the current public pricing page\n\nAttachments:\n- Attachment 1:\n  filename: pricing.csv\n  mime_type: text/csv"},{"role":"assistant","content":"{\"needed\":true,\"families\":[\"web\",\"spreadsheets\"],\"reason\":\"The selected tool families are required to complete the request.\"}"}]}
 ```
 
 Developer platform plus workspace:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\napply the unresolved GitHub PR comments to this local branch\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[\"workspace\",\"developer_platforms\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\napply the unresolved GitHub PR comments to this local branch\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":true,\"families\":[\"workspace\",\"developer_platforms\"],\"reason\":\"The selected tool families are required to complete the request.\"}"}]}
 ```
 
 Communications plus documents:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nfind the contract Anna emailed yesterday and summarize the renewal terms\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[\"communications\",\"documents\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nfind the contract Anna emailed yesterday and summarize the renewal terms\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":true,\"families\":[\"communications\",\"documents\"],\"reason\":\"The selected tool families are required to complete the request.\"}"}]}
 ```
 
 Boundary pair -- planning vs project-management action:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nturn this launch idea into a five-task sprint plan\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[]}"}]}
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nturn this launch idea into five tasks and add them to our sprint board\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"families\":[\"project_management\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nturn this launch idea into a five-task sprint plan\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":false,\"families\":[],\"reason\":\"The request can be handled without exposing tool families.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nturn this launch idea into five tasks and add them to our sprint board\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"needed\":true,\"families\":[\"project_management\"],\"reason\":\"The selected tool families are required to complete the request.\"}"}]}
 ```
 
 ## Appendix -- Runtime System Prompt (Reference Only, Do Not Copy)
@@ -214,7 +218,7 @@ You are the tool family classifier for an AI assistant handoff system.
 Decide which broad tool families should be exposed to the downstream model for the current normalized request.
 
 Return ONLY valid JSON matching:
-{"families":["workspace|web|communications|documents|spreadsheets|project_management|developer_platforms"]}
+{"needed":false,"families":["workspace|web|communications|documents|spreadsheets|project_management|developer_platforms"],"reason":"<one sentence>"}
 
 Values:
 - "workspace": choose this for local files, source code, shell commands, git state, logs, local servers, or runtime inspection.
@@ -226,11 +230,12 @@ Values:
 - "developer_platforms": choose this for GitHub, GitLab, PRs, issues, CI/CD, package registries, cloud APIs, or hosted developer services.
 
 Selection guide:
-- Return {"families":[]} when the final message can be answered with the supplied window and without tools.
+- Return `needed:false` with an empty `families` array when the final message can be answered with the supplied window and without tools.
 - Select every family likely needed to complete the request, but omit families that would only be convenient.
 - Attachments imply a family when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content.
 - Choose "spreadsheets" for tabular workbook/CSV attachments; choose "documents" for other attachment types when attached content must be inspected.
 - Prefer "workspace" for local repo work and "developer_platforms" for hosted PR, issue, CI, or registry work; include both when the request needs local code and hosted platform state.
+- Set needed to true exactly when families contains at least one value.
 
 Constraints:
 - Return JSON only.

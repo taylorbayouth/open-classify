@@ -4,7 +4,7 @@ const DEFAULT_CLASSIFIER_NAMES = [
   "conversation_history",
   "memory_retrieval_queries",
   "tools",
-  "message_and_attachment_digest",
+  "model_specialization",
   "security",
 ];
 
@@ -14,12 +14,13 @@ const labels = {
   conversation_history: "Conversation history",
   memory_retrieval_queries: "Memory queries",
   tools: "Tools",
-  message_and_attachment_digest: "Message Digest & Attachments",
+  model_specialization: "Model specialization",
   security: "Security",
 };
 
 const optionKeys = {
   preflight: "terminality",
+  model_specialization: "model_specialization",
   tools: "tool_family",
   security: "security_risk_level",
 };
@@ -28,6 +29,15 @@ const ENUMS = {
   terminality: ["terminal", "continue", "unable_to_determine"],
   downstream_execution_mode: ["direct", "tool_assisted", "workflow"],
   downstream_model_tier: ["local_fast", "local_strong", "frontier_fast", "frontier_strong"],
+  model_specialization: [
+    "chat",
+    "writing",
+    "reasoning",
+    "planning",
+    "coding",
+    "instruction_following",
+    "unclear",
+  ],
   tool_family: [
     "workspace",
     "web",
@@ -60,6 +70,14 @@ const enumValueLabels = {
   local_strong: "Local strong",
   frontier_fast: "Frontier fast",
   frontier_strong: "Frontier strong",
+  // model specialization
+  chat: "Chat",
+  writing: "Writing",
+  reasoning: "Reasoning",
+  planning: "Planning",
+  coding: "Coding",
+  instruction_following: "Instruction following",
+  unclear: "Unclear",
   // tool families
   workspace: "Workspace",
   web: "Web",
@@ -624,7 +642,7 @@ function renderOptions(name, result) {
   const selected =
     name === "tools"
       ? result?.families ?? []
-      : result?.value ?? result?.terminality;
+      : result?.model_specialization ?? result?.value ?? result?.terminality;
   return `<div class="option-row">${renderEnumOptions(key, selected)}</div>`;
 }
 
@@ -683,11 +701,10 @@ function renderDetails(name, item) {
     `;
   }
 
-  if (name === "message_and_attachment_digest") {
-    return `
-      <div class="detail"><strong>${escapeHtml(result.slug)}</strong></div>
-      <div class="detail">${escapeHtml(result.summary)}</div>
-    `;
+  if (name === "model_specialization") {
+    return result.reason
+      ? `<div class="detail muted">${escapeHtml(result.reason)}</div>`
+      : "";
   }
 
   if (name === "tools") {
@@ -701,7 +718,7 @@ function renderDetails(name, item) {
   }
 
   if (name === "security") {
-    return `<div class="detail muted">${escapeHtml(result.notes)}</div>`;
+    return `<div class="detail muted">${escapeHtml(result.reason)}</div>`;
   }
 
   return "";

@@ -6,10 +6,10 @@ Append output to `adapters/preflight.jsonl`. Hold back 10–20% as an eval split
 
 ## Quick-Start (Human Curator)
 
-A row is one JSON line. The user message wraps the conversation window; the assistant message is the classifier's JSON output, and nothing else. Pick a label, write a realistic message, write a 1–5 word reply, paste into a new line.
+A row is one JSON line. The user message wraps the conversation window; the assistant message is the classifier's JSON output, and nothing else. Pick a label, write a realistic message, write a 1–5 word reply, add a short reason, paste into a new line.
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"Let me check.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"Let me check.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 ## What We Are Fine Tuning For
@@ -39,13 +39,14 @@ Preflight has the most asymmetric error costs in the system:
 ## Output Contract
 
 ```json
-{"terminality":"terminal|continue|unable_to_determine","reply":"<short user-facing line>"}
+{"terminality":"terminal|continue|unable_to_determine","reply":"<short user-facing line>","reason":"<one sentence>"}
 ```
 
 - `terminality` (required): exactly one of the three enum values, lowercase, snake_case.
 - `reply` (required): non-empty string, usually 1–5 words. For `terminal`, it is the actual answer. For `continue` and `unable_to_determine`, it is a brief acknowledgement that does not answer.
+- `reason` (required): compact diagnostic explanation for the terminality choice, under 200 characters.
 
-JSON key order: `terminality`, then `reply`. No extra keys. No whitespace inside the assistant JSON.
+JSON key order: `terminality`, then `reply`, then `reason`. No extra keys. No whitespace inside the assistant JSON.
 
 ## Common LLM Failure Modes When Generating Preflight Data
 
@@ -173,9 +174,10 @@ When generating a batch:
 **Per-record self-check (HARD GATE — do not emit on failure):**
 
 1. Apply every hard gate from `adapters/README.md`.
-2. Parsed assistant JSON has exactly two keys: `terminality` and `reply`.
+2. Parsed assistant JSON has exactly three keys: `terminality`, `reply`, and `reason`.
 3. The label and the reply are consistent: `terminal` replies answer the message in 1–5 words; `continue` and `unable_to_determine` replies are placeholders that do not answer.
-4. The user message is not a near-duplicate of any prior row in this batch and not a string copied from this guide's worked examples or appendix.
+4. `reason` is short, factual, and consistent with the label.
+5. The user message is not a near-duplicate of any prior row in this batch and not a string copied from this guide's worked examples or appendix.
 
 If any check fails, regenerate the record or skip it. Do not emit a guess.
 
@@ -196,68 +198,68 @@ These illustrate shape only. Do not copy any string from these examples into a g
 Terminal — phatic:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nhi\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"Hi.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nhi\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"Hi.\",\"reason\":\"The latest message can be fully answered with a short reply.\"}"}]}
 ```
 
 Terminal — tiny self-contained question:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat is 9 minus 4?\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"5.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat is 9 minus 4?\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"5.\",\"reason\":\"The latest message can be fully answered with a short reply.\"}"}]}
 ```
 
 Terminal — trivial transformation:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nspell mississippi\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"M-I-S-S-I-S-S-I-P-P-I.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nspell mississippi\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"M-I-S-S-I-S-S-I-P-P-I.\",\"reason\":\"The latest message can be fully answered with a short reply.\"}"}]}
 ```
 
 Terminal — acknowledgement closer:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nperfect, that's all I needed\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"Glad it helped.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nperfect, that's all I needed\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"Glad it helped.\",\"reason\":\"The latest message can be fully answered with a short reply.\"}"}]}
 ```
 
 Continue — implicit task:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nrun the failing tests and fix the smallest thing causing them\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"I'll check.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nrun the failing tests and fix the smallest thing causing them\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"I'll check.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 Continue — needs lookup:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat's the weather right now?\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"Let me check.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat's the weather right now?\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"Let me check.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 Continue — courtesy plus request:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthanks for that, also can you double-check the totals against the source\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"On it.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthanks for that, also can you double-check the totals against the source\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"On it.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 Continue — attachment-driven, message would otherwise be terminal:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize this\n\nAttachments:\n- Attachment 1:\n  filename: q3-board-deck.pdf\n  mime_type: application/pdf"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"Reading now.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize this\n\nAttachments:\n- Attachment 1:\n  filename: q3-board-deck.pdf\n  mime_type: application/pdf"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"Reading now.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 Continue — multi-message, latest is amending prior request:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (context):\nrole: user\ntext:\ndraft a one-paragraph kickoff note for the migration team for tomorrow.\n\nMessage 2 (target):\nrole: user\ntext:\nactually make it two paragraphs\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"I'll update it.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (context):\nrole: user\ntext:\ndraft a one-paragraph kickoff note for the migration team for tomorrow.\n\nMessage 2 (target):\nrole: user\ntext:\nactually make it two paragraphs\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"I'll update it.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 Unable to determine — ambiguous fragment:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthat one but cleaner\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"unable_to_determine\",\"reply\":\"I need context.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthat one but cleaner\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"unable_to_determine\",\"reply\":\"I need context.\",\"reason\":\"The latest message is too unclear to classify confidently.\"}"}]}
 ```
 
 Boundary pair — bare thanks vs thanks + request (emit adjacent):
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthanks, that covers it\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"Anytime.\"}"}]}
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthanks, that covers it — also pull the latest numbers from the dashboard\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"On it.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthanks, that covers it\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"terminal\",\"reply\":\"Anytime.\",\"reason\":\"The latest message can be fully answered with a short reply.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nthanks, that covers it — also pull the latest numbers from the dashboard\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"terminality\":\"continue\",\"reply\":\"On it.\",\"reason\":\"The latest message requires downstream work beyond a short reply.\"}"}]}
 ```
 
 ## Appendix — Runtime System Prompt (Reference Only, Do Not Copy)
@@ -270,7 +272,7 @@ You are the preflight classifier for an AI assistant handoff system.
 Decide whether the current normalized request can stop now or must be routed.
 
 Return ONLY valid JSON matching:
-{"terminality":"terminal|continue|unable_to_determine","reply":"<short user-facing line>"}
+{"terminality":"terminal|continue|unable_to_determine","reply":"<short user-facing line>","reason":"<one sentence>"}
 
 Values:
 - "terminal": reply is the final assistant response, and answering needs nothing beyond the message itself — no context, data, tools, or memory.

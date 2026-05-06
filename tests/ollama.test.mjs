@@ -35,8 +35,8 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
   assert.equal(
-    OLLAMA_CLASSIFIER_ADAPTER_MODELS.conversation_history,
-    "open-classify-conversation-history:v0.1.0",
+    OLLAMA_CLASSIFIER_ADAPTER_MODELS.model_specialization,
+    "open-classify-model-specialization:v0.1.0",
   );
 });
 
@@ -224,7 +224,11 @@ test("createOllamaClassifierRunner uses base model for null adapter", async () =
 });
 
 test("createOllamaClassifierRunner validates preflight terminality enum", async () => {
-  const runner = runnerReturning({ terminality: "bad", reply: "Nope." });
+  const runner = runnerReturning({
+    terminality: "bad",
+    reply: "Nope.",
+    reason: "Invalid terminality.",
+  });
 
   await assert.rejects(
     runner("preflight", classifierInput(), new AbortController().signal),
@@ -239,6 +243,7 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
   const runner = runnerReturning({
     execution_mode: "tool_assisted",
     model_tier: "ultra_strong",
+    reason: "Invalid model tier.",
   });
 
   await assert.rejects(
@@ -306,7 +311,10 @@ test("createOllamaClassifierRunner validates conversation_history standalone con
 });
 
 test("createOllamaClassifierRunner validates memory query word count", async () => {
-  const runner = runnerReturning({ queries: ["too short"] });
+  const runner = runnerReturning({
+    queries: ["too short"],
+    reason: "The query is intentionally invalid.",
+  });
 
   await assert.rejects(
     runner("memory_retrieval_queries", classifierInput(), new AbortController().signal),
@@ -318,7 +326,11 @@ test("createOllamaClassifierRunner validates memory query word count", async () 
 });
 
 test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
-  const runner = runnerReturning({ families: ["workspace", "workspace"] });
+  const runner = runnerReturning({
+    needed: true,
+    families: ["workspace", "workspace"],
+    reason: "The families are intentionally duplicated.",
+  });
 
   await assert.rejects(
     runner("tools", classifierInput(), new AbortController().signal),
@@ -329,19 +341,18 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
   );
 });
 
-test("createOllamaClassifierRunner validates digest slug format", async () => {
+test("createOllamaClassifierRunner validates model_specialization enum", async () => {
   const runner = runnerReturning({
-    slug: "Review Request",
-    summary: "The user wants a review.",
-    attachments: [],
+    model_specialization: "spreadsheet_magic",
+    reason: "Invalid specialization.",
   });
 
   await assert.rejects(
-    runner("message_and_attachment_digest", classifierInput(), new AbortController().signal),
+    runner("model_specialization", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "message_and_attachment_digest" &&
-      /slug must be snake_case/.test(error.message),
+      error.classifier === "model_specialization" &&
+      /unsupported value/.test(error.message),
   );
 });
 
@@ -349,7 +360,7 @@ test("createOllamaClassifierRunner validates security risk-level / signals consi
   const runner = runnerReturning({
     risk_level: "normal",
     signals: ["instruction_attack"],
-    notes: "Conflicting output.",
+    reason: "Conflicting output.",
   });
 
   await assert.rejects(
@@ -408,6 +419,9 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     { messages: [{ role: "user", text: "review this" }] },
     {
       skipResourceCheck: true,
+      downstreamModels: {
+        "reasoning.local_strong": "selected-downstream-model",
+      },
       fetch: async (_url, init) => {
         const body = JSON.parse(init.body);
         assert.equal(body.model, OLLAMA_BASE_MODEL);
@@ -428,10 +442,12 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     },
   );
 
+  assert.equal(result.stop_downstream, false);
   assert.equal(result.decision, "route");
-  assert.equal("stop_downstream" in result, false);
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.classifiers, validOutputs);
+  assert.equal(result.handoff.model.model, "selected-downstream-model");
+  assert.equal(result.handoff.model.resolved_from, "reasoning.local_strong");
 });
 
 test("resource check can fail before fetch is called", async () => {

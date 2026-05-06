@@ -9,7 +9,7 @@ Append output to `adapters/memory_retrieval_queries.jsonl`. Hold back 10-20% as 
 A row is one JSON line. Emit short saved-memory query hints when searchable context could materially help downstream. Use an empty array only when prior-context search is unlikely to add value.
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[],\"reason\":\"No saved-memory search is likely to improve this request.\"}"}]}
 ```
 
 ## What We Are Fine Tuning For
@@ -38,17 +38,18 @@ It must be excellent at choosing useful retrieval surfaces:
 ## Output Contract
 
 ```json
-{"queries":["<query>"]}
+{"queries":["<query>"],"reason":"<one sentence>"}
 ```
 
 - `queries` (required): array of 0-3 strings.
+- `reason` (required): compact diagnostic explanation for why queries are or are not useful, under 200 characters.
 - Always emit a `queries` array; use `[]` when there are no useful query hints.
 - Do not emit `null` for `queries` or for the assistant JSON.
 - Each query must be 3-10 words.
 - Query strings should be short noun phrases, not questions, commands, URLs, or full sentences.
 - No duplicate queries. No secrets or sensitive values verbatim.
 
-JSON key order: `queries` only. No extra keys. No whitespace inside the assistant JSON.
+JSON key order: `queries`, then `reason`. No extra keys. No whitespace inside the assistant JSON.
 
 ## Common LLM Failure Modes When Generating Memory Data
 
@@ -144,11 +145,12 @@ When generating a batch:
 **Per-record self-check (HARD GATE -- do not emit on failure):**
 
 1. Apply every hard gate from `adapters/README.md`.
-2. Parsed assistant JSON has exactly one key: `queries`.
+2. Parsed assistant JSON has exactly two keys: `queries` and `reason`.
 3. `queries` contains 0-3 unique strings; each string is 3-10 words.
 4. Each non-empty query targets a useful searchable context surface.
 5. No query includes a secret, token, private address, phone number, or other sensitive value verbatim.
-6. The user message is not a near-duplicate of any prior row in this batch and not copied from this guide's examples or appendix.
+6. `reason` is short, factual, and consistent with the query decision.
+7. The user message is not a near-duplicate of any prior row in this batch and not copied from this guide's examples or appendix.
 
 If any check fails, regenerate the record or skip it.
 
@@ -167,32 +169,32 @@ These illustrate shape only. Do not copy any string into a generated row.
 No memory needed:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nexplain why bread rises when it bakes\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nexplain why bread rises when it bakes\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[],\"reason\":\"No saved-memory search is likely to improve this request.\"}"}]}
 ```
 
 Memory needed:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nbook my usual hotel for the NYC trip\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[\"user preferred NYC hotel\",\"user hotel booking preferences\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nbook my usual hotel for the NYC trip\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[\"user preferred NYC hotel\",\"user hotel booking preferences\"],\"reason\":\"Saved-memory search could provide useful user or project context.\"}"}]}
 ```
 
 Supplied context resolves it:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (context):\nrole: user\ntext:\nMy preferred client update tone is concise, warm, and direct.\n\nMessage 2 (target):\nrole: user\ntext:\nuse my preferred tone for this update\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (context):\nrole: user\ntext:\nMy preferred client update tone is concise, warm, and direct.\n\nMessage 2 (target):\nrole: user\ntext:\nuse my preferred tone for this update\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[],\"reason\":\"No saved-memory search is likely to improve this request.\"}"}]}
 ```
 
 Prior decision needed:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat did we decide for the onboarding checklist?\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[\"onboarding checklist prior decisions\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nwhat did we decide for the onboarding checklist?\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[\"onboarding checklist prior decisions\"],\"reason\":\"Saved-memory search could provide useful user or project context.\"}"}]}
 ```
 
 Boundary pair -- named person no memory vs preference needed:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsend Priya a note that I will be ten minutes late\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[]}"}]}
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsend Priya the kind of apology note she prefers when I am running late\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[\"Priya communication preferences\",\"user Priya relationship context\"]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsend Priya a note that I will be ten minutes late\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[],\"reason\":\"No saved-memory search is likely to improve this request.\"}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsend Priya the kind of apology note she prefers when I am running late\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"queries\":[\"Priya communication preferences\",\"user Priya relationship context\"],\"reason\":\"Saved-memory search could provide useful user or project context.\"}"}]}
 ```
 
 ## Appendix -- Runtime System Prompt (Reference Only, Do Not Copy)
@@ -205,7 +207,7 @@ You are the saved-memory query hint planner for an AI assistant handoff system.
 Generate short query hints the downstream assistant can use to search saved memory or prior context before answering.
 
 Return ONLY valid JSON matching:
-{"queries":["<query>"]}
+{"queries":["<query>"],"reason":"<one sentence>"}
 
 Query semantics:
 - Open Classify does not fetch memory; it only emits possible search query hints.

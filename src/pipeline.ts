@@ -5,10 +5,17 @@ import type {
   ClassifierName,
   ClassifierOutput,
   ClassifierRunStatus,
+  ClassifierRunStatusMap,
+  DownstreamModelConfig,
+  DownstreamModelConfigKey,
+  ModelSpecializationResult,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
+  OpenClassifyHandoff,
   OpenClassifyPipelineResult,
   OpenClassifyResult,
+  PreflightResult,
+  RoutingResult,
   RunClassifier,
 } from "./types.js";
 
@@ -23,10 +30,27 @@ export interface ClassifyOptions {
   runClassifier: RunClassifier;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
+  downstreamModels?: DownstreamModelConfig;
 }
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
+export const EXAMPLE_DOWNSTREAM_MODEL_CONFIG = {
+  "chat.local_fast": "gemma4:e4b-it-q4_K_M",
+  "writing.frontier_fast": "gpt-5.4-mini",
+  "reasoning.local_strong": "gemma4:e4b-it-q4_K_M",
+  "reasoning.frontier_strong": "gpt-5.5",
+  "planning.local_strong": "gemma4:e4b-it-q4_K_M",
+  "coding.local_strong": "qwen2.5-coder:14b",
+  "coding.frontier_fast": "gpt-5.3-codex",
+  "instruction_following.local_fast": "gemma4:e4b-it-q4_K_M",
+  local_fast: "gemma4:e4b-it-q4_K_M",
+  local_strong: "gemma4:e4b-it-q4_K_M",
+  frontier_fast: "gpt-5.4-mini",
+  frontier_strong: "gpt-5.5",
+  default: "gpt-5.4-mini",
+} as const satisfies DownstreamModelConfig;
+const SECURITY_BLOCK_REPLY = "I can't help with that request.";
 
 type SettledClassifierResult<Name extends ClassifierName> =
   | {
@@ -84,10 +108,11 @@ export async function classifyOpenClassifyInput(
     await settleClassifierRunsExcept(runs, ["preflight"]);
 
     return {
+      stop_downstream: true,
       decision: "terminal",
       target_message_hash: request.target_message_hash,
-      reply: preflight.reply ?? "",
-      classifiers: { preflight },
+      reply: preflight.reply,
+      preflight,
       classifier_status: {
         preflight: classifierRunStatus(preflightSettled),
       },
@@ -106,10 +131,12 @@ export async function classifyOpenClassifyInput(
     await settleClassifierRunsExcept(runs, ["preflight", "security"]);
 
     return {
+      stop_downstream: true,
       decision: "block",
       target_message_hash: request.target_message_hash,
-      ...(preflight.reply ? { reply: preflight.reply } : {}),
-      classifiers: { preflight, security },
+      reply: SECURITY_BLOCK_REPLY,
+      preflight,
+      security,
       classifier_status: {
         preflight: classifierRunStatus(preflightSettled),
         security: classifierRunStatus(securitySettled),
@@ -129,17 +156,107 @@ export async function classifyOpenClassifyInput(
     conversation_history: resultOrFallback(results, "conversation_history"),
     memory_retrieval_queries: resultOrFallback(results, "memory_retrieval_queries"),
     tools: resultOrFallback(results, "tools"),
-    message_and_attachment_digest: resultOrFallback(results, "message_and_attachment_digest"),
+    model_specialization: resultOrFallback(results, "model_specialization"),
     security: resultOrFallback(results, "security"),
   };
 
   return {
+    stop_downstream: false,
     decision: "route",
     target_message_hash: request.target_message_hash,
-    ...(classifiers.preflight.reply ? { reply: classifiers.preflight.reply } : {}),
+    reply: classifiers.preflight.reply,
+    handoff: buildHandoff(classifiers, options.downstreamModels),
     classifiers,
     classifier_status: classifierRunStatuses(settled),
   };
+}
+
+export function buildHandoff(
+  classifiers: OpenClassifyResult,
+  downstreamModels: DownstreamModelConfig = {},
+): OpenClassifyHandoff {
+  return {
+    execution_mode: classifiers.routing.execution_mode,
+    model: resolveDownstreamModel(
+      classifiers.routing,
+      classifiers.model_specialization,
+      downstreamModels,
+    ),
+    context: {
+      conversation: {
+        prior_messages_needed:
+          classifiers.conversation_history.relevant_conversation_history.length,
+        messages: classifiers.conversation_history.relevant_conversation_history,
+        needs_unseen_history: classifiers.conversation_history.needs_unseen_history,
+      },
+      memory: {
+        queries: classifiers.memory_retrieval_queries.queries,
+      },
+      tools: {
+        needed: classifiers.tools.needed,
+        families: classifiers.tools.families,
+      },
+    },
+    safety: {
+      risk_level: classifiers.security.risk_level,
+      signals: classifiers.security.signals,
+    },
+  };
+}
+
+function resolveDownstreamModel(
+  routing: RoutingResult,
+  specialization: ModelSpecializationResult,
+  downstreamModels: DownstreamModelConfig,
+): OpenClassifyHandoff["model"] {
+  const candidates = downstreamModelConfigKeys(
+    specialization.model_specialization,
+    routing.model_tier,
+  );
+  const resolvedFrom =
+    candidates.find((key) => modelValue(downstreamModels, key) !== null) ?? null;
+
+  return {
+    key: candidates[0],
+    model: resolvedFrom ? modelValue(downstreamModels, resolvedFrom) : null,
+    resolved_from: resolvedFrom,
+    tier: routing.model_tier,
+    specialization: specialization.model_specialization,
+  };
+}
+
+function downstreamModelConfigKeys(
+  specialization: ModelSpecializationResult["model_specialization"],
+  tier: RoutingResult["model_tier"],
+): DownstreamModelConfigKey[] {
+  const keys: DownstreamModelConfigKey[] = [];
+  const hasSpecialization = specialization !== "unclear";
+  const hasTier = tier !== "unable_to_determine";
+
+  if (hasSpecialization && hasTier) {
+    keys.push(`${specialization}.${tier}` as DownstreamModelConfigKey);
+  }
+  if (hasTier) {
+    keys.push(tier);
+  }
+  if (hasSpecialization) {
+    keys.push(specialization);
+  }
+  keys.push("default");
+
+  return keys;
+}
+
+function modelValue(
+  downstreamModels: DownstreamModelConfig,
+  key: DownstreamModelConfigKey,
+): string | null {
+  const value = downstreamModels[key];
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 async function runClassifierWithRetry<Name extends ClassifierName>(
@@ -281,10 +398,10 @@ function resultOrFallback<Name extends ClassifierName>(
 
 function classifierRunStatuses(
   settled: SettledClassifierResult<ClassifierName>[],
-): Record<ClassifierName, ClassifierRunStatus> {
+): ClassifierRunStatusMap {
   return Object.fromEntries(
     settled.map((entry) => [entry.name, classifierRunStatus(entry)]),
-  ) as Record<ClassifierName, ClassifierRunStatus>;
+  ) as ClassifierRunStatusMap;
 }
 
 function classifierRunStatus(
@@ -314,11 +431,14 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
     case "preflight":
       return {
         terminality: "unable_to_determine",
+        reply: "Let me check.",
+        reason: "Preflight classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
     case "routing":
       return {
         execution_mode: "direct",
         model_tier: "local_strong",
+        reason: "Routing classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
     case "conversation_history":
       return {
@@ -329,22 +449,26 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
         reason: "Conversation history classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
     case "memory_retrieval_queries":
-      return { queries: [] } as unknown as ClassifierOutput<Name>;
+      return {
+        queries: [],
+        reason: "Memory retrieval query classifier unavailable.",
+      } as unknown as ClassifierOutput<Name>;
     case "tools":
       return {
+        needed: false,
         families: [],
+        reason: "Tool classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
-    case "message_and_attachment_digest":
+    case "model_specialization":
       return {
-        slug: "classifier_unavailable",
-        summary: "Classifier unavailable.",
-        attachments: [],
+        model_specialization: "unclear",
+        reason: "Model specialization classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
     case "security":
       return {
         risk_level: "unable_to_determine",
         signals: [],
-        notes: "Security classifier unavailable.",
+        reason: "Security classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
   }
 }

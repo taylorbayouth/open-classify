@@ -9,7 +9,10 @@ import {
   OLLAMA_MIN_TOTAL_MEMORY_BYTES,
   OLLAMA_REQUIRED_PARALLELISM,
 } from "./ollama.js";
-import { classifyOpenClassifyInput } from "./pipeline.js";
+import {
+  classifyOpenClassifyInput,
+  EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
+} from "./pipeline.js";
 import type { OpenClassifyInput, RunClassifier } from "./types.js";
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
@@ -139,7 +142,10 @@ async function classifyStream(
       min_available_memory_bytes: OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
     });
     send("pipeline_phase", { phase: "running" });
-    const result = await classifyOpenClassifyInput(input, { runClassifier });
+    const result = await classifyOpenClassifyInput(input, {
+      runClassifier,
+      downstreamModels: EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
+    });
     send("pipeline_completed", result);
   } catch (error) {
     send("pipeline_failed", { error: errorMessage(error) });

@@ -33,6 +33,17 @@ export const TOOL_FAMILY_VALUES = [
 ] as const;
 export type ToolFamily = (typeof TOOL_FAMILY_VALUES)[number];
 
+export const MODEL_SPECIALIZATION_VALUES = [
+  "chat",
+  "writing",
+  "reasoning",
+  "planning",
+  "coding",
+  "instruction_following",
+  "unclear",
+] as const;
+export type ModelSpecialization = (typeof MODEL_SPECIALIZATION_VALUES)[number];
+
 export const SECURITY_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",

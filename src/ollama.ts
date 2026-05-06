@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import {
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
+  MODEL_SPECIALIZATION_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
   TERMINALITY_VALUES,
@@ -17,9 +18,10 @@ import type {
   ClassifierOutput,
   ConversationHistoryResult,
   ConversationMessageInput,
+  DownstreamModelConfig,
   RoutingResult,
   MemoryRetrievalQueriesResult,
-  MessageAndAttachmentDigestResult,
+  ModelSpecializationResult,
   OpenClassifyInput,
   OpenClassifyPipelineResult,
   OpenClassifyResult,
@@ -46,13 +48,12 @@ export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
+const CLASSIFIER_REASON_MAX_CHARS = 200;
 const CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT = 19;
 const CONVERSATION_HISTORY_REASON_MAX_CHARS = 200;
 const MEMORY_QUERY_MAX_COUNT = 3;
 const MEMORY_QUERY_MIN_WORDS = 3;
 const MEMORY_QUERY_MAX_WORDS = 10;
-const DIGEST_SUMMARY_MAX_CHARS = 160;
-const DIGEST_SLUG_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
 const execFileAsync = promisify(execFile);
 
@@ -62,7 +63,7 @@ export const OLLAMA_CLASSIFIER_MODELS = {
   conversation_history: null,
   memory_retrieval_queries: null,
   tools: null,
-  message_and_attachment_digest: null,
+  model_specialization: null,
   security: null,
 } as const satisfies Record<ClassifierName, string | null>;
 
@@ -72,7 +73,7 @@ export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
   conversation_history: "open-classify-conversation-history:v0.1.0",
   memory_retrieval_queries: "open-classify-memory-retrieval-queries:v0.1.0",
   tools: "open-classify-tools:v0.1.0",
-  message_and_attachment_digest: "open-classify-message-and-attachment-digest:v0.1.0",
+  model_specialization: "open-classify-model-specialization:v0.1.0",
   security: "open-classify-security:v0.1.0",
 } as const satisfies Record<ClassifierName, string>;
 
@@ -92,6 +93,10 @@ export interface OllamaClassifierRunnerConfig {
   skipResourceCheck?: boolean;
   minAvailableMemoryBytes?: number;
   minTotalMemoryBytes?: number;
+}
+
+export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
+  downstreamModels?: DownstreamModelConfig;
 }
 
 interface OllamaChatResponse {
@@ -229,10 +234,11 @@ export async function assertOllamaResources(
 
 export async function classifyWithOllama(
   input: OpenClassifyInput,
-  config: OllamaClassifierRunnerConfig = {},
+  config: ClassifyWithOllamaConfig = {},
 ): Promise<OpenClassifyPipelineResult> {
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(config),
+    downstreamModels: config.downstreamModels,
   });
 }
 
@@ -523,8 +529,8 @@ function validateClassifierOutput(
       return validateMemoryRetrievalQueries(value, name, model);
     case "tools":
       return validateTools(value, name, model);
-    case "message_and_attachment_digest":
-      return validateMessageAndAttachmentDigest(value, name, model);
+    case "model_specialization":
+      return validateModelSpecialization(value, name, model);
     case "security":
       return validateSecurity(value, name, model);
   }
@@ -535,9 +541,20 @@ function validatePreflight(
   name: ClassifierName,
   model: string,
 ): PreflightResult {
+  ensureExactKeys(value, ["terminality", "reply", "reason"], name, model);
   const terminality = requireEnum(value.terminality, TERMINALITY_VALUES, name, model, "terminality");
   const reply = requireString(value.reply, name, model, "reply");
-  return { terminality, reply };
+  return {
+    terminality,
+    reply,
+    reason: requireStringMaxLength(
+      value.reason,
+      name,
+      model,
+      "reason",
+      CLASSIFIER_REASON_MAX_CHARS,
+    ),
+  };
 }
 
 function validateRouting(
@@ -545,6 +562,7 @@ function validateRouting(
   name: ClassifierName,
   model: string,
 ): RoutingResult {
+  ensureExactKeys(value, ["execution_mode", "model_tier", "reason"], name, model);
   return {
     execution_mode: requireEnum(
       value.execution_mode,
@@ -559,6 +577,13 @@ function validateRouting(
       name,
       model,
       "model_tier",
+    ),
+    reason: requireStringMaxLength(
+      value.reason,
+      name,
+      model,
+      "reason",
+      CLASSIFIER_REASON_MAX_CHARS,
     ),
   };
 }
@@ -646,6 +671,7 @@ function validateMemoryRetrievalQueries(
   name: ClassifierName,
   model: string,
 ): MemoryRetrievalQueriesResult {
+  ensureExactKeys(value, ["queries", "reason"], name, model);
   const queries = requireStringArray(value.queries, name, model, "queries").map((query, index) => {
     const trimmed = query.trim();
     const wordCount = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
@@ -664,7 +690,16 @@ function validateMemoryRetrievalQueries(
   }
   ensureNoDuplicates(queries, name, model, "queries");
 
-  return { queries };
+  return {
+    queries,
+    reason: requireStringMaxLength(
+      value.reason,
+      name,
+      model,
+      "reason",
+      CLASSIFIER_REASON_MAX_CHARS,
+    ),
+  };
 }
 
 function validateTools(
@@ -672,6 +707,10 @@ function validateTools(
   name: ClassifierName,
   model: string,
 ): ToolsResult {
+  ensureExactKeys(value, ["needed", "families", "reason"], name, model);
+  if (typeof value.needed !== "boolean") {
+    throwInvalid(name, model, "needed must be a boolean");
+  }
   if (!Array.isArray(value.families)) {
     throwInvalid(name, model, "families must be an array");
   }
@@ -679,67 +718,44 @@ function validateTools(
     requireEnum(item, TOOL_FAMILY_VALUES, name, model, `families[${index}]`),
   );
   ensureNoDuplicates(families, name, model, "families");
-
-  return { families };
-}
-
-function validateMessageAndAttachmentDigest(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-): MessageAndAttachmentDigestResult {
-  if (!Array.isArray(value.attachments)) {
-    throwInvalid(name, model, "attachments must be an array");
-  }
-
-  const slug = requireString(value.slug, name, model, "slug");
-  if (!DIGEST_SLUG_PATTERN.test(slug)) {
-    throwInvalid(name, model, "slug must be snake_case");
+  if (value.needed !== (families.length > 0)) {
+    throwInvalid(name, model, "needed must match whether families is non-empty");
   }
 
   return {
-    slug,
-    summary: requireStringMaxLength(value.summary, name, model, "summary", DIGEST_SUMMARY_MAX_CHARS),
-    attachments: value.attachments.map((attachment, index) => {
-      if (!isRecord(attachment)) {
-        throwInvalid(name, model, `attachments[${index}] must be an object`);
-      }
+    needed: value.needed,
+    families,
+    reason: requireStringMaxLength(
+      value.reason,
+      name,
+      model,
+      "reason",
+      CLASSIFIER_REASON_MAX_CHARS,
+    ),
+  };
+}
 
-      const result = {
-        filename: requireString(attachment.filename, name, model, `attachments[${index}].filename`),
-        metadata_summary: requireStringMaxLength(
-          attachment.metadata_summary,
-          name,
-          model,
-          `attachments[${index}].metadata_summary`,
-          DIGEST_SUMMARY_MAX_CHARS,
-        ),
-      };
-
-      return {
-        ...result,
-        ...(attachment.size_bytes === undefined
-          ? {}
-          : {
-              size_bytes: requireNonNegativeSafeInteger(
-                attachment.size_bytes,
-                name,
-                model,
-                `attachments[${index}].size_bytes`,
-              ),
-            }),
-        ...(attachment.mime_type === undefined
-          ? {}
-          : {
-              mime_type: requireString(
-                attachment.mime_type,
-                name,
-                model,
-                `attachments[${index}].mime_type`,
-              ),
-            }),
-      };
-    }),
+function validateModelSpecialization(
+  value: Record<string, unknown>,
+  name: ClassifierName,
+  model: string,
+): ModelSpecializationResult {
+  ensureExactKeys(value, ["model_specialization", "reason"], name, model);
+  return {
+    model_specialization: requireEnum(
+      value.model_specialization,
+      MODEL_SPECIALIZATION_VALUES,
+      name,
+      model,
+      "model_specialization",
+    ),
+    reason: requireStringMaxLength(
+      value.reason,
+      name,
+      model,
+      "reason",
+      CLASSIFIER_REASON_MAX_CHARS,
+    ),
   };
 }
 
@@ -748,6 +764,7 @@ function validateSecurity(
   name: ClassifierName,
   model: string,
 ): SecurityResult {
+  ensureExactKeys(value, ["risk_level", "signals", "reason"], name, model);
   if (!Array.isArray(value.signals)) {
     throwInvalid(name, model, "signals must be an array");
   }
@@ -774,7 +791,13 @@ function validateSecurity(
   return {
     risk_level: riskLevel,
     signals,
-    notes: requireString(value.notes, name, model, "notes"),
+    reason: requireStringMaxLength(
+      value.reason,
+      name,
+      model,
+      "reason",
+      CLASSIFIER_REASON_MAX_CHARS,
+    ),
   };
 }
 

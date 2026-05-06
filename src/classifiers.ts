@@ -2,7 +2,7 @@ import type { ClassifierName } from "./types.js";
 import {
   CONVERSATION_HISTORY_SYSTEM_PROMPT,
   MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
-  MESSAGE_AND_ATTACHMENT_DIGEST_SYSTEM_PROMPT,
+  MODEL_SPECIALIZATION_SYSTEM_PROMPT,
   PREFLIGHT_SYSTEM_PROMPT,
   ROUTING_SYSTEM_PROMPT,
   SECURITY_SYSTEM_PROMPT,
@@ -41,10 +41,10 @@ export const CLASSIFIERS = {
     purpose: "Choose broad tool manifest families for downstream exposure.",
     systemPrompt: TOOL_FAMILY_NEED_SYSTEM_PROMPT,
   },
-  message_and_attachment_digest: {
-    name: "message_and_attachment_digest",
-    purpose: "Create a compact digest of the message and attachments.",
-    systemPrompt: MESSAGE_AND_ATTACHMENT_DIGEST_SYSTEM_PROMPT,
+  model_specialization: {
+    name: "model_specialization",
+    purpose: "Choose the model or prompt specialization best suited to the message.",
+    systemPrompt: MODEL_SPECIALIZATION_SYSTEM_PROMPT,
   },
   security: {
     name: "security",

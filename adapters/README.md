@@ -8,7 +8,7 @@ adapters/routing.jsonl
 adapters/conversation_history.jsonl
 adapters/memory_retrieval_queries.jsonl
 adapters/tools.jsonl
-adapters/message_and_attachment_digest.jsonl
+adapters/model_specialization.jsonl
 adapters/security.jsonl
 ```
 
@@ -20,7 +20,7 @@ adapters/guides/routing.md
 adapters/guides/conversation_history.md
 adapters/guides/memory_retrieval_queries.md
 adapters/guides/tools.md
-adapters/guides/message_and_attachment_digest.md
+adapters/guides/model_specialization.md
 adapters/guides/security.md
 ```
 
@@ -84,7 +84,7 @@ none
 
 This keeps examples compact while still teaching the model that classification targets the final conversation-window message and that attachments are represented as metadata.
 
-Single-message windows are preferred for simple examples. Use multi-message windows only when the label depends on context, such as conversation history selection, memory hints, or digest resolution. Use `Attachments: none` unless the classifier label depends on attachment metadata.
+Single-message windows are preferred for simple examples. Use multi-message windows only when the label depends on context, such as conversation history selection, memory hints, or model-specialization boundaries. Use `Attachments: none` unless the classifier label depends on attachment metadata.
 
 The assistant message must contain only the classifier's JSON result. Do not include explanations, Markdown, comments, or combined outputs from other classifiers.
 
@@ -135,6 +135,6 @@ When using the LLM-as-generator path:
 5. Append the remaining training rows to `adapters/<classifier>.jsonl`.
 6. Re-train the adapter, point `adapter-models.json` at the new model name, and run the eval split through the new adapter to confirm the change moved the metric in the right direction.
 
-The eval-split discipline matters most for the five currently-empty classifier files (`conversation_history`, `memory_retrieval_queries`, `tools`, `message_and_attachment_digest`, `security`), where the next batch of generated data will define the model's behavior with no historical baseline to compare against.
+The eval-split discipline matters most for the five currently-empty classifier files (`conversation_history`, `memory_retrieval_queries`, `tools`, `model_specialization`, `security`), where the next batch of generated data will define the model's behavior with no historical baseline to compare against.
 
 Runtime model selection is configured separately in `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.

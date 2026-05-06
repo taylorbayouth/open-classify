@@ -4,6 +4,6 @@
   "conversation_history": null,
   "memory_retrieval_queries": null,
   "tools": null,
-  "message_and_attachment_digest": null,
+  "model_specialization": null,
   "security": null
 }

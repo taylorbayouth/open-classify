@@ -1,8 +1,16 @@
 // Shared fixtures and helpers for the test suite.
 
 export const validClassifierOutputs = {
-  preflight: { terminality: "continue", reply: "Let me check." },
-  routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
+  preflight: {
+    terminality: "continue",
+    reply: "Let me check.",
+    reason: "The latest message requires downstream work.",
+  },
+  routing: {
+    execution_mode: "tool_assisted",
+    model_tier: "local_strong",
+    reason: "The request needs tools and moderate reasoning.",
+  },
   conversation_history: {
     is_standalone: true,
     refers_to_history: false,
@@ -10,14 +18,24 @@ export const validClassifierOutputs = {
     needs_unseen_history: false,
     reason: "The latest message can be handled without prior messages.",
   },
-  memory_retrieval_queries: { queries: ["user review preferences"] },
-  tools: { families: ["workspace"] },
-  message_and_attachment_digest: {
-    slug: "review_request",
-    summary: "The user wants a review.",
-    attachments: [],
+  memory_retrieval_queries: {
+    queries: ["user review preferences"],
+    reason: "Saved user review preferences could improve the response.",
   },
-  security: { risk_level: "normal", signals: [], notes: "No notable risk." },
+  tools: {
+    needed: true,
+    families: ["workspace"],
+    reason: "The request requires workspace access.",
+  },
+  model_specialization: {
+    model_specialization: "reasoning",
+    reason: "The request asks for evaluative review.",
+  },
+  security: {
+    risk_level: "normal",
+    signals: [],
+    reason: "No notable risk.",
+  },
 };
 
 export function jsonResponse(payload, overrides = {}) {
