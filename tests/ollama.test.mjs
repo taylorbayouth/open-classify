@@ -224,7 +224,7 @@ test("createOllamaClassifierRunner uses base model for null adapter", async () =
 });
 
 test("createOllamaClassifierRunner validates preflight terminality enum", async () => {
-  const runner = runnerReturning({ terminality: "bad", awk: "Nope." });
+  const runner = runnerReturning({ terminality: "bad", reply: "Nope." });
 
   await assert.rejects(
     runner("preflight", classifierInput(), new AbortController().signal),

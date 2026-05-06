@@ -88,7 +88,7 @@ export async function classifyOpenClassifyInput(
     return {
       decision: "terminal",
       request,
-      awk: preflight.awk,
+      reply: preflight.reply,
       preflight,
       classifier_status: {
         preflight: classifierRunStatus(preflightSettled),
@@ -115,7 +115,7 @@ export async function classifyOpenClassifyInput(
   return {
     decision: "route",
     request,
-    awk: classifiers.preflight.awk,
+    reply: classifiers.preflight.reply,
     classifiers,
     classifier_status: classifierRunStatuses(settled),
   };
@@ -291,7 +291,7 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
     case "preflight":
       return {
         terminality: "unable_to_determine",
-        awk: "Let me check.",
+        reply: "Let me check.",
       } as unknown as ClassifierOutput<Name>;
     case "routing":
       return {

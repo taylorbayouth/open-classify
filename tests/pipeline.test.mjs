@@ -24,7 +24,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
 
   assert.equal(result.decision, "route");
   assert.deepEqual(started.sort(), Object.keys(results).sort());
-  assert.equal(result.awk, "Let me check.");
+  assert.equal(result.reply, "Let me check.");
   assert.equal(result.request.raw.kept, true);
   assert.deepEqual(result.classifiers, results);
   assert.deepEqual(
@@ -42,7 +42,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
-          return Promise.resolve({ terminality: "terminal", awk: "Anytime." });
+          return Promise.resolve({ terminality: "terminal", reply: "Anytime." });
         }
 
         return new Promise((resolve) => {
@@ -62,7 +62,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.equal(result.decision, "terminal");
   assert.deepEqual(result.preflight, {
     terminality: "terminal",
-    awk: "Anytime.",
+    reply: "Anytime.",
   });
   assert.equal("classifiers" in result, false);
   assert.equal(aborted.length, 6);
@@ -82,7 +82,7 @@ test("terminal preflight returns without waiting for slow aborted classifiers", 
     {
       runClassifier(name, _input, signal) {
         if (name === "preflight") {
-          return Promise.resolve({ terminality: "terminal", awk: "Anytime." });
+          return Promise.resolve({ terminality: "terminal", reply: "Anytime." });
         }
 
         return new Promise((resolve) => {
@@ -111,7 +111,7 @@ test("unable_to_determine preflight behaves like continue", async () => {
     {
       async runClassifier(name) {
         if (name === "preflight") {
-          return { terminality: "unable_to_determine", awk: "Let me check." };
+          return { terminality: "unable_to_determine", reply: "Let me check." };
         }
         return results[name];
       },
@@ -218,7 +218,7 @@ test("preflight failure falls back to unable_to_determine and still routes", asy
   assert.equal(result.classifiers.preflight.terminality, "unable_to_determine");
   assert.equal(result.classifier_status.preflight.ok, false);
   assert.equal(result.classifier_status.preflight.source, "fallback");
-  assert.equal(result.awk, result.classifiers.preflight.awk);
+  assert.equal(result.reply, result.classifiers.preflight.reply);
 });
 
 test("classifierRetryCount of 0 attempts each classifier exactly once", async () => {

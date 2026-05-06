@@ -541,8 +541,8 @@ function validatePreflight(
   model: string,
 ): PreflightResult {
   const terminality = requireEnum(value.terminality, TERMINALITY_VALUES, name, model, "terminality");
-  const awk = requireString(value.awk, name, model, "awk");
-  return { terminality, awk };
+  const reply = requireString(value.reply, name, model, "reply");
+  return { terminality, reply };
 }
 
 function validateRouting(

@@ -51,8 +51,8 @@ const attachmentList = document.querySelector("#attachmentList");
 const classifierGrid = document.querySelector("#classifierGrid");
 const runState = document.querySelector("#runState");
 const liveDot = document.querySelector("#liveDot");
-const awkDisplay = document.querySelector("#awkDisplay");
-const awkValue = document.querySelector("#awkValue");
+const replyDisplay = document.querySelector("#replyDisplay");
+const replyValue = document.querySelector("#replyValue");
 const hashes = document.querySelector("#hashes");
 const jsonPanel = document.querySelector("#jsonPanel");
 const jsonToggle = document.querySelector("#jsonToggle");
@@ -157,7 +157,7 @@ async function init() {
     renderMessages();
     renderAttachments();
     setRunState("idle");
-    awkDisplay.hidden = true;
+    replyDisplay.hidden = true;
     hashes.hidden = true;
     jsonToggle.hidden = true;
     jsonToggle.removeAttribute("open");
@@ -205,7 +205,7 @@ async function classify() {
   state.eventCount = 0;
   renderEventLog();
   setRunState("running");
-  awkDisplay.hidden = true;
+  replyDisplay.hidden = true;
   hashes.hidden = true;
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
@@ -367,8 +367,8 @@ function handleStreamEvent(event, data) {
         result: data.result,
         finishedAt: performance.now(),
       });
-      if (data.name === "preflight" && data.result?.awk) {
-        showAwk(data.result.awk);
+      if (data.name === "preflight" && data.result?.reply) {
+        showReply(data.result.reply);
       }
       break;
     case "classifier_canceled":
@@ -393,14 +393,14 @@ function handleStreamEvent(event, data) {
   }
 }
 
-function showAwk(value) {
-  awkDisplay.hidden = false;
-  awkValue.textContent = value;
+function showReply(value) {
+  replyDisplay.hidden = false;
+  replyValue.textContent = value;
 }
 
 function renderPipeline(result) {
   setRunState(result.decision === "terminal" ? "terminal" : "complete");
-  showAwk(result.decision === "terminal" ? result.preflight.awk : result.awk);
+  showReply(result.decision === "terminal" ? result.preflight.reply : result.reply);
 
   if (result.decision === "terminal") {
     cancelUnfinishedClassifiers();
@@ -586,7 +586,7 @@ function renderDetails(name, item) {
   }
 
   if (name === "preflight") {
-    return `<div class="detail">${escapeHtml(result.awk)}</div>`;
+    return `<div class="detail">${escapeHtml(result.reply)}</div>`;
   }
 
   if (name === "memory_retrieval_queries") {

@@ -149,10 +149,10 @@ Terminal result:
     "message_hash": "...",
     "request_hash": "..."
   },
-  "awk": "Anytime.",
+  "reply": "Anytime.",
   "preflight": {
     "terminality": "terminal",
-    "awk": "Anytime."
+    "reply": "Anytime."
   },
   "classifier_status": {
     "preflight": {
@@ -181,11 +181,11 @@ Route result:
     "message_hash": "...",
     "request_hash": "..."
   },
-  "awk": "Let me check.",
+  "reply": "Let me check.",
   "classifiers": {
     "preflight": {
       "terminality": "continue",
-      "awk": "Let me check."
+      "reply": "Let me check."
     },
     "routing": {
       "execution_mode": "tool_assisted",
@@ -381,7 +381,7 @@ Determines whether the current message can stop immediately or should continue t
 ```json
 {
   "terminality": "continue",
-  "awk": "Let me check."
+  "reply": "Let me check."
 }
 ```
 
@@ -389,7 +389,7 @@ Determines whether the current message can stop immediately or should continue t
 
 Select one:
 
-- `terminal`: the `awk` is the complete response.
+- `terminal`: the `reply` is the complete response.
 - `continue`: downstream planning should continue.
 - `unable_to_determine`: the classifier cannot safely decide.
 
@@ -406,7 +406,7 @@ Output:
 ```json
 {
   "terminality": "terminal",
-  "awk": "Anytime."
+  "reply": "Anytime."
 }
 ```
 
@@ -421,7 +421,7 @@ Output:
 ```json
 {
   "terminality": "continue",
-  "awk": "I'll review it."
+  "reply": "I'll review it."
 }
 ```
 
@@ -949,11 +949,11 @@ A complete non-terminal pipeline result contains:
     "message_hash": "...",
     "request_hash": "..."
   },
-  "awk": "Let me check.",
+  "reply": "Let me check.",
   "classifiers": {
     "preflight": {
       "terminality": "continue",
-      "awk": "Let me check."
+      "reply": "Let me check."
     },
     "routing": {
       "execution_mode": "tool_assisted",
@@ -987,12 +987,12 @@ A complete non-terminal pipeline result contains:
 }
 ```
 
-A terminal result contains `decision`, `request`, `awk`, `preflight`, and `classifier_status`.
+A terminal result contains `decision`, `request`, `reply`, `preflight`, and `classifier_status`.
 
 ## Failure Behavior
 
 If normalization fails, the pipeline throws `OpenClassifyNormalizationError` before starting classifiers.
 
-If preflight fails or times out after retry, the pipeline routes with fallback preflight `{ "terminality": "unable_to_determine", "awk": "Let me check." }`.
+If preflight fails or times out after retry, the pipeline routes with fallback preflight `{ "terminality": "unable_to_determine", "reply": "Let me check." }`.
 
 If a downstream classifier fails or times out after retry, the pipeline still returns `decision: "route"` with a fallback result for that classifier and `classifier_status` metadata describing the failure.

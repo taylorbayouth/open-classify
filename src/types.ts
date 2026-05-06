@@ -73,7 +73,7 @@ export interface ClassifierInput {
 
 export interface PreflightResult {
   terminality: Terminality;
-  awk: string;
+  reply: string;
 }
 
 export interface RoutingResult {
@@ -150,7 +150,7 @@ export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRu
 export interface OpenClassifyTerminalPipelineResult {
   decision: "terminal";
   request: NormalizedOpenClassifyInput;
-  awk: string;
+  reply: string;
   preflight: PreflightResult;
   classifier_status: ClassifierRunStatusMap;
 }
@@ -158,7 +158,7 @@ export interface OpenClassifyTerminalPipelineResult {
 export interface OpenClassifyRoutePipelineResult {
   decision: "route";
   request: NormalizedOpenClassifyInput;
-  awk: string;
+  reply: string;
   classifiers: OpenClassifyResult;
   classifier_status: ClassifierRunStatusMap;
 }

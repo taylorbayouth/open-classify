@@ -176,7 +176,7 @@ h1 {
   letter-spacing: 0.08em;
 }
 
-.awk-display {
+.reply-display {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -188,7 +188,7 @@ h1 {
   min-width: 140px;
 }
 
-.awk-label {
+.reply-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -196,7 +196,7 @@ h1 {
   color: var(--muted);
 }
 
-.awk-display strong {
+.reply-display strong {
   font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
   font-size: 14px;
   color: var(--accent);
@@ -830,8 +830,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 @media (max-width: 600px) {
   .topbar { flex-direction: column; align-items: stretch; gap: 14px; }
-  .awk-display { align-items: flex-start; }
-  .awk-display strong { text-align: left; }
+  .reply-display { align-items: flex-start; }
+  .reply-display strong { text-align: left; }
   .field-grid { grid-template-columns: 1fr; }
   .message-meta-row { grid-template-columns: 1fr; }
   .ev { grid-template-columns: 70px 1fr; }

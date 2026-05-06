@@ -25,7 +25,7 @@ const result = await classifyWithOllama({
 console.log(JSON.stringify(result, null, 2));
 
 if (result.decision === "terminal") {
-  console.error(`\nDecision: terminal — assistant should reply with: "${result.awk}"`);
+  console.error(`\nDecision: terminal — assistant should reply with: "${result.reply}"`);
 } else {
   const { routing, tools, security } = result.classifiers;
   console.error(

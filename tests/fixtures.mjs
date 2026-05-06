@@ -1,7 +1,7 @@
 // Shared fixtures and helpers for the test suite.
 
 export const validClassifierOutputs = {
-  preflight: { terminality: "continue", awk: "Let me check." },
+  preflight: { terminality: "continue", reply: "Let me check." },
   routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
   context_sufficiency: {
     value: "self_contained",
