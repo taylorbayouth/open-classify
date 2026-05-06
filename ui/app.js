@@ -674,24 +674,13 @@ function renderDetails(name, item) {
 
   if (name === "conversation_history") {
     const history = result.relevant_conversation_history ?? [];
-    const historyHtml = history.length
-      ? `<div class="history-preview">${history
-          .map(
-            (msg) => `
-          <div class="history-msg">
-            <span class="history-role">${escapeHtml(msg.role === "assistant" ? "asst" : (msg.role ?? "user"))}</span>
-            <span class="history-text">${escapeHtml(String(msg.text ?? "").slice(0, 120))}</span>
-          </div>`,
-          )
-          .join("")}</div>`
+    const n = history.length;
+    const msgPill = n > 0
+      ? `<span class="option selected">${n} message${n === 1 ? "" : "s"}</span>`
       : "";
+    const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
     return `
-      <div class="option-row">
-        <span class="option${result.is_standalone ? " selected" : ""}">Standalone</span>
-        <span class="option${result.refers_to_history ? " selected" : ""}">Refers to history</span>
-        <span class="option${result.needs_unseen_history ? " selected" : ""}">Needs unseen history</span>
-      </div>
-      ${historyHtml}
+      <div class="option-row">${msgPill}${noHistoryPill}</div>
       ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
     `;
   }
