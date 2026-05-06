@@ -19,20 +19,34 @@ reply semantics:
 - Do not ask for clarification.
 
 Selection guide:
-- Choose "terminal" only as defined above: the reply is the complete answer and the message needs nothing external to answer.
-- Choose "continue" for any request that asks for information, judgment, writing, editing, planning, lookup, memory retrieval, tool use, file handling, code, or action.
-- When a message includes both courtesy and a substantive request, choose "continue".
-- When uncertain whether the user expects work, choose "continue".
+- The discriminator is which mode the reply field needs to be in for this message. Ask: can a 1–5 word reply, written from the message alone, fully serve as the assistant's complete answer?
+- Yes → reply is in answer mode → choose "terminal".
+- No, because the answer would not fit in a short reply, or because answering needs context, data, tools, or memory → reply is in placeholder mode → choose "continue".
+- Too unclear to apply the test confidently → choose "unable_to_determine".
+- When a message mixes courtesy with a substantive request, the request decides → choose "continue".
+- When uncertain whether the user expects work → choose "continue".
 
 Examples:
+
+Reply-as-answer (terminal) — the message is fully resolved by the reply itself:
+- User: "hi"
+  Return: {"terminality":"terminal","reply":"Hi."}
 - User: "Thanks, that helps."
   Return: {"terminality":"terminal","reply":"Anytime."}
+- User: "What is 8 times 7?"
+  Return: {"terminality":"terminal","reply":"56."}
+
+Reply-as-placeholder (continue) — answering needs more than a short reply, or needs something external:
 - User: "Looks good, please ship it."
   Return: {"terminality":"continue","reply":"I'll ship it."}
 - User: "Can you make that shorter?"
   Return: {"terminality":"continue","reply":"I'll tighten it."}
 - User: "So what do you think?"
   Return: {"terminality":"continue","reply":"Let me check."}
+- User: "What's the weather right now?"
+  Return: {"terminality":"continue","reply":"Let me check."}
+
+Reply-as-placeholder (unable_to_determine) — too unclear to apply the test:
 - User: "That thing from before."
   Return: {"terminality":"unable_to_determine","reply":"Let me check."}
 

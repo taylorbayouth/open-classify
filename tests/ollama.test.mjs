@@ -148,7 +148,7 @@ test("createOllamaClassifierRunner drops older whole messages to fit estimated c
   const calls = [];
   const runner = createOllamaClassifierRunner({
     skipResourceCheck: true,
-    options: { num_ctx: 1000 },
+    options: { num_ctx: 1500 },
     fetch: async (_url, init) => {
       calls.push(JSON.parse(init.body));
       return jsonResponse({
@@ -162,7 +162,7 @@ test("createOllamaClassifierRunner drops older whole messages to fit estimated c
     classifierInput({
       text: "final request",
       conversation_window: [
-        { role: "user", text: `older context ${"x".repeat(1200)}` },
+        { role: "user", text: `older context ${"x".repeat(4000)}` },
         { role: "user", text: "final request" },
       ],
     }),
