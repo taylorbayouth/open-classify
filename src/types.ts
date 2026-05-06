@@ -54,16 +54,10 @@ export interface NormalizedOpenClassifyInput {
   target_message_hash: string;
 }
 
-export interface ClassifierAttachmentInput {
-  filename?: string;
-  size_bytes?: number;
-  mime_type?: string;
-}
-
 export interface ClassifierInput {
   text: string;
   messages: ConversationMessageInput[];
-  attachments: ClassifierAttachmentInput[];
+  attachments: AttachmentInput[];
   target_message_hash: string;
 }
 
