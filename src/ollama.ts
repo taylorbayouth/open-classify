@@ -3,7 +3,6 @@ import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
 import {
-  CONTEXT_SUFFICIENCY_VALUES,
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
@@ -13,10 +12,10 @@ import {
 } from "./enums.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type {
-  ContextSufficiencyResult,
   ClassifierInput,
   ClassifierName,
   ClassifierOutput,
+  ConversationHistoryResult,
   RoutingResult,
   MemoryRetrievalQueriesResult,
   MessageAndAttachmentDigestResult,
@@ -46,8 +45,8 @@ export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
-const CONTEXT_MISSING_MAX_COUNT = 5;
-const CONTEXT_SUMMARY_MAX_CHARS = 1_000;
+const CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT = 19;
+const CONVERSATION_HISTORY_REASON_MAX_CHARS = 200;
 const MEMORY_QUERY_MAX_COUNT = 3;
 const MEMORY_QUERY_MIN_WORDS = 3;
 const MEMORY_QUERY_MAX_WORDS = 10;
@@ -59,7 +58,7 @@ const execFileAsync = promisify(execFile);
 export const OLLAMA_CLASSIFIER_MODELS = {
   preflight: null,
   routing: null,
-  context_sufficiency: null,
+  conversation_history: null,
   memory_retrieval_queries: null,
   tools: null,
   message_and_attachment_digest: null,
@@ -69,7 +68,7 @@ export const OLLAMA_CLASSIFIER_MODELS = {
 export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
   preflight: "open-classify-preflight:v0.1.0",
   routing: "open-classify-routing:v0.1.0",
-  context_sufficiency: "open-classify-context-sufficiency:v0.1.0",
+  conversation_history: "open-classify-conversation-history:v0.1.0",
   memory_retrieval_queries: "open-classify-memory-retrieval-queries:v0.1.0",
   tools: "open-classify-tools:v0.1.0",
   message_and_attachment_digest: "open-classify-message-and-attachment-digest:v0.1.0",
@@ -522,8 +521,8 @@ function validateClassifierOutput(
       return validatePreflight(value, name, model);
     case "routing":
       return validateRouting(value, name, model);
-    case "context_sufficiency":
-      return validateContextSufficiency(value, name, model);
+    case "conversation_history":
+      return validateConversationHistory(value, name, model);
     case "memory_retrieval_queries":
       return validateMemoryRetrievalQueries(value, name, model);
     case "tools":
@@ -568,35 +567,74 @@ function validateRouting(
   };
 }
 
-function validateContextSufficiency(
+function validateConversationHistory(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
-): ContextSufficiencyResult {
-  const selected = requireEnum(value.value, CONTEXT_SUFFICIENCY_VALUES, name, model, "value");
-  const missingContext = requireStringArray(
-    value.missing_context,
+): ConversationHistoryResult {
+  ensureExactKeys(
+    value,
+    [
+      "is_standalone",
+      "refers_to_history",
+      "prior_messages_needed",
+      "needs_unseen_history",
+      "reason",
+    ],
     name,
     model,
-    "missing_context",
   );
-  if (missingContext.length > CONTEXT_MISSING_MAX_COUNT) {
+
+  const priorMessagesNeeded = requireNonNegativeSafeInteger(
+    value.prior_messages_needed,
+    name,
+    model,
+    "prior_messages_needed",
+  );
+  if (priorMessagesNeeded > CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT) {
     throwInvalid(
       name,
       model,
-      `missing_context must contain ${CONTEXT_MISSING_MAX_COUNT} items or fewer`,
+      `prior_messages_needed must be ${CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT} or fewer`,
+    );
+  }
+
+  const isStandalone = requireBoolean(value.is_standalone, name, model, "is_standalone");
+  const refersToHistory = requireBoolean(
+    value.refers_to_history,
+    name,
+    model,
+    "refers_to_history",
+  );
+  const needsUnseenHistory = requireBoolean(
+    value.needs_unseen_history,
+    name,
+    model,
+    "needs_unseen_history",
+  );
+
+  if (
+    isStandalone &&
+    (refersToHistory || priorMessagesNeeded !== 0 || needsUnseenHistory)
+  ) {
+    throwInvalid(
+      name,
+      model,
+      "standalone conversation_history must not require history",
     );
   }
 
   return {
-    value: selected,
-    missing_context: missingContext,
-    relevant_context_summary: requireStringMaxLength(
-      value.relevant_context_summary,
+    is_standalone: isStandalone,
+    refers_to_history: refersToHistory,
+    prior_messages_needed: priorMessagesNeeded,
+    needs_unseen_history: needsUnseenHistory,
+    reason: requireStringMaxLength(
+      value.reason,
       name,
       model,
-      "relevant_context_summary",
-      CONTEXT_SUMMARY_MAX_CHARS,
+      "reason",
+      CONVERSATION_HISTORY_REASON_MAX_CHARS,
     ),
   };
 }
@@ -756,6 +794,18 @@ function requireString(
   return value;
 }
 
+function requireBoolean(
+  value: unknown,
+  classifier: ClassifierName,
+  model: string,
+  path: string,
+): boolean {
+  if (typeof value !== "boolean") {
+    throwInvalid(classifier, model, `${path} must be a boolean`);
+  }
+  return value;
+}
+
 function requireNonNegativeSafeInteger(
   value: unknown,
   classifier: ClassifierName,
@@ -805,6 +855,25 @@ function requireEnum<const Values extends readonly string[]>(
     throwInvalid(classifier, model, `${path} has an unsupported value`);
   }
   return value;
+}
+
+function ensureExactKeys(
+  value: Record<string, unknown>,
+  keys: string[],
+  classifier: ClassifierName,
+  model: string,
+): void {
+  const expected = new Set(keys);
+  for (const key of Object.keys(value)) {
+    if (!expected.has(key)) {
+      throwInvalid(classifier, model, `${key} is not a supported field`);
+    }
+  }
+  for (const key of keys) {
+    if (!(key in value)) {
+      throwInvalid(classifier, model, `${key} is required`);
+    }
+  }
 }
 
 function throwInvalid(

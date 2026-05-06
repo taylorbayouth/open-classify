@@ -130,7 +130,7 @@ export async function classifyOpenClassifyInput(
   const classifiers: OpenClassifyResult = {
     preflight: resultOrFallback(results, "preflight"),
     routing: resultOrFallback(results, "routing"),
-    context_sufficiency: resultOrFallback(results, "context_sufficiency"),
+    conversation_history: resultOrFallback(results, "conversation_history"),
     memory_retrieval_queries: resultOrFallback(results, "memory_retrieval_queries"),
     tools: resultOrFallback(results, "tools"),
     message_and_attachment_digest: resultOrFallback(results, "message_and_attachment_digest"),
@@ -325,11 +325,13 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
         execution_mode: "direct",
         model_tier: "local_strong",
       } as unknown as ClassifierOutput<Name>;
-    case "context_sufficiency":
+    case "conversation_history":
       return {
-        value: "unable_to_determine",
-        missing_context: [],
-        relevant_context_summary: "",
+        is_standalone: false,
+        refers_to_history: false,
+        prior_messages_needed: 0,
+        needs_unseen_history: true,
+        reason: "Conversation history classifier unavailable.",
       } as unknown as ClassifierOutput<Name>;
     case "memory_retrieval_queries":
       return { queries: [] } as unknown as ClassifierOutput<Name>;

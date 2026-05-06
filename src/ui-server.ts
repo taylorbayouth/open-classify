@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, normalize } from "node:path";
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import {
-  CONTEXT_SUFFICIENCY_VALUES,
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
@@ -179,7 +178,6 @@ function metadata(): unknown {
       terminality: TERMINALITY_VALUES,
       downstream_execution_mode: DOWNSTREAM_EXECUTION_MODE_VALUES,
       downstream_model_tier: DOWNSTREAM_MODEL_TIER_VALUES,
-      context_sufficiency: CONTEXT_SUFFICIENCY_VALUES,
       tool_family: TOOL_FAMILY_VALUES,
       security_risk_level: SECURITY_RISK_LEVEL_VALUES,
       security_signal: SECURITY_SIGNAL_VALUES,

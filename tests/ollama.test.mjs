@@ -35,8 +35,8 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
   assert.equal(
-    OLLAMA_CLASSIFIER_ADAPTER_MODELS.context_sufficiency,
-    "open-classify-context-sufficiency:v0.1.0",
+    OLLAMA_CLASSIFIER_ADAPTER_MODELS.conversation_history,
+    "open-classify-conversation-history:v0.1.0",
   );
 });
 
@@ -250,19 +250,58 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
   );
 });
 
-test("createOllamaClassifierRunner validates context_sufficiency missing_context cap", async () => {
+test("createOllamaClassifierRunner validates conversation_history prior message count cap", async () => {
   const runner = runnerReturning({
-    value: "referential",
-    missing_context: ["a", "b", "c", "d", "e", "f"],
-    relevant_context_summary: "",
+    is_standalone: false,
+    refers_to_history: true,
+    prior_messages_needed: 20,
+    needs_unseen_history: false,
+    reason: "The latest message refers to visible history.",
   });
 
   await assert.rejects(
-    runner("context_sufficiency", classifierInput(), new AbortController().signal),
+    runner("conversation_history", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "context_sufficiency" &&
-      /missing_context/.test(error.message),
+      error.classifier === "conversation_history" &&
+      /prior_messages_needed/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner validates conversation_history exact keys", async () => {
+  const runner = runnerReturning({
+    is_standalone: true,
+    refers_to_history: false,
+    prior_messages_needed: 0,
+    needs_unseen_history: false,
+    reason: "The latest message can be handled without prior messages.",
+    extra: true,
+  });
+
+  await assert.rejects(
+    runner("conversation_history", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "conversation_history" &&
+      /not a supported field/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner validates conversation_history standalone consistency", async () => {
+  const runner = runnerReturning({
+    is_standalone: true,
+    refers_to_history: true,
+    prior_messages_needed: 1,
+    needs_unseen_history: false,
+    reason: "The latest message refers to visible history.",
+  });
+
+  await assert.rejects(
+    runner("conversation_history", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "conversation_history" &&
+      /must not require history/.test(error.message),
   );
 });
 

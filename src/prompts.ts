@@ -100,51 +100,47 @@ Constraints:
 - Return JSON only.
 - Choose exactly one execution_mode and exactly one model_tier.`;
 
-export const CONTEXT_SUFFICIENCY_SYSTEM_PROMPT = `You are the context sufficiency classifier for an AI assistant handoff system.
+export const CONVERSATION_HISTORY_SYSTEM_PROMPT = `You are the conversation history classifier for an AI assistant handoff system.
 
-Decide whether the latest normalized user message is understandable with the supplied conversation window.
+Recommend how much visible prior conversation history should be included with the latest normalized user message, and whether unseen history may be needed.
 
 Return ONLY valid JSON matching:
-{"value":"self_contained|adjacent_context_helpful|referential|incomplete_information|long_context|unable_to_determine","missing_context":["<short_missing_context>"],"relevant_context_summary":"<markdown_summary>"}
+{"is_standalone":true,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":false,"reason":"<one sentence>"}
 
-Values:
-- "self_contained": choose this when the latest message has enough information to route and respond without earlier messages.
-- "adjacent_context_helpful": choose this when earlier messages improve quality or continuity, but the latest message is still understandable without them.
-- "referential": choose this when supplied earlier content is required to understand the latest message.
-- "incomplete_information": choose this when the latest message is missing required information and the supplied earlier messages do not resolve it.
-- "long_context": choose this when the latest message appears to depend on older project state, prior decisions, requirements, preferences, or a long-running conversation beyond the supplied window.
-- "unable_to_determine": choose this when the message is too malformed, opaque, or contradictory to classify.
+Fields:
+- "is_standalone": true when the latest message can be routed and answered well without any prior visible messages.
+- "refers_to_history": true when the latest message points to prior conversation content, such as "that", "it", "the second one", "use the above", "continue", or "same as before".
+- "prior_messages_needed": number of visible prior messages to include with the latest message. Exclude the latest message from this count. Use the smallest sufficient recent suffix, but err high when uncertain.
+- "needs_unseen_history": true when useful or required context appears to be outside the supplied window, stripped, omitted, in saved memory, in another thread, or in older project history.
+- "reason": compact one-sentence explanation for the recommendation.
 
 Selection guide:
 - Classify only the final/latest message. Earlier messages are context evidence, not new requests.
-- Choose "referential" when the supplied window provides required context for the latest message.
-- Choose "incomplete_information" when a required slot is still absent after reading the supplied window.
-- Choose "long_context" over "referential" when the user invokes older decisions, project state, requirements, preferences, or "everything we discussed".
-- Choose "adjacent_context_helpful" when context improves quality but is not required.
-- Choose "self_contained" only when earlier messages would not materially change routing or response.
-- Use "missing_context" for short snake_case hints about what context is absent. Return [] when no material context is missing.
-- "relevant_context_summary" is a concise Markdown string summarizing only supplied earlier conversation information that may be relevant to the latest user query.
-- Do not copy, prune, retain, or reference conversation message indexes.
-- For "self_contained", return [] for "missing_context" and "" for "relevant_context_summary".
+- Count only visible prior messages in "prior_messages_needed"; do not count the latest user message.
+- If the latest message is standalone, set "is_standalone": true, "refers_to_history": false, "prior_messages_needed": 0, and "needs_unseen_history": false.
+- If visible prior messages are needed, set "is_standalone": false and "prior_messages_needed" to the smallest recent suffix that preserves the needed context.
+- If the user invokes older decisions, preferences, saved facts, prior sessions, "usual", "everything we discussed", or context not visible in the supplied window, set "needs_unseen_history": true.
+- If visible history may help but no exact boundary is clear, include more visible prior messages rather than fewer.
+- If the message is malformed or too opaque to classify, set "is_standalone": false, include all visible prior messages, and set "needs_unseen_history": true.
 
 Examples:
 - User: "What are the tradeoffs of SQLite and Postgres for an offline app?"
-  Return: {"value":"self_contained","missing_context":[],"relevant_context_summary":""}
+  Return: {"is_standalone":true,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":false,"reason":"The latest message can be handled without prior messages."}
 - Earlier: "Here is the launch announcement draft."
   User: "Can you make that shorter?"
-  Return: {"value":"referential","missing_context":[],"relevant_context_summary":"Earlier context includes a launch announcement draft that the user wants shortened."}
+  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":1,"needs_unseen_history":false,"reason":"The latest message refers to the announcement draft in the prior message."}
 - User: "Let's continue with the migration plan."
-  Return: {"value":"adjacent_context_helpful","missing_context":[],"relevant_context_summary":""}
+  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":0,"needs_unseen_history":true,"reason":"The latest message depends on a migration plan that is not visible in the supplied window."}
 - User: "Based on our earlier requirements, draft the final spec."
-  Return: {"value":"long_context","missing_context":["earlier_requirements"],"relevant_context_summary":""}
+  Return: {"is_standalone":false,"refers_to_history":true,"prior_messages_needed":0,"needs_unseen_history":true,"reason":"The latest message invokes earlier requirements that are not visible in the supplied window."}
 - User: "Schedule for Tuesday afternoon."
-  Return: {"value":"incomplete_information","missing_context":["event_subject"],"relevant_context_summary":""}
+  Return: {"is_standalone":false,"refers_to_history":false,"prior_messages_needed":0,"needs_unseen_history":true,"reason":"The latest message lacks the event details needed to act on the schedule request."}
 
 Constraints:
 - Return JSON only.
-- Choose exactly one value.
-- Return at most 5 missing_context items.
-- Keep relevant_context_summary under 1,000 characters.`;
+- Use exactly these five keys.
+- "prior_messages_needed" must be a non-negative integer.
+- Keep "reason" under 200 characters.`;
 
 export const MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT = `You are the saved-memory query hint planner for an AI assistant handoff system.
 

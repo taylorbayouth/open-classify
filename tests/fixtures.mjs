@@ -3,10 +3,12 @@
 export const validClassifierOutputs = {
   preflight: { terminality: "continue", reply: "Let me check." },
   routing: { execution_mode: "tool_assisted", model_tier: "local_strong" },
-  context_sufficiency: {
-    value: "self_contained",
-    missing_context: [],
-    relevant_context_summary: "",
+  conversation_history: {
+    is_standalone: true,
+    refers_to_history: false,
+    prior_messages_needed: 0,
+    needs_unseen_history: false,
+    reason: "The latest message can be handled without prior messages.",
   },
   memory_retrieval_queries: { queries: ["user review preferences"] },
   tools: { needed: true, families: ["workspace"] },

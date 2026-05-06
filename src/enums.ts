@@ -22,16 +22,6 @@ export const DOWNSTREAM_MODEL_TIER_VALUES = [
 ] as const;
 export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 
-export const CONTEXT_SUFFICIENCY_VALUES = [
-  "self_contained",
-  "adjacent_context_helpful",
-  "referential",
-  "incomplete_information",
-  "long_context",
-  "unable_to_determine",
-] as const;
-export type ContextSufficiency = (typeof CONTEXT_SUFFICIENCY_VALUES)[number];
-
 export const TOOL_FAMILY_VALUES = [
   "workspace",
   "web",

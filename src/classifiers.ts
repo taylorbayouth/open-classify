@@ -1,6 +1,6 @@
 import type { ClassifierName } from "./types.js";
 import {
-  CONTEXT_SUFFICIENCY_SYSTEM_PROMPT,
+  CONVERSATION_HISTORY_SYSTEM_PROMPT,
   MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
   MESSAGE_AND_ATTACHMENT_DIGEST_SYSTEM_PROMPT,
   PREFLIGHT_SYSTEM_PROMPT,
@@ -26,10 +26,10 @@ export const CLASSIFIERS = {
     purpose: "Recommend the downstream execution lane.",
     systemPrompt: ROUTING_SYSTEM_PROMPT,
   },
-  context_sufficiency: {
-    name: "context_sufficiency",
-    purpose: "Assess whether the final message is understandable with the supplied conversation window.",
-    systemPrompt: CONTEXT_SUFFICIENCY_SYSTEM_PROMPT,
+  conversation_history: {
+    name: "conversation_history",
+    purpose: "Recommend how much visible conversation history the downstream assistant should include.",
+    systemPrompt: CONVERSATION_HISTORY_SYSTEM_PROMPT,
   },
   memory_retrieval_queries: {
     name: "memory_retrieval_queries",

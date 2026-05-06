@@ -1,7 +1,7 @@
 const DEFAULT_CLASSIFIER_NAMES = [
   "preflight",
   "routing",
-  "context_sufficiency",
+  "conversation_history",
   "memory_retrieval_queries",
   "tools",
   "message_and_attachment_digest",
@@ -11,7 +11,7 @@ const DEFAULT_CLASSIFIER_NAMES = [
 const labels = {
   preflight: "Preflight",
   routing: "Routing",
-  context_sufficiency: "Context sufficiency",
+  conversation_history: "Conversation history",
   memory_retrieval_queries: "Memory queries",
   tools: "Tools",
   message_and_attachment_digest: "Message digest",
@@ -20,7 +20,6 @@ const labels = {
 
 const optionKeys = {
   preflight: "terminality",
-  context_sufficiency: "context_sufficiency",
   tools: "tool_family",
   security: "security_risk_level",
 };
@@ -38,12 +37,6 @@ const enumValueLabels = {
   local_strong: "Local strong",
   frontier_fast: "Frontier fast",
   frontier_strong: "Frontier strong",
-  // context sufficiency
-  self_contained: "Self-contained",
-  adjacent_context_helpful: "Adjacent context helpful",
-  referential: "Referential",
-  incomplete_information: "Incomplete information",
-  long_context: "Long context",
   // tool families
   workspace: "Workspace",
   web: "Web",
@@ -712,18 +705,13 @@ function renderDetails(name, item) {
       .join("")}</div>`;
   }
 
-  if (name === "context_sufficiency") {
-    const hasMissing = result.missing_context?.length;
-    const missingHtml = hasMissing
-      ? `<div class="missing-row">${result.missing_context.map((m) => `<span class="missing-tag">${escapeHtml(m)}</span>`).join("")}</div>`
-      : `<div class="detail muted">No missing context</div>`;
-    const summary = result.relevant_context_summary?.trim();
+  if (name === "conversation_history") {
     return `
-      ${missingHtml}
-      ${summary ? `
-        <div class="detail muted context-field-label">Relevant context summary</div>
-        <div class="detail context-summary">${escapeHtml(summary)}</div>
-      ` : ""}
+      <div class="detail">prior_messages_needed: ${escapeHtml(String(result.prior_messages_needed ?? ""))}</div>
+      <div class="detail muted">is_standalone: ${result.is_standalone ? "true" : "false"}</div>
+      <div class="detail muted">refers_to_history: ${result.refers_to_history ? "true" : "false"}</div>
+      <div class="detail muted">needs_unseen_history: ${result.needs_unseen_history ? "true" : "false"}</div>
+      ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
     `;
   }
 

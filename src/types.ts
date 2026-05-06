@@ -1,5 +1,4 @@
 import type {
-  ContextSufficiency,
   DownstreamExecutionMode,
   DownstreamModelTier,
   SecurityRiskLevel,
@@ -81,10 +80,12 @@ export interface RoutingResult {
   model_tier: DownstreamModelTier;
 }
 
-export interface ContextSufficiencyResult {
-  value: ContextSufficiency;
-  missing_context: string[];
-  relevant_context_summary: string;
+export interface ConversationHistoryResult {
+  is_standalone: boolean;
+  refers_to_history: boolean;
+  prior_messages_needed: number;
+  needs_unseen_history: boolean;
+  reason: string;
 }
 
 export interface MemoryRetrievalQueriesResult {
@@ -118,7 +119,7 @@ export interface SecurityResult {
 export interface OpenClassifyResult {
   preflight: PreflightResult;
   routing: RoutingResult;
-  context_sufficiency: ContextSufficiencyResult;
+  conversation_history: ConversationHistoryResult;
   memory_retrieval_queries: MemoryRetrievalQueriesResult;
   tools: ToolsResult;
   message_and_attachment_digest: MessageAndAttachmentDigestResult;
