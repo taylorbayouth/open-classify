@@ -608,8 +608,8 @@ function updateTickers() {
 function renderOptions(name, result) {
   if (name === "security") {
     return `
-      <div class="option-row">${renderEnumOptions("security_risk_level", result?.risk_level)}</div>
-      <div class="option-row">${renderEnumOptions("security_signal", result?.signals ?? [])}</div>
+      ${renderLabeledEnumOptions("risk level", "security_risk_level", result?.risk_level)}
+      ${renderLabeledEnumOptions("signals", "security_signal", result?.signals ?? [])}
     `;
   }
 
@@ -687,7 +687,7 @@ function renderDetails(name, item) {
 
   if (name === "message_and_attachment_digest") {
     return `
-      <div class="detail"><strong>${escapeHtml(result.slug)}</strong></div>
+      <div class="detail">${escapeHtml(result.slug)}</div>
       <div class="detail">${escapeHtml(result.summary)}</div>
     `;
   }
@@ -697,7 +697,7 @@ function renderDetails(name, item) {
   }
 
   if (name === "security") {
-    return `<div class="detail muted">${escapeHtml(result.notes)}</div>`;
+    return `<div class="detail">${escapeHtml(result.notes)}</div>`;
   }
 
   return "";

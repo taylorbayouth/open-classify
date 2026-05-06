@@ -622,6 +622,10 @@ button:disabled { cursor: wait; opacity: 0.55; }
   gap: 5px;
 }
 
+.option-group + .option-group {
+  margin-top: 8px;
+}
+
 .option-label {
   color: var(--muted);
   font-size: 10px;
