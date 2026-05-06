@@ -83,6 +83,11 @@ async function classifyStream(
   response.flushHeaders();
   request.socket.setNoDelay(true);
 
+  // TODO: when the SSE client disconnects, the in-flight
+  // classifyOpenClassifyInput run is not cancelled and keeps consuming
+  // Ollama parallelism until it finishes. Plumb an AbortSignal through
+  // the pipeline (or wrap runClassifier here) so close/error tear down
+  // outstanding classifier requests.
   let closed = false;
   response.on("close", () => {
     closed = true;
