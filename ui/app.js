@@ -456,6 +456,11 @@ function handleStreamEvent(event, data) {
 }
 
 function showReply(value) {
+  if (!value) {
+    replyDisplay.hidden = true;
+    replyValue.textContent = "";
+    return;
+  }
   replyDisplay.hidden = false;
   replyValue.textContent = value;
 }
@@ -470,20 +475,7 @@ function renderPipeline(result) {
   setRunState(finalState);
   showReply(result.reply);
 
-  if (result.decision === "terminal") {
-    cancelClassifiersExcept(["preflight"]);
-  } else if (result.decision === "block") {
-    for (const name of ["preflight", "security"]) {
-      const status = result.classifier_status?.[name];
-      updateClassifier(name, {
-        status: status?.ok === false ? "fallback" : "done",
-        result: result[name],
-        error: status?.ok === false ? status.error : null,
-        finishedAt: performance.now(),
-      });
-    }
-    cancelClassifiersExcept(["preflight", "security"]);
-  } else if (result.classifiers) {
+  if (result.classifiers) {
     for (const name of Object.keys(result.classifiers)) {
       const status = result.classifier_status?.[name];
       updateClassifier(name, {
@@ -493,6 +485,12 @@ function renderPipeline(result) {
         finishedAt: performance.now(),
       });
     }
+  }
+
+  if (result.decision === "terminal") {
+    cancelClassifiersExcept(["preflight"]);
+  } else if (result.decision === "block") {
+    cancelClassifiersExcept(["preflight", "security"]);
   }
 
   hashes.hidden = false;
@@ -662,7 +660,7 @@ function renderDetails(name, item) {
   }
 
   if (name === "preflight") {
-    return `<div class="detail">${escapeHtml(result.reply)}</div>`;
+    return result.reply ? `<div class="detail">${escapeHtml(result.reply)}</div>` : "";
   }
 
   if (name === "memory_retrieval_queries") {
@@ -693,7 +691,13 @@ function renderDetails(name, item) {
   }
 
   if (name === "tools") {
-    return `<div class="detail muted">needed: ${result.needed ? "true" : "false"}</div>`;
+    const families = result.families ?? [];
+    if (families.length === 0) {
+      return `<div class="detail muted">no tools needed</div>`;
+    }
+    return `<div class="query-row">${families
+      .map((f) => `<span class="query">${escapeHtml(f)}</span>`)
+      .join("")}</div>`;
   }
 
   if (name === "security") {

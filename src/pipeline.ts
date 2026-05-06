@@ -5,12 +5,10 @@ import type {
   ClassifierName,
   ClassifierOutput,
   ClassifierRunStatus,
-  ClassifierRunStatusMap,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
   OpenClassifyPipelineResult,
   OpenClassifyResult,
-  PreflightResult,
   RunClassifier,
 } from "./types.js";
 
@@ -86,11 +84,10 @@ export async function classifyOpenClassifyInput(
     await settleClassifierRunsExcept(runs, ["preflight"]);
 
     return {
-      stop_downstream: true,
       decision: "terminal",
       target_message_hash: request.target_message_hash,
-      reply: preflight.reply,
-      preflight,
+      reply: preflight.reply ?? "",
+      classifiers: { preflight },
       classifier_status: {
         preflight: classifierRunStatus(preflightSettled),
       },
@@ -109,12 +106,10 @@ export async function classifyOpenClassifyInput(
     await settleClassifierRunsExcept(runs, ["preflight", "security"]);
 
     return {
-      stop_downstream: true,
       decision: "block",
       target_message_hash: request.target_message_hash,
-      ...(preflightSettled.ok ? { reply: preflight.reply } : {}),
-      preflight,
-      security,
+      ...(preflight.reply ? { reply: preflight.reply } : {}),
+      classifiers: { preflight, security },
       classifier_status: {
         preflight: classifierRunStatus(preflightSettled),
         security: classifierRunStatus(securitySettled),
@@ -139,10 +134,9 @@ export async function classifyOpenClassifyInput(
   };
 
   return {
-    stop_downstream: false,
     decision: "route",
     target_message_hash: request.target_message_hash,
-    reply: classifiers.preflight.reply,
+    ...(classifiers.preflight.reply ? { reply: classifiers.preflight.reply } : {}),
     classifiers,
     classifier_status: classifierRunStatuses(settled),
   };
@@ -287,10 +281,10 @@ function resultOrFallback<Name extends ClassifierName>(
 
 function classifierRunStatuses(
   settled: SettledClassifierResult<ClassifierName>[],
-): ClassifierRunStatusMap {
+): Record<ClassifierName, ClassifierRunStatus> {
   return Object.fromEntries(
     settled.map((entry) => [entry.name, classifierRunStatus(entry)]),
-  ) as ClassifierRunStatusMap;
+  ) as Record<ClassifierName, ClassifierRunStatus>;
 }
 
 function classifierRunStatus(
@@ -320,7 +314,6 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
     case "preflight":
       return {
         terminality: "unable_to_determine",
-        reply: "Let me check.",
       } as unknown as ClassifierOutput<Name>;
     case "routing":
       return {
@@ -339,7 +332,6 @@ function fallbackClassifierOutput<Name extends ClassifierName>(
       return { queries: [] } as unknown as ClassifierOutput<Name>;
     case "tools":
       return {
-        needed: false,
         families: [],
       } as unknown as ClassifierOutput<Name>;
     case "message_and_attachment_digest":

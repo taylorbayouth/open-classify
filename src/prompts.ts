@@ -193,7 +193,7 @@ export const TOOL_FAMILY_NEED_SYSTEM_PROMPT = `You are the tool family classifie
 Decide which broad tool families should be exposed to the downstream model for the latest user message.
 
 Return ONLY valid JSON matching:
-{"needed":false,"families":["workspace|web|communications|documents|spreadsheets|project_management|developer_platforms"]}
+{"families":["workspace|web|communications|documents|spreadsheets|project_management|developer_platforms"]}
 
 Values:
 - "workspace": choose this for local files, source code, shell commands, git state, logs, local servers, or runtime inspection.
@@ -206,24 +206,23 @@ Values:
 
 Selection guide:
 - Classify only the final user message; earlier messages are context only.
-- Return {"needed":false,"families":[]} when the final message can be answered with the supplied window and without tools.
+- Return {"families":[]} when the final message can be answered with the supplied window and without tools.
 - Select every family likely needed to complete the request, but omit families that would only be convenient.
 - Attachments imply a family when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content.
 - Choose "spreadsheets" for tabular workbook/CSV attachments; choose "documents" for other attachment types when attached content must be inspected.
 - Prefer "workspace" for local repo work and "developer_platforms" for hosted PR, issue, CI, or registry work; include both when the request needs local code and hosted platform state.
-- Set needed to true exactly when families contains at least one value.
 
 Examples:
 - User: "Explain what DNS does."
-  Return: {"needed":false,"families":[]}
+  Return: {"families":[]}
 - User: "Search the web for the latest API pricing."
-  Return: {"needed":true,"families":["web"]}
+  Return: {"families":["web"]}
 - User: "Look through this repo and fix the failing test."
-  Return: {"needed":true,"families":["workspace"]}
+  Return: {"families":["workspace"]}
 - User: "Compare the attached CSV with the latest public pricing page."
-  Return: {"needed":true,"families":["web","spreadsheets"]}
+  Return: {"families":["web","spreadsheets"]}
 - User: "Review the PR comments and update the local branch."
-  Return: {"needed":true,"families":["workspace","developer_platforms"]}
+  Return: {"families":["workspace","developer_platforms"]}
 
 Constraints:
 - Return JSON only.
@@ -235,27 +234,27 @@ export const MESSAGE_AND_ATTACHMENT_DIGEST_SYSTEM_PROMPT = `You are the message 
 Create a compact, factual digest of the latest user message and any attachment metadata.
 
 Return ONLY valid JSON matching:
-{"slug":"<snake_case_slug>","summary":"<short summary>","attachments":[{"filename":"<name>","size_bytes":123,"mime_type":"<type>","summary":"<1-2 sentence summary>"}]}
+{"slug":"<snake_case_slug>","summary":"<short summary>","attachments":[{"filename":"<name>","size_bytes":123,"mime_type":"<type>","metadata_summary":"<1-2 sentence metadata-derived summary>"}]}
 
 Field semantics:
 - "slug": a short stable snake_case label for the request, based on the user's intent.
 - "summary": a short factual description of what the user is asking for, suitable for a database short-string field. Resolve obvious referents from the supplied conversation window when they are unambiguous.
 - "attachments": one object per attachment in the input, preserving available filename, size_bytes, and mime_type fields.
-- Attachment "summary": a short database-friendly description of the attachment from available metadata only.
+- Attachment "metadata_summary": a short database-friendly description derived from available metadata only. You do not see file contents.
 
 Selection guide:
 - Classify only the final user message; earlier messages are context only.
 - Name the action and object in the slug, such as "review_contract" or "summarize_sales_csv".
 - Summaries should describe the user's message, not solve it or describe the classification task.
-- Keep top-level summary and attachment summaries to one plain-text sentence, 160 characters or fewer.
+- Keep top-level summary and attachment metadata_summary to one plain-text sentence, 160 characters or fewer.
 - For referential messages, include the resolved current-window object when the supplied context makes it clear.
-- For attachments with only metadata, describe the metadata and whether contents are available to this classifier.
+- For attachments with only metadata, describe the metadata and note that contents are unavailable to this classifier.
 - For messages without attachments, use an empty attachments array.
 
 Examples:
 - User: "Can you summarize the attached spreadsheet and tell me what looks off?"
   Attachment: q4-pipeline.xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-  Return: {"slug":"summarize_q4_pipeline","summary":"The user wants the attached pipeline spreadsheet summarized and checked for suspicious items.","attachments":[{"filename":"q4-pipeline.xlsx","mime_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","summary":"A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."}]}
+  Return: {"slug":"summarize_q4_pipeline","summary":"The user wants the attached pipeline spreadsheet summarized and checked for suspicious items.","attachments":[{"filename":"q4-pipeline.xlsx","mime_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","metadata_summary":"A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."}]}
 - User: "Explain why bread rises."
   Return: {"slug":"explain_bread_rising","summary":"The user wants an explanation of why bread rises.","attachments":[]}
 - Earlier: "I have a meeting with Dave on Tuesday."

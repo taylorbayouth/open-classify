@@ -672,9 +672,6 @@ function validateTools(
   name: ClassifierName,
   model: string,
 ): ToolsResult {
-  if (typeof value.needed !== "boolean") {
-    throwInvalid(name, model, "needed must be a boolean");
-  }
   if (!Array.isArray(value.families)) {
     throwInvalid(name, model, "families must be an array");
   }
@@ -682,11 +679,8 @@ function validateTools(
     requireEnum(item, TOOL_FAMILY_VALUES, name, model, `families[${index}]`),
   );
   ensureNoDuplicates(families, name, model, "families");
-  if (value.needed !== (families.length > 0)) {
-    throwInvalid(name, model, "needed must match whether families is non-empty");
-  }
 
-  return { needed: value.needed, families };
+  return { families };
 }
 
 function validateMessageAndAttachmentDigest(
@@ -713,11 +707,11 @@ function validateMessageAndAttachmentDigest(
 
       const result = {
         filename: requireString(attachment.filename, name, model, `attachments[${index}].filename`),
-        summary: requireStringMaxLength(
-          attachment.summary,
+        metadata_summary: requireStringMaxLength(
+          attachment.metadata_summary,
           name,
           model,
-          `attachments[${index}].summary`,
+          `attachments[${index}].metadata_summary`,
           DIGEST_SUMMARY_MAX_CHARS,
         ),
       };

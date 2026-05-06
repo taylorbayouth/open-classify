@@ -116,7 +116,13 @@ const result = await classifyWithOllama({
 
 Pass a `messages` array with at least one message, ending with the user message to classify. Optional `attachments` can include any number of files and any file type; Open Classify uses filename, size, and MIME type metadata only. Open Classify does not accept caller request IDs, message IDs, timestamps, source names, or opaque raw payloads.
 
-Every result starts with `stop_downstream`. When it is `true`, the caller should not send the request to downstream models or tools; use the returned `reply`. When it is `false`, the result contains all seven classifier outputs plus an immediate acknowledgment reply and routing guidance. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
+Every result carries a `decision` field — one of `"terminal"`, `"block"`, or `"route"`:
+
+- `"terminal"` — preflight handled the message; `reply` is the final answer, no downstream model is needed.
+- `"block"` — security flagged the message as `high_risk`; do not route. `reply` is present only if preflight produced one, otherwise omit it (silent block).
+- `"route"` — dispatch the message downstream using `classifiers.routing`. `reply` is the model's short acknowledgement and is present whenever preflight succeeded.
+
+All replies come from preflight; the pipeline never injects hardcoded user-facing text. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
 
 Fine-tuned adapters per classifier can be registered as Ollama models and mapped in `adapter-models.json`. Any classifier without an adapter falls back to the base model.
 
