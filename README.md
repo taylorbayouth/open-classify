@@ -28,7 +28,7 @@ Seven classifiers run in parallel on every message.
 |---|---|
 | **Preflight** | Decides whether to reply immediately or route to the downstream model |
 | **Routing** | Recommends the execution mode and model tier for the request |
-| **Context Sufficiency** | Assesses how much conversation history the downstream model needs |
+| **Conversation History** | Recommends how many visible prior messages the downstream model should include |
 | **Memory Retrieval Queries** | Predicts which memory searches to run before constructing the prompt |
 | **Tools** | Identifies which tool families to expose to the downstream model |
 | **Message and Attachment Digest** | Summarizes the request and any attachments into a compact, stable form |
@@ -56,14 +56,14 @@ Model tiers: `local_fast`, `local_strong`, `frontier_fast`, `frontier_strong`
 **"Monitor this every morning and tell me if anything changes."**
 → `workflow` on `local_fast` — recurring scheduled work, no frontier model needed.
 
-### Context Sufficiency
+### Conversation History
 
-Assesses whether the current message is understandable on its own or depends on earlier conversation history.
+Recommends how much visible prior conversation history to include with the latest message, and whether unseen history may be needed.
 
-Values: `self_contained`, `adjacent_context_helpful`, `referential`, `incomplete_information`, `long_context`
+Fields: `is_standalone`, `refers_to_history`, `prior_messages_needed`, `needs_unseen_history`, `reason`
 
 **"Make the second option more direct."**
-→ `referential` — the downstream model needs the earlier conversation to know what "the second option" refers to.
+→ `prior_messages_needed: 2` and `refers_to_history: true` — the downstream model needs visible history to know what "the second option" refers to.
 
 ### Memory Retrieval Queries
 
