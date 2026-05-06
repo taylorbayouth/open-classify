@@ -676,7 +676,7 @@ function renderDetails(name, item) {
     const history = result.relevant_conversation_history ?? [];
     const n = history.length;
     const msgPill = n > 0
-      ? `<span class="option selected">${n} message${n === 1 ? "" : "s"}</span>`
+      ? `<span class="option selected">last ${n} message${n === 1 ? "" : "s"}</span>`
       : "";
     const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
     return `
