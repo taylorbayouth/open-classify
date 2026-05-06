@@ -58,7 +58,7 @@ Constraints:
 
 export const ROUTING_SYSTEM_PROMPT = `You are the routing classifier for an AI assistant handoff system.
 
-Decide which execution mode and model tier should handle the latest user message.
+Recommend which execution mode and model tier should handle the latest user message.
 
 Return ONLY valid JSON matching:
 {"execution_mode":"direct|tool_assisted|workflow|unable_to_determine","model_tier":"local_fast|local_strong|frontier_fast|frontier_strong|unable_to_determine"}

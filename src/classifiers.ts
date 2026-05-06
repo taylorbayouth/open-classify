@@ -23,7 +23,7 @@ export const CLASSIFIERS = {
   },
   routing: {
     name: "routing",
-    purpose: "Choose the downstream execution lane.",
+    purpose: "Recommend the downstream execution lane.",
     systemPrompt: ROUTING_SYSTEM_PROMPT,
   },
   context_sufficiency: {

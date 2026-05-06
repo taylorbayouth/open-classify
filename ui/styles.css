@@ -109,6 +109,7 @@ h1 {
 }
 .logo-dot[data-state="complete"] { background: var(--ok); }
 .logo-dot[data-state="terminal"] { background: var(--warn); }
+.logo-dot[data-state="block"]    { background: var(--err); }
 .logo-dot[data-state="failed"]   { background: var(--err); }
 
 @keyframes pulse {
@@ -134,6 +135,7 @@ h1 {
 }
 .run-state[data-state="complete"] { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
 .run-state[data-state="terminal"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.run-state[data-state="block"]    { background: var(--err-soft); color: var(--err); border-color: transparent; }
 .run-state[data-state="failed"]   { background: var(--err-soft); color: var(--err); border-color: transparent; }
 
 .phase-trail {

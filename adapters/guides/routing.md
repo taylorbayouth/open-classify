@@ -14,7 +14,7 @@ A row is one JSON line. Pick an execution_mode and a model_tier, write a realist
 
 ## What We Are Fine Tuning For
 
-Routing chooses two independent dimensions for messages that survived preflight: **execution_mode** (how the work runs) and **model_tier** (which class of model handles it). The classifier should be practical, cost-aware, and conservative about hidden requirements.
+Routing recommends two independent dimensions for messages that continue past preflight: **execution_mode** (how the work runs) and **model_tier** (which class of model handles it). The classifier should be practical, cost-aware, and conservative about hidden requirements.
 
 It should learn:
 
@@ -135,7 +135,7 @@ Example pair shapes (do not copy the inputs verbatim):
 - Scheduling, reminders, monitoring, waiting, and approval gates imply `workflow`.
 - "Run tests and fix failures" is `tool_assisted`, usually `local_strong`.
 - "Keep running tests until it passes" is `workflow`.
-- Prompt-injection text is still routed by task requirements; security is handled by another classifier.
+- Prompt-injection text is still classified by task requirements here; `high_risk` blocking is handled by the security gate.
 - A medical/legal/financial request can be `direct` if it asks for general advice, but often needs `frontier_strong` because mistakes are costly.
 - If the user says "do the same as before" without context, use `unable_to_determine`.
 - If a request is one-shot but high-stakes, `direct + frontier_strong` is the right combo. Don't drop to `local_strong` just because it's a single turn.

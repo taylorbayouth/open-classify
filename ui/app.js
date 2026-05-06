@@ -491,11 +491,28 @@ function showReply(value) {
 }
 
 function renderPipeline(result) {
-  setRunState(result.decision === "terminal" ? "terminal" : "complete");
-  showReply(result.decision === "terminal" ? result.preflight.reply : result.reply);
+  let finalState = "complete";
+  if (result.decision === "terminal") {
+    finalState = "terminal";
+  } else if (result.decision === "block") {
+    finalState = "block";
+  }
+  setRunState(finalState);
+  showReply(result.reply);
 
   if (result.decision === "terminal") {
-    cancelUnfinishedClassifiers();
+    cancelClassifiersExcept(["preflight"]);
+  } else if (result.decision === "block") {
+    for (const name of ["preflight", "security"]) {
+      const status = result.classifier_status?.[name];
+      updateClassifier(name, {
+        status: status?.ok === false ? "fallback" : "done",
+        result: result[name],
+        error: status?.ok === false ? status.error : null,
+        finishedAt: performance.now(),
+      });
+    }
+    cancelClassifiersExcept(["preflight", "security"]);
   } else if (result.classifiers) {
     for (const name of Object.keys(result.classifiers)) {
       const status = result.classifier_status?.[name];
@@ -518,20 +535,19 @@ function renderPipeline(result) {
   jsonPanel.textContent = JSON.stringify(result, null, 2);
 }
 
-function cancelUnfinishedClassifiers() {
+function cancelClassifiersExcept(keptNames) {
+  const kept = new Set(keptNames);
   for (const name of state.classifierNames) {
-    if (name === "preflight") {
+    if (kept.has(name)) {
       continue;
     }
 
-    const item = state.classifiers[name];
-    if (!item || !["pending", "running"].includes(item.status)) {
-      continue;
-    }
-
+    const item = state.classifiers[name] ?? { status: "pending" };
     state.classifiers[name] = {
       ...item,
       status: "canceled",
+      result: null,
+      error: null,
       finishedAt: performance.now(),
     };
   }
@@ -723,7 +739,7 @@ function renderDetails(name, item) {
 
 function emptyStateText(status) {
   if (status === "running") return "Running…";
-  if (status === "canceled") return "Canceled by preflight";
+  if (status === "canceled") return "Canceled by gate";
   if (status === "failed") return "Failed";
   if (status === "pending") return "Queued";
   return "Awaiting run";
@@ -841,6 +857,7 @@ function setRunState(value) {
     running: "Running",
     complete: "Complete",
     terminal: "Terminal",
+    block: "Block",
     failed: "Failed",
   };
   runState.textContent = labelMap[value] ?? value;

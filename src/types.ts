@@ -155,6 +155,15 @@ export interface OpenClassifyTerminalPipelineResult {
   classifier_status: ClassifierRunStatusMap;
 }
 
+export interface OpenClassifyBlockPipelineResult {
+  decision: "block";
+  request: NormalizedOpenClassifyInput;
+  reply: string;
+  preflight: PreflightResult;
+  security: SecurityResult;
+  classifier_status: ClassifierRunStatusMap;
+}
+
 export interface OpenClassifyRoutePipelineResult {
   decision: "route";
   request: NormalizedOpenClassifyInput;
@@ -165,4 +174,5 @@ export interface OpenClassifyRoutePipelineResult {
 
 export type OpenClassifyPipelineResult =
   | OpenClassifyTerminalPipelineResult
+  | OpenClassifyBlockPipelineResult
   | OpenClassifyRoutePipelineResult;

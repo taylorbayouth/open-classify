@@ -29,6 +29,7 @@ export interface ClassifyOptions {
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
+const SECURITY_BLOCK_REPLY = "I can't help with that request.";
 
 type SettledClassifierResult<Name extends ClassifierName> =
   | {
@@ -83,7 +84,7 @@ export async function classifyOpenClassifyInput(
 
   if (preflightSettled.ok && preflight.terminality === "terminal") {
     controller.abort();
-    await settleNonPreflightRuns(runs);
+    await settleClassifierRunsExcept(runs, ["preflight"]);
 
     return {
       decision: "terminal",
@@ -92,6 +93,30 @@ export async function classifyOpenClassifyInput(
       preflight,
       classifier_status: {
         preflight: classifierRunStatus(preflightSettled),
+      },
+    };
+  }
+
+  const securitySettled = await (runs.get("security") as Promise<
+    SettledClassifierResult<"security">
+  >);
+  const security = securitySettled.ok
+    ? securitySettled.value
+    : fallbackClassifierOutput("security");
+
+  if (securitySettled.ok && security.risk_level === "high_risk") {
+    controller.abort();
+    await settleClassifierRunsExcept(runs, ["preflight", "security"]);
+
+    return {
+      decision: "block",
+      request,
+      reply: SECURITY_BLOCK_REPLY,
+      preflight,
+      security,
+      classifier_status: {
+        preflight: classifierRunStatus(preflightSettled),
+        security: classifierRunStatus(securitySettled),
       },
     };
   }
@@ -227,12 +252,14 @@ async function runClassifierAttempt<Name extends ClassifierName>(
   }
 }
 
-async function settleNonPreflightRuns(
+async function settleClassifierRunsExcept(
   runs: ReadonlyMap<ClassifierName, Promise<SettledClassifierResult<ClassifierName>>>,
+  excludedNames: ClassifierName[],
 ): Promise<void> {
+  const excluded = new Set(excludedNames);
   await Promise.all(
     [...runs]
-      .filter(([name]) => name !== "preflight")
+      .filter(([name]) => !excluded.has(name))
       .map(([, run]) => run),
   );
 }

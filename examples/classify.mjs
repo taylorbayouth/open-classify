@@ -26,6 +26,10 @@ console.log(JSON.stringify(result, null, 2));
 
 if (result.decision === "terminal") {
   console.error(`\nDecision: terminal — assistant should reply with: "${result.reply}"`);
+} else if (result.decision === "block") {
+  console.error(
+    `\nDecision: block — ${result.security.risk_level}: ${result.security.notes}`,
+  );
 } else {
   const { routing, tools, security } = result.classifiers;
   console.error(
