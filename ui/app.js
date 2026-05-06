@@ -662,7 +662,12 @@ function renderDetails(name, item) {
   }
 
   if (name === "preflight") {
-    return `<div class="detail">${escapeHtml(result.reply)}</div>`;
+    return `
+      <div class="option-group">
+        <span class="option-label">reply</span>
+        <div class="detail">${escapeHtml(result.reply)}</div>
+      </div>
+    `;
   }
 
   if (name === "memory_retrieval_queries") {
@@ -681,14 +686,24 @@ function renderDetails(name, item) {
     const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
     return `
       <div class="option-row">${msgPill}${noHistoryPill}</div>
-      ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
+      ${result.reason ? `
+        <div class="option-group">
+          <span class="option-label">reason</span>
+          <div class="detail context-summary">${escapeHtml(result.reason)}</div>
+        </div>` : ""}
     `;
   }
 
   if (name === "message_and_attachment_digest") {
     return `
-      <div class="detail">${escapeHtml(result.slug)}</div>
-      <div class="detail">${escapeHtml(result.summary)}</div>
+      <div class="option-group">
+        <span class="option-label">slug</span>
+        <div class="detail">${escapeHtml(result.slug)}</div>
+      </div>
+      <div class="option-group">
+        <span class="option-label">summary</span>
+        <div class="detail">${escapeHtml(result.summary)}</div>
+      </div>
     `;
   }
 
@@ -697,7 +712,12 @@ function renderDetails(name, item) {
   }
 
   if (name === "security") {
-    return `<div class="detail">${escapeHtml(result.notes)}</div>`;
+    return `
+      <div class="option-group">
+        <span class="option-label">notes</span>
+        <div class="detail">${escapeHtml(result.notes)}</div>
+      </div>
+    `;
   }
 
   return "";
