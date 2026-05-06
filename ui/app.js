@@ -418,7 +418,7 @@ function renderMessage(message, index) {
       </div>
       <label class="field">
         <span>Text</span>
-        <textarea data-field="text" rows="${isFinal ? 5 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
+        <textarea data-field="text" rows="${isFinal ? 3 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
       </label>
     </article>
   `;
@@ -463,9 +463,17 @@ function handleStreamEvent(event, data) {
         showReply(data.result.reply);
       }
       break;
+    case "classifier_timed_out":
+      updateClassifier(data.name, {
+        status: "timeout",
+        error: data.reason,
+        finishedAt: performance.now(),
+      });
+      break;
+    case "classifier_aborted":
     case "classifier_canceled":
       updateClassifier(data.name, {
-        status: "canceled",
+        status: "aborted",
         finishedAt: performance.now(),
       });
       break;
@@ -545,7 +553,7 @@ function cancelClassifiersExcept(keptNames) {
     const item = state.classifiers[name] ?? { status: "pending" };
     state.classifiers[name] = {
       ...item,
-      status: "canceled",
+      status: "aborted",
       result: null,
       error: null,
       finishedAt: performance.now(),
@@ -739,7 +747,8 @@ function renderDetails(name, item) {
 
 function emptyStateText(status) {
   if (status === "running") return "Running…";
-  if (status === "canceled") return "Canceled by gate";
+  if (status === "timeout") return "Timed out; retrying";
+  if (status === "aborted") return "Aborted by gate";
   if (status === "failed") return "Failed";
   if (status === "pending") return "Queued";
   return "Awaiting run";
@@ -808,7 +817,7 @@ function renderEventLog() {
 function eventTag(name) {
   if (name.endsWith("_completed") || name === "pipeline_completed") return { kind: "ok" };
   if (name.endsWith("_failed") || name === "error") return { kind: "err" };
-  if (name.endsWith("_canceled")) return { kind: "warn" };
+  if (name.endsWith("_timed_out") || name.endsWith("_aborted") || name.endsWith("_canceled")) return { kind: "warn" };
   if (name.endsWith("_started")) return { kind: "info" };
   return { kind: "info" };
 }

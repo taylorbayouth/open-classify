@@ -124,8 +124,12 @@ async function classifyStream(
         return result;
       } catch (error) {
         console.error(`[classifier] ${name} threw:`, error);
-        if (signal.aborted && name !== "preflight") {
-          send("classifier_canceled", { name, completed_at: Date.now() });
+        if (signal.aborted) {
+          send(isTimeoutAbort(name, signal) ? "classifier_timed_out" : "classifier_aborted", {
+            name,
+            reason: errorMessage(signal.reason ?? error),
+            completed_at: Date.now(),
+          });
         } else {
           send("classifier_failed", {
             name,
@@ -181,6 +185,10 @@ function metadata(): unknown {
       security_signal: SECURITY_SIGNAL_VALUES,
     },
   };
+}
+
+function isTimeoutAbort(name: string, signal: AbortSignal): boolean {
+  return errorMessage(signal.reason).includes(`${name} classifier timed out`);
 }
 
 function serveStatic(pathname: string, response: ServerResponse): void {
