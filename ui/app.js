@@ -597,10 +597,13 @@ function renderDetails(name, item) {
   }
 
   if (name === "context_sufficiency") {
-    const missing = result.missing_context?.length ? result.missing_context.join(", ") : "none";
+    const hasMissing = result.missing_context?.length;
+    const missingHtml = hasMissing
+      ? `<div class="missing-row">${result.missing_context.map((m) => `<span class="missing-tag">${escapeHtml(m)}</span>`).join("")}</div>`
+      : `<div class="detail muted">missing_context: none</div>`;
     const summary = result.relevant_context_summary?.trim();
     return `
-      <div class="detail muted">missing_context: ${escapeHtml(missing)}</div>
+      ${missingHtml}
       ${summary ? `<div class="detail context-summary">${escapeHtml(summary)}</div>` : ""}
     `;
   }
