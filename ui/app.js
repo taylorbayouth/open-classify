@@ -25,6 +25,47 @@ const optionKeys = {
   security: "security_risk_level",
 };
 
+const enumValueLabels = {
+  // terminality
+  terminal: "Terminal",
+  continue: "Continue",
+  // execution mode
+  direct: "Direct",
+  tool_assisted: "Tool assisted",
+  workflow: "Workflow",
+  // model tier
+  local_fast: "Local fast",
+  local_strong: "Local strong",
+  frontier_fast: "Frontier fast",
+  frontier_strong: "Frontier strong",
+  // context sufficiency
+  self_contained: "Self-contained",
+  adjacent_context_helpful: "Adjacent context helpful",
+  referential: "Referential",
+  incomplete_information: "Incomplete information",
+  long_context: "Long context",
+  // tool families
+  workspace: "Workspace",
+  web: "Web",
+  communications: "Communications",
+  documents: "Documents",
+  spreadsheets: "Spreadsheets",
+  project_management: "Project management",
+  developer_platforms: "Dev platforms",
+  // security risk
+  normal: "Normal",
+  suspicious: "Suspicious",
+  high_risk: "High risk",
+  // security signals
+  instruction_attack: "Instruction attack",
+  secret_or_private_data_risk: "Private data risk",
+  unsafe_tool_or_action: "Unsafe tool/action",
+  untrusted_content_or_code: "Untrusted content",
+  injection_or_obfuscation: "Injection/obfuscation",
+  // common
+  unable_to_determine: "Unable to determine",
+};
+
 const PHASE_LABELS = {
   normalizing: "Normalizing input",
   resource_check: "Checking Ollama resources",
@@ -218,7 +259,9 @@ function loadRandomSample() {
   resetRunOutput();
   renderMessages();
   renderAttachments();
-  focusLastMessage();
+  messageList.scrollIntoView({ behavior: "smooth", block: "start" });
+  const inputs = messageList.querySelectorAll("textarea[data-field='text']");
+  inputs[inputs.length - 1]?.focus({ preventScroll: true });
 }
 
 function resetRunOutput() {
@@ -619,7 +662,7 @@ function renderEnumOptions(key, selected) {
   return (state.metadata?.enums?.[key] ?? [])
     .map((option) => {
       const cls = selectedValues.has(option) ? " selected" : "";
-      return `<span class="option${cls}">${escapeHtml(option)}</span>`;
+      return `<span class="option${cls}" title="${escapeHtml(option)}">${escapeHtml(enumValueLabels[option] ?? option)}</span>`;
     })
     .join("");
 }
@@ -649,11 +692,14 @@ function renderDetails(name, item) {
     const hasMissing = result.missing_context?.length;
     const missingHtml = hasMissing
       ? `<div class="missing-row">${result.missing_context.map((m) => `<span class="missing-tag">${escapeHtml(m)}</span>`).join("")}</div>`
-      : `<div class="detail muted">missing_context: none</div>`;
+      : `<div class="detail muted">No missing context</div>`;
     const summary = result.relevant_context_summary?.trim();
     return `
       ${missingHtml}
-      ${summary ? `<div class="detail context-summary">${escapeHtml(summary)}</div>` : ""}
+      ${summary ? `
+        <div class="detail muted context-field-label">Relevant context summary</div>
+        <div class="detail context-summary">${escapeHtml(summary)}</div>
+      ` : ""}
     `;
   }
 

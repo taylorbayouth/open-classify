@@ -754,6 +754,13 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .detail.error { color: var(--err); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
 .detail strong { color: var(--accent); font-weight: 600; }
 .context-summary { white-space: pre-wrap; }
+.context-field-label {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 /* ======== Hashes / JSON ======== */
 
