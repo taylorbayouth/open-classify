@@ -611,7 +611,7 @@ function renderDetails(name, item) {
   if (name === "message_and_attachment_digest") {
     return `
       <div class="detail"><strong>${escapeHtml(result.slug)}</strong></div>
-      <div class="detail muted">${escapeHtml(result.summary)}</div>
+      <div class="detail">${escapeHtml(result.summary)}</div>
     `;
   }
 

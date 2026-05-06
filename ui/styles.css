@@ -552,6 +552,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   position: relative;
   display: grid;
   gap: 10px;
+  align-content: start;
   min-height: 168px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--muted-2);
