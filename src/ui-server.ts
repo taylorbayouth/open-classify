@@ -1,7 +1,6 @@
 import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import {
   CONTEXT_SUFFICIENCY_VALUES,
@@ -21,7 +20,7 @@ import {
   OLLAMA_REQUIRED_PARALLELISM,
 } from "./ollama.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
-import type { ClassifierName, OpenClassifyInput, RunClassifier } from "./types.js";
+import type { OpenClassifyInput, RunClassifier } from "./types.js";
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
@@ -221,8 +220,4 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
-}
-
-export function __filenameForUiServer(): string {
-  return fileURLToPath(import.meta.url);
 }

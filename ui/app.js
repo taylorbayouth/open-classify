@@ -39,7 +39,6 @@ const state = {
   classifiers: {},
   events: [],
   eventCount: 0,
-  phase: "idle",
   phases: [],
   tickerHandle: null,
 };
@@ -325,7 +324,7 @@ function renderMessage(message, index) {
           <input data-field="timestamp" value="${escapeHtml(message.timestamp)}" placeholder="2026-05-04T11:59:00Z" />
         </label>
       </div>
-      <label class="field wide">
+      <label class="field">
         <span>Text</span>
         <textarea data-field="text" rows="${isFinal ? 5 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
       </label>
@@ -737,7 +736,6 @@ function parseSseEvent(chunk) {
 }
 
 function setRunState(value) {
-  state.phase = value;
   const labelMap = {
     idle: "Idle",
     normalizing: "Normalizing",
