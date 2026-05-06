@@ -383,20 +383,20 @@ function buildPackedClassifierPrompt(
   model: string,
   options: OllamaOptions,
 ): string {
-  let conversationWindow = input.conversation_window;
+  let messages = input.messages;
   let prompt = buildClassifierPrompt({
     ...input,
-    conversation_window: conversationWindow,
+    messages,
   });
 
   while (
     !fitsEstimatedContext(systemPrompt, prompt, options) &&
-    conversationWindow.length > 1
+    messages.length > 1
   ) {
-    conversationWindow = conversationWindow.slice(1);
+    messages = messages.slice(1);
     prompt = buildClassifierPrompt({
       ...input,
-      conversation_window: conversationWindow,
+      messages,
     });
   }
 
@@ -440,20 +440,14 @@ function buildClassifierPrompt(input: ClassifierInput): string {
     "Conversation window:",
   ];
 
-  for (const [index, message] of input.conversation_window.entries()) {
+  for (const [index, message] of input.messages.entries()) {
     const label =
-      index === input.conversation_window.length - 1
+      index === input.messages.length - 1
         ? `Message ${index + 1} (target)`
         : `Message ${index + 1} (context)`;
     lines.push(`${label}:`);
     if (message.role !== undefined) {
       lines.push(`role: ${message.role}`);
-    }
-    if (message.message_id !== undefined) {
-      lines.push(`message_id: ${message.message_id}`);
-    }
-    if (message.timestamp !== undefined) {
-      lines.push(`timestamp: ${message.timestamp}`);
     }
     lines.push("text:");
     lines.push(message.text);

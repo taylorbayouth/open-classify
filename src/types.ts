@@ -13,43 +13,32 @@ export interface AttachmentInput {
   filename?: string;
   size_bytes?: number;
   mime_type?: string;
-  raw?: Record<string, unknown>;
 }
 
 export interface ConversationMessageInput {
   role?: ConversationMessageRole;
   text: string;
-  message_id?: string;
-  timestamp?: string;
-  raw?: Record<string, unknown>;
 }
 
 export interface OpenClassifyInput {
   /**
-   * Chronological conversation slice ending with the message to classify.
+   * Chronological message history ending with the message to classify.
    *
-   * Callers should send the best same-thread/same-conversation context they
-   * already have. Open Classify classifies only the final message and uses
-   * earlier messages as context. Normalization walks backward from the final
-   * message, keeps newest whole context messages while the classifier payload
-   * budget allows, and caps the retained window to 20 messages. It never slices
-   * message text.
+   * Callers should send the context they already have. Open Classify classifies
+   * only the final message and uses earlier messages as context. Normalization
+   * walks backward from the final message, keeps newest whole context messages
+   * while the classifier payload budget allows, and caps the retained history to
+   * 20 messages. It never slices message text.
    */
-  conversation_window: ConversationMessageInput[];
-  external_request_id?: string;
-  source?: string;
-  conversation_id?: string;
-  thread_id?: string;
-  raw?: Record<string, unknown>;
+  messages: ConversationMessageInput[];
   attachments?: AttachmentInput[];
 }
 
-export interface NormalizedOpenClassifyInput extends OpenClassifyInput {
-  conversation_window: ConversationMessageInput[];
+export interface NormalizedOpenClassifyInput {
+  messages: ConversationMessageInput[];
   text: string;
   attachments: AttachmentInput[];
-  message_hash: string;
-  request_hash: string;
+  target_message_hash: string;
 }
 
 export interface ClassifierAttachmentInput {
@@ -60,14 +49,9 @@ export interface ClassifierAttachmentInput {
 
 export interface ClassifierInput {
   text: string;
-  conversation_window: ConversationMessageInput[];
+  messages: ConversationMessageInput[];
   attachments: ClassifierAttachmentInput[];
-  message_hash: string;
-  request_hash: string;
-  external_request_id?: string;
-  source?: string;
-  conversation_id?: string;
-  thread_id?: string;
+  target_message_hash: string;
 }
 
 export interface PreflightResult {
@@ -149,16 +133,18 @@ export interface ClassifierRunStatus {
 export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRunStatus>>;
 
 export interface OpenClassifyTerminalPipelineResult {
+  stop_downstream: true;
   decision: "terminal";
-  request: NormalizedOpenClassifyInput;
+  target_message_hash: string;
   reply: string;
   preflight: PreflightResult;
   classifier_status: ClassifierRunStatusMap;
 }
 
 export interface OpenClassifyBlockPipelineResult {
+  stop_downstream: true;
   decision: "block";
-  request: NormalizedOpenClassifyInput;
+  target_message_hash: string;
   reply: string;
   preflight: PreflightResult;
   security: SecurityResult;
@@ -166,8 +152,9 @@ export interface OpenClassifyBlockPipelineResult {
 }
 
 export interface OpenClassifyRoutePipelineResult {
+  stop_downstream: false;
   decision: "route";
-  request: NormalizedOpenClassifyInput;
+  target_message_hash: string;
   reply: string;
   classifiers: OpenClassifyResult;
   classifier_status: ClassifierRunStatusMap;

@@ -14,7 +14,7 @@ const labels = {
   conversation_history: "Conversation history",
   memory_retrieval_queries: "Memory queries",
   tools: "Tools",
-  message_and_attachment_digest: "Message digest",
+  message_and_attachment_digest: "Message Digest & Attachments",
   security: "Security",
 };
 
@@ -22,6 +22,29 @@ const optionKeys = {
   preflight: "terminality",
   tools: "tool_family",
   security: "security_risk_level",
+};
+
+const ENUMS = {
+  terminality: ["terminal", "continue", "unable_to_determine"],
+  downstream_execution_mode: ["direct", "tool_assisted", "workflow"],
+  downstream_model_tier: ["local_fast", "local_strong", "frontier_fast", "frontier_strong"],
+  tool_family: [
+    "workspace",
+    "web",
+    "communications",
+    "documents",
+    "spreadsheets",
+    "project_management",
+    "developer_platforms",
+  ],
+  security_risk_level: ["normal", "suspicious", "high_risk", "unable_to_determine"],
+  security_signal: [
+    "instruction_attack",
+    "secret_or_private_data_risk",
+    "unsafe_tool_or_action",
+    "untrusted_content_or_code",
+    "injection_or_obfuscation",
+  ],
 };
 
 const enumValueLabels = {
@@ -66,7 +89,6 @@ const PHASE_LABELS = {
 };
 
 const state = {
-  metadata: null,
   attachments: [],
   messages: [createMessage()],
   samples: [],
@@ -92,7 +114,6 @@ const replyValue = document.querySelector("#replyValue");
 const hashes = document.querySelector("#hashes");
 const jsonPanel = document.querySelector("#jsonPanel");
 const jsonToggle = document.querySelector("#jsonToggle");
-const metaChips = document.querySelector("#metaChips");
 const clearButton = document.querySelector("#clearButton");
 const runButton = document.querySelector("#runButton");
 const copyJsonButton = document.querySelector("#copyJsonButton");
@@ -103,10 +124,7 @@ const phaseTrail = document.querySelector("#phaseTrail");
 init();
 
 async function init() {
-  const response = await fetch("/api/metadata");
-  state.metadata = await response.json();
   state.samples = await loadSamples();
-  renderMetaChips();
   resetClassifiers("idle");
   renderMessages();
   renderAttachments();
@@ -238,12 +256,8 @@ function loadRandomSample() {
   if (state.samples.length === 0) return;
 
   const sample = state.samples[Math.floor(Math.random() * state.samples.length)];
-  for (const key of ["source", "external_request_id", "conversation_id", "thread_id"]) {
-    form.elements[key].value = sample[key] ?? "";
-  }
-
   state.attachments = Array.isArray(sample.attachments) ? sample.attachments : [];
-  state.messages = sample.conversation_window.map((message) => ({
+  state.messages = sample.messages.map((message) => ({
     ...createMessage(),
     ...message,
   }));
@@ -267,21 +281,6 @@ function resetRunOutput() {
   hashes.hidden = true;
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
-}
-
-function renderMetaChips() {
-  if (!state.metadata) {
-    metaChips.innerHTML = "";
-    return;
-  }
-  const chips = [
-    ["model", state.metadata.base_model],
-    ["parallel", `${state.metadata.ollama_required_parallelism}-way`],
-    ["ctx", state.metadata.ollama_context_length],
-  ];
-  metaChips.innerHTML = chips
-    .map(([k, v]) => `<span class="chip"><em>${k}</em>${escapeHtml(String(v))}</span>`)
-    .join("");
 }
 
 async function classify() {
@@ -321,26 +320,13 @@ async function classify() {
 }
 
 function buildInput() {
-  const data = new FormData(form);
   const messages = state.messages.map(toConversationMessage);
   messages[messages.length - 1].role = "user";
 
   const input = {
-    conversation_window: messages,
+    messages,
     attachments: state.attachments,
   };
-
-  for (const key of [
-    "external_request_id",
-    "source",
-    "conversation_id",
-    "thread_id",
-  ]) {
-    const value = String(data.get(key) ?? "").trim();
-    if (value) {
-      input[key] = value;
-    }
-  }
 
   return input;
 }
@@ -350,8 +336,6 @@ function createMessage() {
     id: crypto.randomUUID(),
     role: "user",
     text: "",
-    message_id: "",
-    timestamp: "",
   };
 }
 
@@ -360,13 +344,6 @@ function toConversationMessage(message) {
     role: message.role || "user",
     text: message.text,
   };
-
-  for (const key of ["message_id", "timestamp"]) {
-    const value = String(message[key] ?? "").trim();
-    if (value) {
-      output[key] = value;
-    }
-  }
 
   return output;
 }
@@ -399,14 +376,6 @@ function renderMessage(message, index) {
               .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
               .join("")}
           </select>
-        </label>
-        <label class="field">
-          <span>Message ID</span>
-          <input data-field="message_id" value="${escapeHtml(message.message_id)}" placeholder="M122" />
-        </label>
-        <label class="field">
-          <span>Timestamp</span>
-          <input data-field="timestamp" value="${escapeHtml(message.timestamp)}" placeholder="2026-05-04T11:59:00Z" />
         </label>
       </div>
       <label class="field">
@@ -528,8 +497,7 @@ function renderPipeline(result) {
 
   hashes.hidden = false;
   hashes.innerHTML = `
-    <div><em>message_hash</em>${escapeHtml(result.request.message_hash)}</div>
-    <div><em>request_hash</em>${escapeHtml(result.request.request_hash)}</div>
+    <div><em>target_message_hash</em>${escapeHtml(result.target_message_hash)}</div>
   `;
 
   jsonToggle.hidden = false;
@@ -676,7 +644,7 @@ function renderEnumOptions(key, selected) {
   const selectedValues = new Set(
     Array.isArray(selected) ? selected : selected ? [selected] : [],
   );
-  return (state.metadata?.enums?.[key] ?? [])
+  return (ENUMS[key] ?? [])
     .map((option) => {
       const cls = selectedValues.has(option) ? " selected" : "";
       return `<span class="option${cls}" title="${escapeHtml(option)}">${escapeHtml(enumValueLabels[option] ?? option)}</span>`;

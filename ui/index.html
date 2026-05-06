@@ -16,7 +16,6 @@
             <span class="run-state" id="runState" data-state="idle">Idle</span>
           </div>
           <div class="phase-trail" id="phaseTrail" hidden></div>
-          <div class="meta-chips" id="metaChips"></div>
         </div>
         <div class="reply-display" id="replyDisplay" hidden>
           <span class="reply-label">response</span>
@@ -28,7 +27,7 @@
         <form class="composer" id="classifyForm">
           <section class="conversation-editor">
             <header class="section-head">
-              <span>Conversation window</span>
+              <span>Message history</span>
               <div class="section-actions">
                 <button class="secondary compact" type="button" id="sampleButton">Random sample</button>
                 <button class="secondary compact" type="button" id="addMessageButton">Add message</button>
@@ -36,32 +35,6 @@
             </header>
             <div class="message-list" id="messageList"></div>
           </section>
-
-          <details class="field-details">
-            <summary>Request metadata</summary>
-            <div class="field-grid">
-              <label class="field">
-                <span>Source</span>
-                <input name="source" placeholder="api" />
-              </label>
-              <label class="field">
-                <span>External request ID</span>
-                <input name="external_request_id" placeholder="delivery-123" />
-              </label>
-              <label class="field">
-                <span>Conversation ID</span>
-                <input name="conversation_id" placeholder="C123" />
-              </label>
-              <label class="field">
-                <span>Thread ID</span>
-                <input name="thread_id" placeholder="T123" />
-              </label>
-              <label class="field">
-                <span>Window note</span>
-                <input name="window_note" placeholder="Messages are entered oldest to newest" disabled />
-              </label>
-            </div>
-          </details>
 
           <label class="file-drop" for="attachmentInput">
             <input id="attachmentInput" type="file" multiple />

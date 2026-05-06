@@ -33,10 +33,9 @@ export function jsonResponse(payload, overrides = {}) {
 export function classifierInput(overrides = {}) {
   return {
     text: "hello",
-    conversation_window: [{ role: "user", text: "hello" }],
+    messages: [{ role: "user", text: "hello" }],
     attachments: [],
-    message_hash: "message",
-    request_hash: "request",
+    target_message_hash: "message",
     ...overrides,
   };
 }

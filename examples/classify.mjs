@@ -14,8 +14,7 @@ import { classifyWithOllama } from "../dist/src/index.js";
 const message = process.argv[2] ?? "Can you review the attached vendor contract for major risks?";
 
 const result = await classifyWithOllama({
-  conversation_window: [{ role: "user", text: message }],
-  source: "cli",
+  messages: [{ role: "user", text: message }],
   attachments:
     process.argv[2] === undefined
       ? [{ filename: "vendor-contract.pdf", mime_type: "application/pdf", size_bytes: 482_331 }]

@@ -141,7 +141,7 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.match(body.messages[1].content, /filename: Welcome\.md/);
   assert.match(body.messages[1].content, /mime_type: text\/markdown/);
   assert.match(body.messages[1].content, /size_bytes: 203/);
-  assert.doesNotMatch(body.messages[1].content, /message_hash|request_hash/);
+  assert.doesNotMatch(body.messages[1].content, /target_message_hash/);
 });
 
 test("createOllamaClassifierRunner drops older whole messages to fit estimated context", async () => {
@@ -161,7 +161,7 @@ test("createOllamaClassifierRunner drops older whole messages to fit estimated c
     "preflight",
     classifierInput({
       text: "final request",
-      conversation_window: [
+      messages: [
         { role: "user", text: `older context ${"x".repeat(4000)}` },
         { role: "user", text: "final request" },
       ],
@@ -193,7 +193,7 @@ test("createOllamaClassifierRunner rejects when target alone exceeds estimated c
       "preflight",
       classifierInput({
         text: "x".repeat(10_000),
-        conversation_window: [{ role: "user", text: "x".repeat(10_000) }],
+        messages: [{ role: "user", text: "x".repeat(10_000) }],
       }),
       new AbortController().signal,
     ),
@@ -393,7 +393,7 @@ test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
 
 test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
   const result = await classifyWithOllama(
-    { conversation_window: [{ role: "user", text: "review this" }], raw: { keep: true } },
+    { messages: [{ role: "user", text: "review this" }] },
     {
       skipResourceCheck: true,
       fetch: async (_url, init) => {
@@ -416,8 +416,9 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     },
   );
 
+  assert.equal(result.stop_downstream, false);
   assert.equal(result.decision, "route");
-  assert.equal(result.request.raw.keep, true);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.classifiers, validOutputs);
 });
 

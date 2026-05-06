@@ -3,16 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, normalize } from "node:path";
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
-  DOWNSTREAM_MODEL_TIER_VALUES,
-  SECURITY_RISK_LEVEL_VALUES,
-  SECURITY_SIGNAL_VALUES,
-  TERMINALITY_VALUES,
-  TOOL_FAMILY_VALUES,
-} from "./enums.js";
-import {
   createOllamaClassifierRunner,
-  OLLAMA_BASE_MODEL,
   OLLAMA_CONTEXT_LENGTH,
   OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
   OLLAMA_MIN_TOTAL_MEMORY_BYTES,
@@ -45,11 +36,6 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   console.log(`[req] ${request.method} ${request.url}`);
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-
-    if (request.method === "GET" && url.pathname === "/api/metadata") {
-      sendJson(response, metadata());
-      return;
-    }
 
     if (request.method === "POST" && url.pathname === "/api/classify-stream") {
       await classifyStream(request, response);
@@ -164,25 +150,6 @@ async function classifyStream(
       response.end();
     }
   }
-}
-
-function metadata(): unknown {
-  return {
-    base_model: OLLAMA_BASE_MODEL,
-    ollama_context_length: OLLAMA_CONTEXT_LENGTH,
-    ollama_required_parallelism: OLLAMA_REQUIRED_PARALLELISM,
-    ollama_min_total_memory_bytes: OLLAMA_MIN_TOTAL_MEMORY_BYTES,
-    ollama_min_available_memory_bytes: OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
-    classifiers: CLASSIFIER_NAMES,
-    enums: {
-      terminality: TERMINALITY_VALUES,
-      downstream_execution_mode: DOWNSTREAM_EXECUTION_MODE_VALUES,
-      downstream_model_tier: DOWNSTREAM_MODEL_TIER_VALUES,
-      tool_family: TOOL_FAMILY_VALUES,
-      security_risk_level: SECURITY_RISK_LEVEL_VALUES,
-      security_signal: SECURITY_SIGNAL_VALUES,
-    },
-  };
 }
 
 function isTimeoutAbort(name: string, signal: AbortSignal): boolean {

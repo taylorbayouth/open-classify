@@ -87,8 +87,9 @@ export async function classifyOpenClassifyInput(
     await settleClassifierRunsExcept(runs, ["preflight"]);
 
     return {
+      stop_downstream: true,
       decision: "terminal",
-      request,
+      target_message_hash: request.target_message_hash,
       reply: preflight.reply,
       preflight,
       classifier_status: {
@@ -109,8 +110,9 @@ export async function classifyOpenClassifyInput(
     await settleClassifierRunsExcept(runs, ["preflight", "security"]);
 
     return {
+      stop_downstream: true,
       decision: "block",
-      request,
+      target_message_hash: request.target_message_hash,
       reply: SECURITY_BLOCK_REPLY,
       preflight,
       security,
@@ -138,8 +140,9 @@ export async function classifyOpenClassifyInput(
   };
 
   return {
+    stop_downstream: false,
     decision: "route",
-    request,
+    target_message_hash: request.target_message_hash,
     reply: classifiers.preflight.reply,
     classifiers,
     classifier_status: classifierRunStatuses(settled),

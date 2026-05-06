@@ -9,7 +9,7 @@ import type {
 } from "./types.js";
 
 /*
- * Conversation text budget:
+ * Message text budget:
  *
  * Gemma 4 E4B supports a native 131,072-token (128K) context window. Open
  * Classify does not use that full window in the reference local runtime: it
@@ -28,34 +28,23 @@ import type {
  * context messages when a caller overrides num_ctx lower.
  */
 const CONVERSATION_TEXT_MAX_CHARS = 5_000;
-const CONVERSATION_WINDOW_MAX_COUNT = 20;
-const ATTACHMENT_MAX_COUNT = 20;
+const MESSAGE_HISTORY_MAX_COUNT = 20;
 const METADATA_STRING_MAX_CHARS = 512;
-const RAW_MAX_BYTES = 64 * 1024;
 
 const INPUT_FIELDS = new Set([
-  "conversation_window",
-  "external_request_id",
-  "source",
-  "conversation_id",
-  "thread_id",
-  "raw",
+  "messages",
   "attachments",
 ]);
 
 const CONVERSATION_MESSAGE_FIELDS = new Set([
   "role",
   "text",
-  "message_id",
-  "timestamp",
-  "raw",
 ]);
 
 const ATTACHMENT_FIELDS = new Set([
   "filename",
   "size_bytes",
   "mime_type",
-  "raw",
 ]);
 
 type JsonRecord = Record<string, unknown>;
@@ -83,49 +72,20 @@ export function normalizeOpenClassifyInput(
   assertPlainObject(input, "input");
   rejectUnknownFields(input, INPUT_FIELDS, "input");
 
-  const conversationWindow = normalizeConversationWindow(input.conversation_window);
-  const target = conversationWindow[conversationWindow.length - 1];
+  const messages = normalizeMessages(input.messages);
+  const target = messages[messages.length - 1];
   const text = target.text;
 
   const normalized: NormalizedOpenClassifyInput = {
-    conversation_window: conversationWindow,
+    messages,
     text,
     attachments: normalizeAttachments(input.attachments),
-    message_hash: "",
-    request_hash: "",
+    target_message_hash: "",
   };
 
-  copyMetadataString(input, normalized, "external_request_id");
-  copyMetadataString(input, normalized, "source");
-  copyMetadataString(input, normalized, "conversation_id");
-  copyMetadataString(input, normalized, "thread_id");
-
-  if (input.raw !== undefined) {
-    normalized.raw = validateRaw(input.raw, "input.raw");
-  }
-
-  normalized.message_hash = hashCanonicalValue({
-    source: normalized.source,
-    conversation_id: normalized.conversation_id,
-    thread_id: normalized.thread_id,
+  normalized.target_message_hash = hashCanonicalValue({
+    role: target.role ?? "user",
     text,
-  });
-
-  normalized.request_hash = hashCanonicalValue({
-    source: normalized.source,
-    conversation_id: normalized.conversation_id,
-    thread_id: normalized.thread_id,
-    conversation_window: normalized.conversation_window.map((message) => ({
-      role: message.role,
-      message_id: message.message_id,
-      timestamp: message.timestamp,
-      text: message.text,
-    })),
-    attachments: normalized.attachments.map((attachment) => ({
-      filename: attachment.filename,
-      size_bytes: attachment.size_bytes,
-      mime_type: attachment.mime_type,
-    })),
   });
 
   return normalized;
@@ -138,31 +98,25 @@ export function toClassifierInput(
 
   const classifierInput: ClassifierInput = {
     text: normalized.text,
-    conversation_window: normalizeClassifierConversationWindow(normalized.conversation_window),
+    messages: normalizeClassifierMessages(normalized.messages),
     attachments: normalizeClassifierAttachments(normalized.attachments),
-    message_hash: normalized.message_hash,
-    request_hash: normalized.request_hash,
+    target_message_hash: normalized.target_message_hash,
   };
-
-  copyClassifierString(normalized, classifierInput, "external_request_id");
-  copyClassifierString(normalized, classifierInput, "source");
-  copyClassifierString(normalized, classifierInput, "conversation_id");
-  copyClassifierString(normalized, classifierInput, "thread_id");
 
   return classifierInput;
 }
 
-function normalizeConversationWindow(
-  conversationWindow: ConversationMessageInput[] | undefined,
+function normalizeMessages(
+  messages: ConversationMessageInput[] | undefined,
 ): ConversationMessageInput[] {
-  if (!Array.isArray(conversationWindow)) {
-    throw new TypeError("input.conversation_window must be an array");
+  if (!Array.isArray(messages)) {
+    throw new TypeError("input.messages must be an array");
   }
-  if (conversationWindow.length === 0) {
-    throw new Error("input.conversation_window must contain at least one message");
+  if (messages.length === 0) {
+    throw new Error("input.messages must contain at least one message");
   }
 
-  return takeNewestWholeMessagesThatFit(conversationWindow);
+  return takeNewestWholeMessagesThatFit(messages);
 }
 
 function normalizeConversationMessage(
@@ -187,46 +141,40 @@ function normalizeConversationMessage(
     normalized.role = message.role;
   }
 
-  copyConversationMessageString(message, normalized, "message_id", path);
-  copyConversationMessageString(message, normalized, "timestamp", path);
-
-  if (message.raw !== undefined) {
-    normalized.raw = validateRaw(message.raw, `${path}.raw`);
-  }
-
   return normalized;
 }
 
 function takeNewestWholeMessagesThatFit(
-  conversationWindow: ConversationMessageInput[],
+  messages: ConversationMessageInput[],
 ): ConversationMessageInput[] {
   const selected: ConversationMessageInput[] = [];
   let totalChars = 0;
 
-  for (let index = conversationWindow.length - 1; index >= 0; index -= 1) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
     const normalized = normalizeConversationMessage(
-      conversationWindow[index],
-      `input.conversation_window[${index}]`,
+      messages[index],
+      `input.messages[${index}]`,
     );
-    const isFinalMessage = index === conversationWindow.length - 1;
+    const isFinalMessage = index === messages.length - 1;
 
     if (isFinalMessage) {
       if (normalized.text.length === 0) {
-        throw new Error("final conversation_window message is empty after sanitization");
+        throw new Error("final message is empty after sanitization");
       }
       if (normalized.role !== undefined && normalized.role !== "user") {
-        throw new Error("final conversation_window message must have role user");
+        throw new Error("final message must have role user");
       }
+      normalized.role = "user";
       if (normalized.text.length > CONVERSATION_TEXT_MAX_CHARS) {
         throw new RangeError(
-          `final conversation_window message must be ${CONVERSATION_TEXT_MAX_CHARS} characters or fewer`,
+          `final message must be ${CONVERSATION_TEXT_MAX_CHARS} characters or fewer`,
         );
       }
     } else if (normalized.text.length === 0) {
       continue;
     }
 
-    if (!isFinalMessage && selected.length >= CONVERSATION_WINDOW_MAX_COUNT) {
+    if (!isFinalMessage && selected.length >= MESSAGE_HISTORY_MAX_COUNT) {
       break;
     }
     if (!isFinalMessage && totalChars + normalized.text.length > CONVERSATION_TEXT_MAX_CHARS) {
@@ -240,11 +188,11 @@ function takeNewestWholeMessagesThatFit(
   return selected.reverse();
 }
 
-function normalizeClassifierConversationWindow(
+function normalizeClassifierMessages(
   messages: ConversationMessageInput[],
 ): ConversationMessageInput[] {
   return messages.map((message, index) => {
-    const path = `normalized.conversation_window[${index}]`;
+    const path = `normalized.messages[${index}]`;
     assertPlainObject(message, path);
 
     const classifierMessage: ConversationMessageInput = {
@@ -254,8 +202,6 @@ function normalizeClassifierConversationWindow(
     if (message.role !== undefined) {
       classifierMessage.role = message.role;
     }
-    copyConversationMessageString(message, classifierMessage, "message_id", path);
-    copyConversationMessageString(message, classifierMessage, "timestamp", path);
 
     return classifierMessage;
   });
@@ -267,11 +213,6 @@ function normalizeAttachments(attachments: AttachmentInput[] | undefined): Attac
   }
   if (!Array.isArray(attachments)) {
     throw new TypeError("input.attachments must be an array");
-  }
-  if (attachments.length > ATTACHMENT_MAX_COUNT) {
-    throw new RangeError(
-      `input.attachments must contain ${ATTACHMENT_MAX_COUNT} items or fewer`,
-    );
   }
 
   return attachments.map((attachment, index) => {
@@ -292,10 +233,6 @@ function normalizeAttachments(attachments: AttachmentInput[] | undefined): Attac
         throw new TypeError(`${path}.size_bytes must be a non-negative safe integer`);
       }
       normalized.size_bytes = attachment.size_bytes;
-    }
-
-    if (attachment.raw !== undefined) {
-      normalized.raw = validateRaw(attachment.raw, `${path}.raw`);
     }
 
     return normalized;
@@ -344,64 +281,6 @@ function normalizeClassifierAttachments(
   });
 }
 
-function copyMetadataString(
-  source: OpenClassifyInput,
-  target: OpenClassifyInput,
-  key:
-    | "external_request_id"
-    | "source"
-    | "conversation_id"
-    | "thread_id",
-): void {
-  const value = source[key];
-  if (value === undefined) {
-    return;
-  }
-  if (typeof value !== "string") {
-    throw new TypeError(`input.${key} must be a string`);
-  }
-  if (value.length > METADATA_STRING_MAX_CHARS) {
-    throw new RangeError(
-      `input.${key} must be ${METADATA_STRING_MAX_CHARS} characters or fewer`,
-    );
-  }
-  target[key] = value;
-}
-
-function copyClassifierString(
-  source: NormalizedOpenClassifyInput,
-  target: ClassifierInput,
-  key:
-    | "external_request_id"
-    | "source"
-    | "conversation_id"
-    | "thread_id",
-): void {
-  const value = source[key];
-  if (value !== undefined) {
-    target[key] = value;
-  }
-}
-
-function copyConversationMessageString(
-  source: ConversationMessageInput,
-  target: ConversationMessageInput,
-  key: "message_id" | "timestamp",
-  path: string,
-): void {
-  const value = source[key];
-  if (value === undefined) {
-    return;
-  }
-  if (typeof value !== "string") {
-    throw new TypeError(`${path}.${key} must be a string`);
-  }
-  if (value.length > METADATA_STRING_MAX_CHARS) {
-    throw new RangeError(`${path}.${key} must be ${METADATA_STRING_MAX_CHARS} characters or fewer`);
-  }
-  target[key] = value;
-}
-
 function copyAttachmentString(
   source: AttachmentInput,
   target: AttachmentInput,
@@ -420,63 +299,6 @@ function copyAttachmentString(
     throw new RangeError(`${path}.${key} must be ${maxChars} characters or fewer`);
   }
   target[key] = value;
-}
-
-function validateRaw(value: unknown, path: string): JsonRecord {
-  assertPlainObject(value, path);
-  assertJsonValue(value, path, new WeakSet<object>());
-
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) {
-    throw new TypeError(`${path} must be JSON serializable`);
-  }
-  if (Buffer.byteLength(serialized, "utf8") > RAW_MAX_BYTES) {
-    throw new RangeError(`${path} must serialize to ${RAW_MAX_BYTES} bytes or fewer`);
-  }
-
-  return value as JsonRecord;
-}
-
-function assertJsonValue(
-  value: unknown,
-  path: string,
-  seen: WeakSet<object>,
-): void {
-  if (value === null) {
-    return;
-  }
-
-  switch (typeof value) {
-    case "string":
-    case "boolean":
-      return;
-    case "number":
-      if (!Number.isFinite(value)) {
-        throw new TypeError(`${path} must not contain non-finite numbers`);
-      }
-      return;
-    case "object":
-      break;
-    default:
-      throw new TypeError(`${path} must contain only JSON values`);
-  }
-
-  if (seen.has(value)) {
-    throw new TypeError(`${path} must not contain circular references`);
-  }
-  seen.add(value);
-
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => assertJsonValue(item, `${path}[${index}]`, seen));
-    seen.delete(value);
-    return;
-  }
-
-  assertPlainObject(value, path);
-  for (const [key, child] of Object.entries(value)) {
-    assertJsonValue(child, `${path}.${key}`, seen);
-  }
-  seen.delete(value);
 }
 
 function assertPlainObject(value: unknown, path: string): asserts value is JsonRecord {

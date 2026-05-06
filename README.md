@@ -86,7 +86,7 @@ Families: `workspace`, `web`, `communications`, `documents`, `spreadsheets`, `pr
 
 ### Message and Attachment Digest
 
-Creates a stable slug identifier and a short plain-language summary of the request. Resolves referential messages using the conversation window when possible. Describes attachments from their metadata — file contents are never read.
+Creates a stable slug identifier and a short plain-language summary of the request. Resolves referential messages using the supplied message history when possible. Describes attachments from their metadata — file contents are never read.
 
 **"Earlier: I have a meeting with Dave on Tuesday. / User: remind me at 3 PM"**
 → Slug: `set_meeting_reminder` · Summary: "The user wants a 3 PM reminder for their Tuesday meeting with Dave."
@@ -108,16 +108,15 @@ Signals: `instruction_attack`, `secret_or_private_data_risk`, `unsafe_tool_or_ac
 import { classifyWithOllama } from "open-classify";
 
 const result = await classifyWithOllama({
-  conversation_window: [
+  messages: [
     { role: "user", text: "Can you review this?" }
-  ],
-  source: "api"
+  ]
 });
 ```
 
-Pass a `conversation_window` array of messages ending with the one to classify. Optional fields: `source`, `conversation_id`, `thread_id`, `external_request_id`, and `attachments` (filename, size, and MIME type — not file contents).
+Pass a `messages` array with at least one message, ending with the user message to classify. Optional `attachments` can include any number of files and any file type; Open Classify uses filename, size, and MIME type metadata only. Open Classify does not accept caller request IDs, message IDs, timestamps, source names, or opaque raw payloads.
 
-When preflight returns `terminal`, the result contains the reply and nothing else. When it continues, the result contains all seven classifier outputs plus an immediate acknowledgment reply.
+Every result starts with `stop_downstream`. When it is `true`, the caller should not send the request to downstream models or tools; use the returned `reply`. When it is `false`, the result contains all seven classifier outputs plus an immediate acknowledgment reply and routing guidance. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
 
 Fine-tuned adapters per classifier can be registered as Ollama models and mapped in `adapter-models.json`. Any classifier without an adapter falls back to the base model.
 
