@@ -29,7 +29,6 @@ export interface ClassifyOptions {
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
-const SECURITY_BLOCK_REPLY = "I can't help with that request.";
 
 type SettledClassifierResult<Name extends ClassifierName> =
   | {
@@ -113,7 +112,7 @@ export async function classifyOpenClassifyInput(
       stop_downstream: true,
       decision: "block",
       target_message_hash: request.target_message_hash,
-      reply: SECURITY_BLOCK_REPLY,
+      ...(preflightSettled.ok ? { reply: preflight.reply } : {}),
       preflight,
       security,
       classifier_status: {

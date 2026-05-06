@@ -145,7 +145,7 @@ export interface OpenClassifyBlockPipelineResult {
   stop_downstream: true;
   decision: "block";
   target_message_hash: string;
-  reply: string;
+  reply?: string;
   preflight: PreflightResult;
   security: SecurityResult;
   classifier_status: ClassifierRunStatusMap;
