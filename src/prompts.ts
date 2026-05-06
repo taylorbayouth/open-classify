@@ -18,7 +18,7 @@ awk semantics:
 - Do not ask for clarification.
 
 Selection guide:
-- Choose "terminal" only when awk can fully satisfy the latest user message and no downstream assistant work would improve the response.
+- Choose "terminal" only when (a) awk can fully satisfy the message and (b) answering needs nothing beyond the message itself — no context, data, tools, or memory.
 - Choose "continue" for any request that asks for information, judgment, writing, editing, planning, lookup, memory retrieval, tool use, file handling, code, or action.
 - When a message includes both courtesy and a substantive request, choose "continue".
 - When uncertain whether the user expects work, choose "continue".
