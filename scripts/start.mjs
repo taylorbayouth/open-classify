@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// Day-to-day entry point: ensure Ollama is running with the right config,
+// confirm the base model is present, then build and serve the dev UI on
+// http://127.0.0.1:4317/. If we started Ollama ourselves, we kill it on
+// SIGINT/SIGTERM; if we attached to an existing one, we leave it alone.
+
 import {
   assertBaseModelPresent,
   assertOllamaServerConfig,

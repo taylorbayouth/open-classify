@@ -1,3 +1,14 @@
+// Reference `RunClassifier` implementation backed by a local Ollama server.
+// Three responsibilities live here:
+//   1. Resource sanity check — refuse to run on undersized hardware.
+//   2. Prompt packing — render the system+user prompts and drop older context
+//      messages until the rendered prompt fits the configured num_ctx budget.
+//   3. Validation — every classifier has a strict schema validator that
+//      rejects malformed model output (raises `OllamaClassifierError`).
+//
+// Custom backend? Implement `RunClassifier` directly and pass it to
+// `classifyOpenClassifyInput` — you don't have to use this module at all.
+
 import { CLASSIFIERS, CLASSIFIER_NAMES } from "./classifiers.js";
 import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
@@ -57,6 +68,9 @@ const MEMORY_QUERY_MAX_WORDS = 10;
 
 const execFileAsync = promisify(execFile);
 
+// Per-classifier model overrides. `null` means "use the base model with the
+// classifier's system prompt." Values are filled in either from this default
+// or from `adapter-models.json` via `discoverOllamaClassifierAdapterModels`.
 export const OLLAMA_CLASSIFIER_MODELS = {
   preflight: null,
   routing: null,
@@ -67,6 +81,9 @@ export const OLLAMA_CLASSIFIER_MODELS = {
   security: null,
 } as const satisfies Record<ClassifierName, string | null>;
 
+// Reference adapter model names — these are the LoRA/fine-tunes published as
+// part of the Open Classify project. Useful as a starting point if you're
+// pre-publishing your own adapters and want a versioned naming scheme.
 export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
   preflight: "open-classify-preflight:v0.1.0",
   routing: "open-classify-routing:v0.1.0",
@@ -142,6 +159,9 @@ export class OllamaResourceError extends Error {
   }
 }
 
+// Build a `RunClassifier` bound to a specific Ollama host + model selection.
+// The resource check is lazy and runs once per runner — the first classifier
+// invocation pays for it; subsequent ones reuse the same promise.
 export function createOllamaClassifierRunner(
   config: OllamaClassifierRunnerConfig = {},
 ): RunClassifier {
@@ -178,6 +198,10 @@ export function createOllamaClassifierRunner(
   };
 }
 
+// Best-effort load of `adapter-models.json` (or the path the caller picks).
+// Missing/malformed files are not fatal — we just return the all-null
+// defaults so the base model gets used. If the file is partly populated,
+// only the matching keys override; the rest stay null.
 export function discoverOllamaClassifierAdapterModels(
   configPath = OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
 ): Record<ClassifierName, string | null> {
@@ -321,6 +345,11 @@ async function runOllamaClassifier<Name extends ClassifierName>(
   return validateClassifierOutput(name, parsed, model, input) as ClassifierOutput<Name>;
 }
 
+// Cross-platform "available memory" reading. On macOS, `os.freemem()` only
+// counts truly idle pages and underreports badly when the system is using
+// memory for cache; we shell out to `vm_stat` to get free + speculative +
+// purgeable, which matches what Activity Monitor calls "available." On
+// Linux/everywhere else we trust `os.freemem()`.
 async function getSystemMemoryBytes(): Promise<{
   totalMemoryBytes: number;
   availableMemoryBytes: number;
@@ -512,6 +541,10 @@ function parseJsonObject(
   );
 }
 
+// Per-classifier validators below. They run on the model's parsed JSON and
+// either return a typed result or throw `OllamaClassifierError`. Validation
+// is strict on purpose: we'd rather surface a malformed response than ship
+// downstream code a half-valid object that quietly misbehaves.
 function validateClassifierOutput(
   name: ClassifierName,
   value: Record<string, unknown>,

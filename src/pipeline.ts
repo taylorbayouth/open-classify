@@ -1,3 +1,19 @@
+// The orchestration layer. Given a `RunClassifier` (e.g. the Ollama runner),
+// this module:
+//   1. Normalizes input.
+//   2. Kicks off all seven classifiers in parallel with timeout + retry.
+//   3. Awaits preflight first; if it says "terminal", abort the rest and return.
+//   4. Awaits security next; if it's "high_risk", abort and return a block.
+//   5. Otherwise wait for everything to settle and return a full route result.
+//
+// Two design choices worth flagging:
+// - All classifiers start at the same time. Sequential preflight → security →
+//   ... would be cheaper on the happy path but slower in the common case. We
+//   pay for everything upfront and just throw away work on early exit.
+// - Any classifier that errors or times out falls back to a conservative
+//   default (see `fallbackClassifierOutput`). The pipeline never throws from
+//   a single classifier failure — only normalization can throw.
+
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
@@ -19,6 +35,9 @@ import type {
   RunClassifier,
 } from "./types.js";
 
+// Thrown when the input is structurally invalid (bad shape, oversized
+// message, etc.). This is the only error `classifyOpenClassifyInput` will
+// throw — classifier failures are absorbed into fallback outputs.
 export class OpenClassifyNormalizationError extends Error {
   constructor(cause: unknown) {
     super(errorMessage(cause), { cause });
@@ -35,6 +54,11 @@ export interface ClassifyOptions {
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
+
+// Reference config showing how to populate `DownstreamModelConfig`. Not used
+// by the pipeline by default — callers pass their own. Lookup goes most-
+// specific to least-specific (see `downstreamModelConfigKeys`), so populating
+// only `default` is a perfectly valid minimum.
 export const EXAMPLE_DOWNSTREAM_MODEL_CONFIG = {
   "chat.local_fast": "gemma4:e4b-it-q4_K_M",
   "writing.frontier_fast": "gpt-5.4-mini",
@@ -50,6 +74,10 @@ export const EXAMPLE_DOWNSTREAM_MODEL_CONFIG = {
   frontier_strong: "gpt-5.5",
   default: "gpt-5.4-mini",
 } as const satisfies DownstreamModelConfig;
+
+// Generic refusal string returned when security blocks. Intentionally vague —
+// callers who want a richer refusal flow should detect `decision === "block"`
+// and craft their own copy.
 const SECURITY_BLOCK_REPLY = "I can't help with that request.";
 
 type SettledClassifierResult<Name extends ClassifierName> =
@@ -78,6 +106,9 @@ export async function classifyOpenClassifyInput(
     throw new OpenClassifyNormalizationError(error);
   }
 
+  // Single shared abort signal: when preflight or security triggers an
+  // early exit, we abort the rest of the in-flight runs so we don't pay
+  // for work nobody will read.
   const controller = new AbortController();
   const classifierInput = toClassifierInput(request);
   const classifierTimeoutMs =
@@ -103,8 +134,14 @@ export async function classifyOpenClassifyInput(
     ? preflightSettled.value
     : fallbackClassifierOutput("preflight");
 
+  // Note: only honor "terminal" if preflight actually succeeded. A fallback
+  // preflight reports `terminality: "unable_to_determine"`, which falls
+  // through to the normal route path (this is the conservative choice — a
+  // misfire shouldn't silently terminate the conversation).
   if (preflightSettled.ok && preflight.terminality === "terminal") {
     controller.abort();
+    // Drain the aborted runs so they can clean up before we return. We
+    // don't care about their results; we just don't want dangling promises.
     await settleClassifierRunsExcept(runs, ["preflight"]);
 
     return {
@@ -126,6 +163,8 @@ export async function classifyOpenClassifyInput(
     ? securitySettled.value
     : fallbackClassifierOutput("security");
 
+  // Same caveat as preflight: only block on a real model verdict, never on
+  // a fallback. A failed security classifier should not block the user.
   if (securitySettled.ok && security.risk_level === "high_risk") {
     controller.abort();
     await settleClassifierRunsExcept(runs, ["preflight", "security"]);
@@ -171,6 +210,9 @@ export async function classifyOpenClassifyInput(
   };
 }
 
+// Folds the seven classifier outputs into the flattened handoff shape that
+// downstream code typically wants. Exported so callers who built their own
+// classifier results (e.g. cached, partial) can still produce a handoff.
 export function buildHandoff(
   classifiers: OpenClassifyResult,
   downstreamModels: DownstreamModelConfig = {},
@@ -225,6 +267,15 @@ function resolveDownstreamModel(
   };
 }
 
+// Build the lookup-priority list for resolving a downstream model. Order
+// matters: callers who only fill in a few keys should still get the most
+// specific match available.
+//   coding.frontier_strong  →  most specific
+//   frontier_strong         →  tier only
+//   coding                  →  specialization only
+//   default                 →  fallback
+// Keys involving `unclear` or `unable_to_determine` are skipped — we don't
+// want to materialize lookup keys with escape-hatch values in them.
 function downstreamModelConfigKeys(
   specialization: ModelSpecializationResult["model_specialization"],
   tier: RoutingResult["model_tier"],
@@ -259,6 +310,8 @@ function modelValue(
   return trimmed.length > 0 ? trimmed : null;
 }
 
+// One classifier, with bounded retries. Stops early if the root signal has
+// already been aborted — no point retrying once the pipeline has decided.
 async function runClassifierWithRetry<Name extends ClassifierName>(
   name: Name,
   input: Parameters<RunClassifier>[1],
@@ -307,6 +360,10 @@ async function runClassifierWithRetry<Name extends ClassifierName>(
   };
 }
 
+// A single attempt: races the classifier against a timeout AND a root-abort
+// signal. Whichever resolves first wins. The local AbortController lets us
+// cancel the underlying fetch when timeout/abort wins so we don't keep the
+// HTTP request alive for nothing.
 async function runClassifierAttempt<Name extends ClassifierName>(
   name: Name,
   input: Parameters<RunClassifier>[1],
@@ -424,51 +481,54 @@ function classifierRunStatus(
   };
 }
 
+// Conservative defaults for when a classifier fails or times out. Prefer
+// "unable to determine" / empty collections over guessing. The pipeline
+// soft-fails on these (route still happens; `classifier_status` flags the
+// fallback) — except for preflight/security, where a fallback verdict is
+// never honored as an early-exit trigger.
+//
+// Typed as a mapped object so each entry is checked against its own output
+// shape — no casts needed when indexing by a generic `Name`.
+const FALLBACK_OUTPUTS: { [Name in ClassifierName]: ClassifierOutput<Name> } = {
+  preflight: {
+    terminality: "unable_to_determine",
+    reply: "Let me check.",
+    reason: "Preflight classifier unavailable.",
+  },
+  routing: {
+    execution_mode: "direct",
+    model_tier: "local_strong",
+    reason: "Routing classifier unavailable.",
+  },
+  conversation_history: {
+    is_standalone: false,
+    refers_to_history: false,
+    relevant_conversation_history: [],
+    needs_unseen_history: true,
+    reason: "Conversation history classifier unavailable.",
+  },
+  memory_retrieval_queries: {
+    queries: [],
+    reason: "Memory retrieval query classifier unavailable.",
+  },
+  tools: {
+    needed: false,
+    families: [],
+    reason: "Tool classifier unavailable.",
+  },
+  model_specialization: {
+    model_specialization: "unclear",
+    reason: "Model specialization classifier unavailable.",
+  },
+  security: {
+    risk_level: "unable_to_determine",
+    signals: [],
+    reason: "Security classifier unavailable.",
+  },
+};
+
 function fallbackClassifierOutput<Name extends ClassifierName>(
   name: Name,
 ): ClassifierOutput<Name> {
-  switch (name) {
-    case "preflight":
-      return {
-        terminality: "unable_to_determine",
-        reply: "Let me check.",
-        reason: "Preflight classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-    case "routing":
-      return {
-        execution_mode: "direct",
-        model_tier: "local_strong",
-        reason: "Routing classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-    case "conversation_history":
-      return {
-        is_standalone: false,
-        refers_to_history: false,
-        relevant_conversation_history: [],
-        needs_unseen_history: true,
-        reason: "Conversation history classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-    case "memory_retrieval_queries":
-      return {
-        queries: [],
-        reason: "Memory retrieval query classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-    case "tools":
-      return {
-        needed: false,
-        families: [],
-        reason: "Tool classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-    case "model_specialization":
-      return {
-        model_specialization: "unclear",
-        reason: "Model specialization classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-    case "security":
-      return {
-        risk_level: "unable_to_determine",
-        signals: [],
-        reason: "Security classifier unavailable.",
-      } as unknown as ClassifierOutput<Name>;
-  }
+  return FALLBACK_OUTPUTS[name];
 }

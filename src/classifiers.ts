@@ -1,3 +1,15 @@
+// Central registry of every classifier. Adding a new classifier? You'll touch:
+//   1. enums.ts        — any new categorical output values
+//   2. types.ts        — the result interface, plus a key on `OpenClassifyResult`
+//   3. prompts.ts      — the system prompt
+//   4. ollama.ts       — a validator + a fallback shape (in pipeline.ts)
+//   5. this file       — wire the prompt into CLASSIFIERS
+//   6. pipeline.ts     — slot it into the route result and (if early-exit-worthy)
+//                        teach the staged decision flow about it
+//
+// `purpose` is human-readable docs only; nothing reads it at runtime. The
+// `name` field duplicates the key for ergonomic access via Object.values().
+
 import type { ClassifierName } from "./types.js";
 import {
   CONVERSATION_HISTORY_SYSTEM_PROMPT,

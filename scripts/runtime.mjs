@@ -1,3 +1,7 @@
+// Shared helpers for the `setup` and `start` scripts. Anything that needs to
+// reason about the local Ollama server, the base model, or the runtime
+// resource floor lives here so the two top-level scripts can stay tiny.
+
 import { execFile, spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -68,6 +72,11 @@ export async function isOllamaReachable() {
   }
 }
 
+// Launch `ollama serve` with the env vars Open Classify needs. Critically,
+// `OLLAMA_NUM_PARALLEL` must be high enough to actually run all classifiers
+// concurrently — without this, requests serialize and the whole pipeline
+// stalls on the slowest one. The classifier count, parallelism, and loaded-
+// model cap are deliberately the same number.
 export function startOllamaServe() {
   const child = spawn("ollama", ["serve"], {
     env: {
@@ -111,6 +120,12 @@ export async function assertBaseModelPresent() {
   }
 }
 
+// If a user already has Ollama running, we don't want to silently inherit a
+// server that wasn't started with the right env vars (it'd serialize our
+// requests). On macOS we can read the running process's environment via
+// `ps eww` and verify; on other platforms we skip the check rather than
+// guess. If you're on Linux/Windows and want the same protection, this is
+// the place to extend.
 export async function assertOllamaServerConfig() {
   if (process.platform !== "darwin") {
     return;

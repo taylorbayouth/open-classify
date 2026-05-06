@@ -1,3 +1,8 @@
+// Input normalization. This module enforces the Open Classify input contract
+// before anything model-shaped happens: structural shape, allowed fields,
+// sanitized text, payload budget, and a stable target-message hash. Anything
+// that throws here surfaces as `OpenClassifyNormalizationError` to callers.
+
 import { createHash } from "node:crypto";
 import type {
   AttachmentInput,
@@ -48,6 +53,10 @@ const ATTACHMENT_FIELDS = new Set([
 
 type JsonRecord = Record<string, unknown>;
 
+// Strip the BOM, normalize composed/decomposed Unicode (so "café" never has
+// two encodings), drop control chars except tab/newline/CR, and trim. Tabs
+// and newlines are kept because they're load-bearing in code/markdown
+// snippets that users paste in.
 export function sanitizeText(raw: string): string {
   let text = raw;
 
@@ -61,6 +70,9 @@ export function sanitizeText(raw: string): string {
     .trim();
 }
 
+// 8-hex-char fingerprint of the canonicalized value. Short on purpose —
+// this is for correlation/dedup, not cryptographic identity. Canonicalization
+// (sorted keys, undefined-stripped) makes the hash stable across input order.
 function hashCanonicalValue(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex").slice(0, 8);
 }
@@ -139,6 +151,14 @@ function normalizeConversationMessage(
   return normalized;
 }
 
+// Walk the message history newest → oldest, keeping whole messages while
+// we're under both the count cap and the character budget. The final
+// message is non-negotiable (it's what we're classifying) — we validate it
+// stricter, force role=user, and never drop it on length grounds.
+//
+// We never slice text inside a message: classifiers depend on the full
+// final message, and slicing earlier ones at arbitrary boundaries tends to
+// confuse models more than it helps.
 function takeNewestWholeMessagesThatFit(
   messages: ConversationMessageInput[],
 ): ConversationMessageInput[] {
@@ -235,6 +255,10 @@ function copyAttachmentString(
   target[key] = value;
 }
 
+// Reject class instances and prototype-tampered objects, not just non-objects.
+// We want plain `{}` shapes here — anything carrying behavior or an exotic
+// prototype could surprise the JSON serializer or smuggle properties past
+// `rejectUnknownFields`.
 function assertPlainObject(value: unknown, path: string): asserts value is JsonRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError(`${path} must be a plain object`);
@@ -262,6 +286,9 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value));
 }
 
+// Recursive deep-sort of object keys + drop of `undefined` values. Used by
+// `hashCanonicalValue` so the hash is invariant under input key ordering —
+// `{a:1,b:2}` and `{b:2,a:1}` produce the same fingerprint.
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonicalize);

@@ -25,37 +25,8 @@ const optionKeys = {
   security: "security_risk_level",
 };
 
-const ENUMS = {
-  terminality: ["terminal", "continue", "unable_to_determine"],
-  downstream_execution_mode: ["direct", "tool_assisted", "workflow", "unable_to_determine"],
-  downstream_model_tier: ["local_fast", "local_strong", "frontier_fast", "frontier_strong", "unable_to_determine"],
-  model_specialization: [
-    "chat",
-    "writing",
-    "reasoning",
-    "planning",
-    "coding",
-    "instruction_following",
-    "unclear",
-  ],
-  tool_family: [
-    "workspace",
-    "web",
-    "communications",
-    "documents",
-    "spreadsheets",
-    "project_management",
-    "developer_platforms",
-  ],
-  security_risk_level: ["normal", "suspicious", "high_risk", "unable_to_determine"],
-  security_signal: [
-    "instruction_attack",
-    "secret_or_private_data_risk",
-    "unsafe_tool_or_action",
-    "untrusted_content_or_code",
-    "injection_or_obfuscation",
-  ],
-};
+// Populated on init from GET /api/enums — single source of truth is src/enums.ts.
+let ENUMS = {};
 
 const enumValueLabels = {
   // terminality
@@ -142,7 +113,10 @@ const phaseTrail = document.querySelector("#phaseTrail");
 init();
 
 async function init() {
-  state.samples = await loadSamples();
+  [ENUMS, state.samples] = await Promise.all([
+    fetch("/api/enums").then((r) => r.json()),
+    loadSamples(),
+  ]);
   resetClassifiers("idle");
   renderMessages();
   renderAttachments();

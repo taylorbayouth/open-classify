@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// One-shot setup: verify prerequisites (Node/npm/Ollama), check available
+// memory, install npm deps, ensure the base model is pulled, and build the
+// project. Run via `npm run setup`. Idempotent — safe to re-run any time.
+
 import {
   assertBaseModelPresent,
   assertOllamaServerConfig,

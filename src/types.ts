@@ -1,3 +1,7 @@
+// Shared type surface for Open Classify. Most types here are part of the
+// public API — they describe inputs callers send, outputs they receive, and
+// the contract a custom `RunClassifier` must satisfy.
+
 import type {
   DownstreamExecutionMode,
   DownstreamModelTier,
@@ -8,16 +12,27 @@ import type {
   ToolFamily,
 } from "./enums.js";
 
+// "Concrete" variants drop the escape-hatch values (`unable_to_determine`,
+// `unclear`). They exist because those fallbacks shouldn't be valid lookup
+// keys when resolving a downstream model — you can't have a model named
+// `unclear.unable_to_determine`.
 export type ConcreteDownstreamModelTier = Exclude<
   DownstreamModelTier,
   "unable_to_determine"
 >;
 export type ConcreteModelSpecialization = Exclude<ModelSpecialization, "unclear">;
+
+// Lookup keys for `DownstreamModelConfig`. The pipeline tries them in this
+// order: most-specific (`coding.local_strong`) → tier alone → specialization
+// alone → `default`. See `resolveDownstreamModel` in pipeline.ts.
 export type DownstreamModelConfigKey =
   | `${ConcreteModelSpecialization}.${ConcreteDownstreamModelTier}`
   | ConcreteDownstreamModelTier
   | ConcreteModelSpecialization
   | "default";
+
+// Caller-supplied mapping from lookup key → model identifier string. Sparse
+// is fine; missing keys just fall through to less-specific entries.
 export type DownstreamModelConfig = Partial<Record<DownstreamModelConfigKey, string>>;
 
 export type ConversationMessageRole = "user" | "assistant";
@@ -47,6 +62,10 @@ export interface OpenClassifyInput {
   attachments?: AttachmentInput[];
 }
 
+// Result of running the input through `normalizeOpenClassifyInput`. `text` is
+// the final message's sanitized text (the thing actually being classified);
+// `target_message_hash` is a stable 8-hex-char fingerprint of the target
+// message, useful for deduping or correlating results.
 export interface NormalizedOpenClassifyInput {
   messages: ConversationMessageInput[];
   text: string;
@@ -54,12 +73,18 @@ export interface NormalizedOpenClassifyInput {
   target_message_hash: string;
 }
 
+// What every classifier sees. Structurally identical to the normalized input —
+// kept as its own type so future divergence (e.g. classifier-specific
+// projections) doesn't break the public contract.
 export interface ClassifierInput {
   text: string;
   messages: ConversationMessageInput[];
   attachments: AttachmentInput[];
   target_message_hash: string;
 }
+
+// One result type per classifier. `reason` is a short diagnostic string the
+// model emits to explain its choice; useful for debugging and UI display.
 
 export interface PreflightResult {
   terminality: Terminality;
@@ -76,6 +101,9 @@ export interface RoutingResult {
 export interface ConversationHistoryResult {
   is_standalone: boolean;
   refers_to_history: boolean;
+  // Sliced from the input messages by the runner using the model's
+  // `prior_messages_needed` count. The classifier itself never echoes message
+  // text back — that would be a leakage and waste of tokens.
   relevant_conversation_history: ConversationMessageInput[];
   needs_unseen_history: boolean;
   reason: string;
@@ -103,6 +131,7 @@ export interface SecurityResult {
   reason: string;
 }
 
+// Aggregate of every classifier's output. Keys must match `ClassifierName`.
 export interface OpenClassifyResult {
   preflight: PreflightResult;
   routing: RoutingResult;
@@ -113,6 +142,10 @@ export interface OpenClassifyResult {
   security: SecurityResult;
 }
 
+// The concrete model the pipeline picked for the downstream assistant. `key`
+// is the most-specific candidate that was tried; `resolved_from` is the key
+// that actually had a value (may equal `key`, or be a less specific fallback,
+// or be null if nothing matched).
 export interface OpenClassifyModelRecommendation {
   key: DownstreamModelConfigKey;
   model: string | null;
@@ -121,6 +154,9 @@ export interface OpenClassifyModelRecommendation {
   specialization: ModelSpecialization;
 }
 
+// The shape downstream code actually consumes — a flattened, opinionated view
+// of the seven classifier outputs. If you only care about "what should the
+// assistant do next?", this is the type to lean on.
 export interface OpenClassifyHandoff {
   execution_mode: DownstreamExecutionMode;
   model: OpenClassifyModelRecommendation;
@@ -148,14 +184,21 @@ export type ClassifierName = keyof OpenClassifyResult;
 
 export type ClassifierOutput<Name extends ClassifierName> = OpenClassifyResult[Name];
 
+// The function shape required to plug a custom backend into the pipeline. The
+// Ollama runner in `ollama.ts` is one implementation; you can write your own
+// (OpenAI, Anthropic, mocks for tests, etc.) as long as it satisfies this.
 export type RunClassifier = <Name extends ClassifierName>(
   name: Name,
   input: ClassifierInput,
   signal: AbortSignal,
 ) => Promise<ClassifierOutput<Name>>;
 
+// Why a classifier fell back to its default output instead of a model answer.
 export type ClassifierFallbackReason = "error" | "timeout";
 
+// Per-classifier execution metadata. Surfaced on every pipeline result so
+// callers can tell which outputs came from the model vs. from a fallback,
+// and how many attempts it took.
 export interface ClassifierRunStatus {
   ok: boolean;
   source: "model" | "fallback";
@@ -164,8 +207,16 @@ export interface ClassifierRunStatus {
   error?: string;
 }
 
+// Partial because early-exit decisions (terminal, block) only run a subset of
+// classifiers — the ones that didn't run are simply absent.
 export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRunStatus>>;
 
+// Pipeline returns one of three shapes, discriminated by `decision`. Always
+// narrow on `decision` (or `stop_downstream`) before reaching for shape-
+// specific fields like `handoff` or `security`.
+
+// Preflight said the assistant can stop now and reply with `reply` directly.
+// No other classifiers ran (they were aborted to save compute).
 export interface OpenClassifyTerminalPipelineResult {
   stop_downstream: true;
   decision: "terminal";
@@ -175,6 +226,8 @@ export interface OpenClassifyTerminalPipelineResult {
   classifier_status: ClassifierRunStatusMap;
 }
 
+// Security flagged the message as high-risk. Pipeline aborts the rest and
+// returns a generic refusal reply. Only preflight + security ran.
 export interface OpenClassifyBlockPipelineResult {
   stop_downstream: true;
   decision: "block";
@@ -185,6 +238,8 @@ export interface OpenClassifyBlockPipelineResult {
   classifier_status: ClassifierRunStatusMap;
 }
 
+// Normal path: route the message to the downstream assistant. All seven
+// classifiers ran (or fell back), and `handoff` summarizes their decisions.
 export interface OpenClassifyRoutePipelineResult {
   stop_downstream: false;
   decision: "route";

@@ -1,7 +1,36 @@
+// A tiny dev/demo HTTP server backing the bundled UI. Two responsibilities:
+//   1. Serve the static UI from `./ui` (HTML, CSS, JS).
+//   2. Run a classification over Server-Sent Events at /api/classify-stream.
+//
+// The SSE event vocabulary the UI listens for:
+//   pipeline_started        — pipeline boot, includes the classifier list
+//   pipeline_phase          — coarse phase ("normalizing" / "resource_check" /
+//                             "running"); useful for progress UI
+//   classifier_started      — a specific classifier is now running
+//   classifier_completed    — that classifier returned a model result
+//   classifier_failed       — that classifier threw without being aborted
+//   classifier_aborted      — early-exit (preflight terminal or security block)
+//                             cancelled this classifier mid-flight
+//   classifier_timed_out    — the per-classifier timeout fired
+//   pipeline_completed      — final OpenClassifyPipelineResult payload
+//   pipeline_failed         — pipeline-level error (normalization, etc.)
+//
+// This server is intentionally minimal — no auth, no rate limiting, binds to
+// 127.0.0.1 by default. It is not meant for production.
+
 import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { CLASSIFIER_NAMES } from "./classifiers.js";
+import {
+  DOWNSTREAM_EXECUTION_MODE_VALUES,
+  DOWNSTREAM_MODEL_TIER_VALUES,
+  MODEL_SPECIALIZATION_VALUES,
+  SECURITY_RISK_LEVEL_VALUES,
+  SECURITY_SIGNAL_VALUES,
+  TERMINALITY_VALUES,
+  TOOL_FAMILY_VALUES,
+} from "./enums.js";
 import {
   createOllamaClassifierRunner,
   OLLAMA_CONTEXT_LENGTH,
@@ -14,6 +43,17 @@ import {
   EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
 } from "./pipeline.js";
 import type { OpenClassifyInput, RunClassifier } from "./types.js";
+
+// Served at GET /api/enums so the UI never needs to duplicate these values.
+const CLASSIFIER_ENUMS = {
+  terminality: [...TERMINALITY_VALUES],
+  downstream_execution_mode: [...DOWNSTREAM_EXECUTION_MODE_VALUES],
+  downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
+  model_specialization: [...MODEL_SPECIALIZATION_VALUES],
+  tool_family: [...TOOL_FAMILY_VALUES],
+  security_risk_level: [...SECURITY_RISK_LEVEL_VALUES],
+  security_signal: [...SECURITY_SIGNAL_VALUES],
+};
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
@@ -46,6 +86,11 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/enums") {
+      sendJson(response, CLASSIFIER_ENUMS);
+      return;
+    }
+
     if (request.method === "GET") {
       serveStatic(url.pathname, response);
       return;
@@ -69,6 +114,8 @@ async function classifyStream(
     "x-accel-buffering": "no",
   });
   response.flushHeaders();
+  // Disable Nagle so each event flushes immediately. SSE is interactive;
+  // batching kills the "live" feel.
   request.socket.setNoDelay(true);
 
   // TODO: when the SSE client disconnects, the in-flight
@@ -93,6 +140,9 @@ async function classifyStream(
     console.log(`[sse] -> ${event}${(data as { name?: string })?.name ? ` ${(data as { name: string }).name}` : ""}${ok ? "" : " [backpressure]"}`);
   };
 
+  // SSE comment heartbeat. Some intermediaries (proxies, load balancers)
+  // close idle connections; a tiny ping every 5s keeps the stream warm.
+  // The leading `:` makes browsers ignore the line as a comment.
   const heartbeat = setInterval(() => {
     if (closed || response.writableEnded || response.destroyed) {
       return;
@@ -158,12 +208,20 @@ async function classifyStream(
   }
 }
 
+// Distinguishes a timeout-driven abort from a pipeline early-exit abort, so
+// the UI can show the right state. We sniff the abort reason's message
+// because that's the only signal the pipeline gives us — it doesn't tag
+// reasons with a structured discriminator.
 function isTimeoutAbort(name: string, signal: AbortSignal): boolean {
   return errorMessage(signal.reason).includes(`${name} classifier timed out`);
 }
 
 function serveStatic(pathname: string, response: ServerResponse): void {
   const requestedPath = pathname === "/" ? "/index.html" : pathname;
+  // Two-layer path-traversal guard: strip leading `../` segments from the
+  // normalized path, then double-check the resolved file is still inside
+  // UI_DIR. The redundancy is intentional — defense in depth on a static
+  // file server is cheap.
   const safePath = normalize(requestedPath).replace(/^(\.\.[/\\])+/, "");
   const filePath = join(UI_DIR, safePath);
 
@@ -183,6 +241,9 @@ function sendJson(response: ServerResponse, data: unknown, status = 200): void {
   response.end(JSON.stringify(data));
 }
 
+// 512 KiB cap matches the input contract (5,000-char message budget plus
+// generous slack for attachments and history). Big enough for any legitimate
+// classification request, small enough to not be a DoS vector.
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
