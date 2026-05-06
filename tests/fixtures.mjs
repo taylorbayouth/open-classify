@@ -11,7 +11,7 @@ export const validClassifierOutputs = {
     reason: "The latest message can be handled without prior messages.",
   },
   memory_retrieval_queries: { queries: ["user review preferences"] },
-  tools: { needed: true, families: ["workspace"] },
+  tools: { families: ["workspace"] },
   message_and_attachment_digest: {
     slug: "review_request",
     summary: "The user wants a review.",

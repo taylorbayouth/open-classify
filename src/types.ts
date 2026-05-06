@@ -56,7 +56,7 @@ export interface ClassifierInput {
 
 export interface PreflightResult {
   terminality: Terminality;
-  reply: string;
+  reply?: string;
 }
 
 export interface RoutingResult {
@@ -77,7 +77,6 @@ export interface MemoryRetrievalQueriesResult {
 }
 
 export interface ToolsResult {
-  needed: boolean;
   families: ToolFamily[];
 }
 
@@ -85,7 +84,7 @@ export interface AttachmentDigest {
   filename: string;
   size_bytes?: number;
   mime_type?: string;
-  summary: string;
+  metadata_summary: string;
 }
 
 export interface MessageAndAttachmentDigestResult {
@@ -133,31 +132,30 @@ export interface ClassifierRunStatus {
 export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRunStatus>>;
 
 export interface OpenClassifyTerminalPipelineResult {
-  stop_downstream: true;
   decision: "terminal";
   target_message_hash: string;
   reply: string;
-  preflight: PreflightResult;
-  classifier_status: ClassifierRunStatusMap;
+  classifiers: { preflight: PreflightResult };
+  classifier_status: { preflight: ClassifierRunStatus };
 }
 
 export interface OpenClassifyBlockPipelineResult {
-  stop_downstream: true;
   decision: "block";
   target_message_hash: string;
-  reply: string;
-  preflight: PreflightResult;
-  security: SecurityResult;
-  classifier_status: ClassifierRunStatusMap;
+  reply?: string;
+  classifiers: { preflight: PreflightResult; security: SecurityResult };
+  classifier_status: {
+    preflight: ClassifierRunStatus;
+    security: ClassifierRunStatus;
+  };
 }
 
 export interface OpenClassifyRoutePipelineResult {
-  stop_downstream: false;
   decision: "route";
   target_message_hash: string;
-  reply: string;
+  reply?: string;
   classifiers: OpenClassifyResult;
-  classifier_status: ClassifierRunStatusMap;
+  classifier_status: Record<ClassifierName, ClassifierRunStatus>;
 }
 
 export type OpenClassifyPipelineResult =

@@ -318,7 +318,7 @@ test("createOllamaClassifierRunner validates memory query word count", async () 
 });
 
 test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
-  const runner = runnerReturning({ needed: true, families: ["workspace", "workspace"] });
+  const runner = runnerReturning({ families: ["workspace", "workspace"] });
 
   await assert.rejects(
     runner("tools", classifierInput(), new AbortController().signal),
@@ -428,8 +428,8 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     },
   );
 
-  assert.equal(result.stop_downstream, false);
   assert.equal(result.decision, "route");
+  assert.equal("stop_downstream" in result, false);
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.classifiers, validOutputs);
 });

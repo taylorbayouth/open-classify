@@ -38,14 +38,14 @@ The digest should:
 ## Output Contract
 
 ```json
-{"slug":"<snake_case_slug>","summary":"<short summary>","attachments":[{"filename":"<name>","size_bytes":123,"mime_type":"<type>","summary":"<1-2 sentence summary>"}]}
+{"slug":"<snake_case_slug>","summary":"<short summary>","attachments":[{"filename":"<name>","size_bytes":123,"mime_type":"<type>","metadata_summary":"<1-2 sentence metadata-derived summary>"}]}
 ```
 
 - `slug` (required): short stable snake_case label based on the user's intent. Use lowercase letters, digits, and underscores only.
-- `summary` (required): one factual plain-text sentence, 160 characters or fewer.
+- `summary` (required): one factual plain-text sentence describing the user's message, 160 characters or fewer.
 - `attachments` (required): one object per attachment in the input. Use `[]` when there are no attachments.
-- Attachment object key order: `filename`, then `size_bytes` if available, then `mime_type` if available, then `summary`.
-- Attachment `summary`: one plain-text metadata-only sentence, 160 characters or fewer.
+- Attachment object key order: `filename`, then `size_bytes` if available, then `mime_type` if available, then `metadata_summary`.
+- Attachment `metadata_summary`: one plain-text sentence derived from metadata only (you do not see file contents), 160 characters or fewer.
 
 JSON key order: `slug`, then `summary`, then `attachments`. No extra keys. No whitespace inside the assistant JSON.
 
@@ -181,13 +181,13 @@ Simple request:
 Attachment metadata:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize the attached contract and flag anything unusual\n\nAttachments:\n- Attachment 1:\n  filename: vendor-contract.pdf\n  mime_type: application/pdf\n  size_bytes: 248912"},{"role":"assistant","content":"{\"slug\":\"summarize_vendor_contract\",\"summary\":\"The user wants the attached vendor contract summarized and checked for unusual items.\",\"attachments\":[{\"filename\":\"vendor-contract.pdf\",\"size_bytes\":248912,\"mime_type\":\"application/pdf\",\"summary\":\"A PDF attachment named vendor-contract.pdf; contents are unavailable to this classifier.\"}]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize the attached contract and flag anything unusual\n\nAttachments:\n- Attachment 1:\n  filename: vendor-contract.pdf\n  mime_type: application/pdf\n  size_bytes: 248912"},{"role":"assistant","content":"{\"slug\":\"summarize_vendor_contract\",\"summary\":\"The user wants the attached vendor contract summarized and checked for unusual items.\",\"attachments\":[{\"filename\":\"vendor-contract.pdf\",\"size_bytes\":248912,\"mime_type\":\"application/pdf\",\"metadata_summary\":\"A PDF attachment named vendor-contract.pdf; contents are unavailable to this classifier.\"}]}"}]}
 ```
 
 Partial attachment metadata:
 
 ```json
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nextract the action items from this file\n\nAttachments:\n- Attachment 1:\n  filename: notes.txt"},{"role":"assistant","content":"{\"slug\":\"extract_action_items\",\"summary\":\"The user wants action items extracted from the attached file.\",\"attachments\":[{\"filename\":\"notes.txt\",\"summary\":\"An attachment named notes.txt; contents are unavailable to this classifier.\"}]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nextract the action items from this file\n\nAttachments:\n- Attachment 1:\n  filename: notes.txt"},{"role":"assistant","content":"{\"slug\":\"extract_action_items\",\"summary\":\"The user wants action items extracted from the attached file.\",\"attachments\":[{\"filename\":\"notes.txt\",\"metadata_summary\":\"An attachment named notes.txt; contents are unavailable to this classifier.\"}]}"}]}
 ```
 
 Resolved context:
@@ -206,7 +206,7 @@ Boundary pair -- no attachment vs attached PDF:
 
 ```json
 {"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize this and tell me the main risk\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"slug\":\"summarize_unspecified_item\",\"summary\":\"The user wants an unspecified item summarized and checked for the main risk.\",\"attachments\":[]}"}]}
-{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize this and tell me the main risk\n\nAttachments:\n- Attachment 1:\n  filename: renewal-agreement.pdf\n  mime_type: application/pdf"},{"role":"assistant","content":"{\"slug\":\"summarize_renewal_agreement\",\"summary\":\"The user wants the attached renewal agreement summarized and checked for the main risk.\",\"attachments\":[{\"filename\":\"renewal-agreement.pdf\",\"mime_type\":\"application/pdf\",\"summary\":\"A PDF attachment named renewal-agreement.pdf; contents are unavailable to this classifier.\"}]}"}]}
+{"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\nsummarize this and tell me the main risk\n\nAttachments:\n- Attachment 1:\n  filename: renewal-agreement.pdf\n  mime_type: application/pdf"},{"role":"assistant","content":"{\"slug\":\"summarize_renewal_agreement\",\"summary\":\"The user wants the attached renewal agreement summarized and checked for the main risk.\",\"attachments\":[{\"filename\":\"renewal-agreement.pdf\",\"mime_type\":\"application/pdf\",\"metadata_summary\":\"A PDF attachment named renewal-agreement.pdf; contents are unavailable to this classifier.\"}]}"}]}
 ```
 
 ## Appendix -- Runtime System Prompt (Reference Only, Do Not Copy)
@@ -219,13 +219,13 @@ You are the message and attachment digest generator for an AI assistant handoff 
 Create a compact, factual digest of the current normalized request and any attachment metadata.
 
 Return ONLY valid JSON matching:
-{"slug":"<snake_case_slug>","summary":"<short summary>","attachments":[{"filename":"<name>","size_bytes":123,"mime_type":"<type>","summary":"<1-2 sentence summary>"}]}
+{"slug":"<snake_case_slug>","summary":"<short summary>","attachments":[{"filename":"<name>","size_bytes":123,"mime_type":"<type>","metadata_summary":"<1-2 sentence metadata-derived summary>"}]}
 
 Field semantics:
 - "slug": a short stable snake_case label for the request, based on the user's intent.
 - "summary": a short factual description of what the user is asking for, suitable for a database short-string field. Resolve obvious referents from the supplied conversation window when they are unambiguous.
 - "attachments": one object per attachment in the input, preserving available filename, size_bytes, and mime_type fields.
-- Attachment "summary": a short database-friendly description of the attachment from available metadata only.
+- Attachment "metadata_summary": a short database-friendly description derived from metadata only. You do not see file contents.
 
 Selection guide:
 - Name the action and object in the slug, such as "review_contract" or "summarize_sales_csv".
