@@ -27,8 +27,8 @@ const optionKeys = {
 
 const ENUMS = {
   terminality: ["terminal", "continue", "unable_to_determine"],
-  downstream_execution_mode: ["direct", "tool_assisted", "workflow"],
-  downstream_model_tier: ["local_fast", "local_strong", "frontier_fast", "frontier_strong"],
+  downstream_execution_mode: ["direct", "tool_assisted", "workflow", "unable_to_determine"],
+  downstream_model_tier: ["local_fast", "local_strong", "frontier_fast", "frontier_strong", "unable_to_determine"],
   model_specialization: [
     "chat",
     "writing",
