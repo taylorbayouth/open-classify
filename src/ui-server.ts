@@ -191,7 +191,7 @@ function serveStatic(pathname: string, response: ServerResponse): void {
   response.writeHead(200, {
     "content-type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
   });
-  createReadStream(filePath).pipe(response);
+  createReadStream(filePath).on("error", () => response.destroy()).pipe(response);
 }
 
 function sendJson(response: ServerResponse, data: unknown, status = 200): void {

@@ -15,12 +15,9 @@ import type {
 } from "./types.js";
 
 export class OpenClassifyNormalizationError extends Error {
-  readonly cause: unknown;
-
   constructor(cause: unknown) {
-    super(errorMessage(cause));
+    super(errorMessage(cause), { cause });
     this.name = "OpenClassifyNormalizationError";
-    this.cause = cause;
   }
 }
 
@@ -79,7 +76,7 @@ export async function classifyOpenClassifyInput(
     ]),
   );
 
-  const preflightSettled = await requireClassifierRun(runs, "preflight");
+  const preflightSettled = await (runs.get("preflight") as Promise<SettledClassifierResult<"preflight">>);
   const preflight = preflightSettled.ok
     ? preflightSettled.value
     : fallbackClassifierOutput("preflight");
@@ -228,18 +225,6 @@ async function runClassifierAttempt<Name extends ClassifierName>(
       rootSignal.removeEventListener("abort", abortAttempt);
     }
   }
-}
-
-async function requireClassifierRun<Name extends ClassifierName>(
-  runs: ReadonlyMap<ClassifierName, Promise<SettledClassifierResult<ClassifierName>>>,
-  name: Name,
-): Promise<SettledClassifierResult<Name>> {
-  const result = runs.get(name) as Promise<SettledClassifierResult<Name>> | undefined;
-  if (result === undefined) {
-    throw new Error("internal classifier run missing");
-  }
-
-  return result;
 }
 
 async function settleNonPreflightRuns(

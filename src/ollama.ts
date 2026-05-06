@@ -105,14 +105,12 @@ interface OllamaChatResponse {
 export class OllamaClassifierError extends Error {
   readonly classifier: ClassifierName;
   readonly model: string;
-  readonly cause: unknown;
 
   constructor(classifier: ClassifierName, model: string, message: string, cause?: unknown) {
-    super(message);
+    super(message, { cause });
     this.name = "OllamaClassifierError";
     this.classifier = classifier;
     this.model = model;
-    this.cause = cause;
   }
 }
 
@@ -286,7 +284,7 @@ async function runOllamaClassifier<Name extends ClassifierName>(
 
   let payload: OllamaChatResponse;
   try {
-    payload = (await response.json()) as OllamaChatResponse;
+    payload = ((await response.json()) ?? {}) as OllamaChatResponse;
   } catch (error) {
     throw new OllamaClassifierError(
       name,
