@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
   AttachmentInput,
-  ClassifierAttachmentInput,
   ClassifierInput,
   ConversationMessageInput,
   NormalizedOpenClassifyInput,
@@ -94,16 +93,12 @@ export function normalizeOpenClassifyInput(
 export function toClassifierInput(
   normalized: NormalizedOpenClassifyInput,
 ): ClassifierInput {
-  assertPlainObject(normalized, "normalized");
-
-  const classifierInput: ClassifierInput = {
+  return {
     text: normalized.text,
-    messages: normalizeClassifierMessages(normalized.messages),
-    attachments: normalizeClassifierAttachments(normalized.attachments),
+    messages: normalized.messages,
+    attachments: normalized.attachments,
     target_message_hash: normalized.target_message_hash,
   };
-
-  return classifierInput;
 }
 
 function normalizeMessages(
@@ -188,25 +183,6 @@ function takeNewestWholeMessagesThatFit(
   return selected.reverse();
 }
 
-function normalizeClassifierMessages(
-  messages: ConversationMessageInput[],
-): ConversationMessageInput[] {
-  return messages.map((message, index) => {
-    const path = `normalized.messages[${index}]`;
-    assertPlainObject(message, path);
-
-    const classifierMessage: ConversationMessageInput = {
-      text: message.text,
-    };
-
-    if (message.role !== undefined) {
-      classifierMessage.role = message.role;
-    }
-
-    return classifierMessage;
-  });
-}
-
 function normalizeAttachments(attachments: AttachmentInput[] | undefined): AttachmentInput[] {
   if (attachments === undefined) {
     return [];
@@ -236,48 +212,6 @@ function normalizeAttachments(attachments: AttachmentInput[] | undefined): Attac
     }
 
     return normalized;
-  });
-}
-
-function normalizeClassifierAttachments(
-  attachments: AttachmentInput[],
-): ClassifierAttachmentInput[] {
-  if (!Array.isArray(attachments)) {
-    throw new TypeError("normalized.attachments must be an array");
-  }
-
-  return attachments.map((attachment, index) => {
-    const path = `normalized.attachments[${index}]`;
-    assertPlainObject(attachment, path);
-
-    const classifierAttachment: ClassifierAttachmentInput = {};
-    copyAttachmentString(
-      attachment,
-      classifierAttachment,
-      "filename",
-      path,
-      METADATA_STRING_MAX_CHARS,
-    );
-    copyAttachmentString(
-      attachment,
-      classifierAttachment,
-      "mime_type",
-      path,
-      METADATA_STRING_MAX_CHARS,
-    );
-
-    if (attachment.size_bytes !== undefined) {
-      if (
-        typeof attachment.size_bytes !== "number" ||
-        !Number.isSafeInteger(attachment.size_bytes) ||
-        attachment.size_bytes < 0
-      ) {
-        throw new TypeError(`${path}.size_bytes must be a non-negative safe integer`);
-      }
-      classifierAttachment.size_bytes = attachment.size_bytes;
-    }
-
-    return classifierAttachment;
   });
 }
 

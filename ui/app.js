@@ -451,7 +451,6 @@ function handleStreamEvent(event, data) {
       });
       break;
     case "classifier_aborted":
-    case "classifier_canceled":
       updateClassifier(data.name, {
         status: "aborted",
         finishedAt: performance.now(),
