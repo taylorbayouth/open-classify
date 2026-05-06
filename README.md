@@ -1,10 +1,24 @@
 # Open Classify
 
-Open Classify is a fixed classifier contract for preparing downstream AI model handoffs.
+Open Classify is an npm package that runs seven specialized classifiers concurrently on every inbound message before it reaches your main model.
 
-The goal is not to answer the user directly. The goal is to classify the latest message, using the supplied conversation window as context, so downstream systems can choose the right model, tools, memory lookup, and security posture.
+Its primary job is not to reply — it classifies. But when a message is self-contained and needs no tools, additional context, or external state, Open Classify can respond directly and short-circuit the pipeline entirely. A simple acknowledgment, a social exchange, a clarifying one-liner: if the classifier determines the reply is complete, your frontier model never sees it.
+
+**Why use it:**
+
+- **Cost** — Terminal messages never reach a frontier model. Every "thanks" or "sounds good" that resolves at classification saves a full LLM call.
+- **Speed** — Every message gets an instant acknowledgment. Preflight decides ack vs. route immediately, so users are never waiting in silence while routing decisions are made.
+- **Quality** — When the pipeline routes forward, Open Classify tells your downstream model exactly what it needs: how much conversation history is relevant, which memory queries to run before constructing the prompt, which tool families to expose (not the full manifest on every call), and which model size and tier fits the request.
 
 The classifier set is intentionally static. Integrations should not add project-specific classifiers to the core contract.
+
+## Install
+
+```sh
+npm install open-classify
+```
+
+Requires Node.js ≥ 18 and [Ollama](https://ollama.com) running locally with `gemma4:e4b-it-q4_K_M`.
 
 ## Runtime
 
@@ -404,11 +418,10 @@ Thanks, that makes sense.
 Output:
 
 ```json
-{
-  "terminality": "terminal",
-  "reply": "Anytime."
-}
+{ "terminality": "terminal", "reply": "Anytime." }
 ```
+
+Pipeline stops here. The reply is sent and no other classifier result is used.
 
 Input:
 
@@ -419,11 +432,10 @@ Can you review this PR and tell me what looks risky?
 Output:
 
 ```json
-{
-  "terminality": "continue",
-  "reply": "I'll review it."
-}
+{ "terminality": "continue", "reply": "I'll review it." }
 ```
+
+The reply surfaces immediately as an acknowledgment while the remaining six classifiers finish in parallel.
 
 ## 2. Downstream Route
 
@@ -466,26 +478,10 @@ Explain why bread rises when it bakes.
 Output:
 
 ```json
-{
-  "execution_mode": "direct",
-  "model_tier": "local_fast"
-}
+{ "execution_mode": "direct", "model_tier": "local_fast" }
 ```
 
-Input:
-
-```text
-Check the latest pricing and compare it with the spreadsheet I uploaded.
-```
-
-Output:
-
-```json
-{
-  "execution_mode": "tool_assisted",
-  "model_tier": "local_strong"
-}
-```
+Self-contained factual question — route to the cheapest local model, no tools or orchestration needed.
 
 Input:
 
@@ -496,11 +492,10 @@ Monitor this every morning and tell me if anything changes.
 Output:
 
 ```json
-{
-  "execution_mode": "workflow",
-  "model_tier": "local_fast"
-}
+{ "execution_mode": "workflow", "model_tier": "local_fast" }
 ```
+
+Recurring scheduled work — needs durable orchestration beyond a single turn.
 
 ## 3. Context Sufficiency
 
@@ -546,12 +541,10 @@ Rewrite this sentence so it sounds less formal.
 Output:
 
 ```json
-{
-  "value": "self_contained",
-  "missing_context": [],
-  "relevant_context_summary": ""
-}
+{ "value": "self_contained", "missing_context": [] }
 ```
+
+The message stands alone — no earlier context needed.
 
 Input:
 
@@ -562,32 +555,10 @@ Make the second option more direct.
 Output:
 
 ```json
-{
-  "value": "referential",
-  "missing_context": [
-    "referenced_option"
-  ],
-  "relevant_context_summary": "Earlier context includes the option the user wants made more direct."
-}
+{ "value": "referential", "missing_context": ["referenced_option"] }
 ```
 
-Input:
-
-```text
-Given everything we've discussed, what's the cleanest plan?
-```
-
-Output:
-
-```json
-{
-  "value": "long_context",
-  "missing_context": [
-    "prior_discussion"
-  ],
-  "relevant_context_summary": ""
-}
-```
+The message references something from earlier in the window; the downstream model needs that context.
 
 ## 4. Memory Retrieval Queries
 
@@ -627,45 +598,10 @@ Write this in my usual client update style.
 Output:
 
 ```json
-{
-  "queries": [
-    "user client update writing style"
-  ]
-}
+{ "queries": ["user client update writing style"] }
 ```
 
-Input:
-
-```text
-Earlier: I have a meeting with Dave on Tuesday.
-User: remind me at 3 PM
-```
-
-Output:
-
-```json
-{
-  "queries": []
-}
-```
-
-Input:
-
-```text
-Earlier: I have a meeting with Dave on Tuesday.
-User: remind me at his usual prep time
-```
-
-Output:
-
-```json
-{
-  "queries": [
-    "Dave usual prep time",
-    "user Dave meeting preferences"
-  ]
-}
-```
+The downstream model should search saved memory for writing style preferences before drafting.
 
 Input:
 
@@ -676,10 +612,10 @@ What is the difference between RAM and storage?
 Output:
 
 ```json
-{
-  "queries": []
-}
+{ "queries": [] }
 ```
+
+Factual question — no personal context or prior decisions are likely to help.
 
 ## 5. Tools
 
@@ -722,13 +658,10 @@ Look through this repo and tell me where the auth flow is defined.
 Output:
 
 ```json
-{
-  "needed": true,
-  "families": [
-    "workspace"
-  ]
-}
+{ "needed": true, "families": ["workspace"] }
 ```
+
+Only the `workspace` family is exposed — no web, no email, no spreadsheet tools loaded.
 
 Input:
 
@@ -739,31 +672,10 @@ Find time with Robert next week and draft the email.
 Output:
 
 ```json
-{
-  "needed": true,
-  "families": [
-    "communications"
-  ]
-}
+{ "needed": true, "families": ["communications"] }
 ```
 
-Input:
-
-```text
-Compare the attached CSV with the latest public pricing page.
-```
-
-Output:
-
-```json
-{
-  "needed": true,
-  "families": [
-    "spreadsheets",
-    "web"
-  ]
-}
-```
+Calendar and email tools only — the downstream model doesn't get a full tool manifest.
 
 ## 6. Message and Attachment Digest
 
@@ -815,11 +727,7 @@ Input:
 Can you summarize the attached spreadsheet and tell me what looks off?
 ```
 
-Attachment:
-
-```text
-q4-pipeline.xlsx
-```
+Attachment: `q4-pipeline.xlsx`
 
 Output:
 
@@ -827,15 +735,11 @@ Output:
 {
   "slug": "summarize_q4_pipeline",
   "summary": "The user wants a summary of the attached pipeline spreadsheet and any suspicious items.",
-  "attachments": [
-    {
-      "filename": "q4-pipeline.xlsx",
-      "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "summary": "A spreadsheet attachment named q4-pipeline.xlsx; contents are unavailable to this classifier."
-    }
-  ]
+  "attachments": [{ "filename": "q4-pipeline.xlsx", "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "summary": "A spreadsheet attachment; contents unavailable to this classifier." }]
 }
 ```
+
+The `slug` gives downstream systems a stable identifier; the `summary` tells the model what the user actually wants without re-parsing the raw message.
 
 Input:
 
@@ -853,6 +757,8 @@ Output:
   "attachments": []
 }
 ```
+
+The referential message ("remind me") is resolved using the earlier context window.
 
 ## 7. Security
 
@@ -906,12 +812,12 @@ Output:
 ```json
 {
   "risk_level": "suspicious",
-  "signals": [
-    "instruction_attack"
-  ],
+  "signals": ["instruction_attack"],
   "notes": "The message attempts to override instructions and reveal hidden prompts."
 }
 ```
+
+Flagged for downstream review — the model proceeds with elevated caution.
 
 Input:
 
@@ -924,13 +830,12 @@ Output:
 ```json
 {
   "risk_level": "high_risk",
-  "signals": [
-    "untrusted_content_or_code",
-    "unsafe_tool_or_action"
-  ],
+  "signals": ["untrusted_content_or_code", "unsafe_tool_or_action"],
   "notes": "The message requests running untrusted code and deleting local files."
 }
 ```
+
+Two signal types fired — downstream system can gate or require explicit confirmation before executing.
 
 ## Full Route Result Shape
 
