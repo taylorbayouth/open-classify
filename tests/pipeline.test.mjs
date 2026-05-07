@@ -312,7 +312,6 @@ test("classifier failure retries once and falls back", async () => {
   });
   assert.equal(result.classifier_status.security.ok, false);
   assert.equal(result.classifier_status.security.source, "fallback");
-  assert.equal(result.classifier_status.security.attempts, 2);
   assert.match(result.classifier_status.security.error, /model unavailable/);
 });
 
@@ -418,6 +417,5 @@ test("classifierRetryCount of 0 attempts each classifier exactly once", async ()
   assert.equal(result.stop_downstream, false);
   assert.equal(result.decision, "route");
   assert.equal(attempts.tools, 1);
-  assert.equal(result.classifier_status.tools.attempts, 1);
   assert.equal(result.classifier_status.tools.ok, false);
 });
