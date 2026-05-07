@@ -1,0 +1,15 @@
+{
+  "chat.local_fast": "gemma4:e4b-it-q4_K_M",
+  "writing.frontier_fast": "gpt-5.4-mini",
+  "reasoning.local_strong": "gemma4:e4b-it-q4_K_M",
+  "reasoning.frontier_strong": "gpt-5.5",
+  "planning.local_strong": "gemma4:e4b-it-q4_K_M",
+  "coding.local_strong": "qwen2.5-coder:14b",
+  "coding.frontier_fast": "gpt-5.3-codex",
+  "instruction_following.local_fast": "gemma4:e4b-it-q4_K_M",
+  "local_fast": "gemma4:e4b-it-q4_K_M",
+  "local_strong": "gemma4:e4b-it-q4_K_M",
+  "frontier_fast": "gpt-5.4-mini",
+  "frontier_strong": "gpt-5.5",
+  "default": "gpt-5.4-mini"
+}

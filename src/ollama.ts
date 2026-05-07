@@ -30,6 +30,7 @@ import type {
   ConversationHistoryResult,
   ConversationMessageInput,
   DownstreamModelConfig,
+  DownstreamModelConfigKey,
   RoutingResult,
   MemoryRetrievalQueriesResult,
   ModelSpecializationResult,
@@ -47,6 +48,7 @@ export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
 export const OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG = "adapter-models.json";
+export const OLLAMA_DEFAULT_DOWNSTREAM_MODEL_CONFIG = "downstream-models.json";
 
 /*
  * Gemma 4 E4B's native context is 131,072 tokens (128K). The reference local
@@ -115,6 +117,7 @@ export interface OllamaClassifierRunnerConfig {
 
 export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
   downstreamModels?: DownstreamModelConfig;
+  downstreamModelConfig?: string;
 }
 
 interface OllamaChatResponse {
@@ -232,6 +235,27 @@ export function discoverOllamaClassifierAdapterModels(
   return models;
 }
 
+// Best-effort load of `downstream-models.json` (or the path the caller picks).
+// Missing/malformed files are not fatal — returns {} so model resolves to null.
+export function discoverDownstreamModels(
+  configPath = OLLAMA_DEFAULT_DOWNSTREAM_MODEL_CONFIG,
+): DownstreamModelConfig {
+  if (!isFile(configPath)) return {};
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
+    if (!isRecord(parsed)) return {};
+    const result: DownstreamModelConfig = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "string" && value.trim().length > 0) {
+        result[key as DownstreamModelConfigKey] = value.trim();
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
 export async function assertOllamaResources(
   options: {
     minTotalMemoryBytes?: number;
@@ -275,7 +299,8 @@ export async function classifyWithOllama(
 
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(runnerConfig),
-    downstreamModels: config.downstreamModels,
+    downstreamModels:
+      config.downstreamModels ?? discoverDownstreamModels(config.downstreamModelConfig),
   });
 }
 
