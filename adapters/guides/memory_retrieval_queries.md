@@ -4,6 +4,14 @@ This is the classifier-specific companion to `adapters/README.md` for generating
 
 Append output to `adapters/memory_retrieval_queries.jsonl`. Hold back 10-20% as an eval split per the README's generation workflow.
 
+## North Star
+
+This classifier's role in dynamic context-window control is upstream of memory itself. Open Classify does not fetch memory; it emits 0–3 short query hints that the caller's memory system uses as search inputs *before* it builds the downstream prompt. The output populates `handoff.context.memory.queries`.
+
+The classifier's job is "is there likely useful saved context worth searching for, and what 1–3 short phrases would surface it?" Wrong answers feed the downstream prompt either too much (irrelevant memory hits become noise) or too little (the user's saved preferences get ignored and the answer drops to generic). A small dedicated model exists for this so the search-hint decision happens locally without paying frontier rates to plan a memory query.
+
+Crucial: queries are *retrieval surfaces*, not restatements of the task. A good query looks like "user client update writing style" — broad-but-concrete noun phrases that match how durable facts are likely indexed. A bad query looks like "write a client update" — that's the task, not a retrieval surface.
+
 ## Quick-Start (Human Curator)
 
 A row is one JSON line. Emit short saved-memory query hints when searchable context could materially help downstream. Use an empty array only when prior-context search is unlikely to add value.
@@ -28,12 +36,15 @@ It must be excellent at choosing useful retrieval surfaces:
 
 ## What Failure Costs In Production
 
-- **False positive memory query.** The downstream assistant fetches irrelevant saved memory, adding latency and possible privacy surface.
-- **False negative memory query.** The downstream assistant answers without useful context, missing the user's preferences, prior decisions, contacts, recurring workflow, or related history. Quality suffers.
-- **Over-specific query.** The memory search misses relevant facts because the hint copied too much of the current wording instead of targeting searchable terms.
-- **Leaking sensitive values.** Queries should ask for a category of durable fact, not repeat secrets, addresses, tokens, or personal data verbatim.
+Tagged with the README's Cost-Of-Error Vocabulary:
 
-**Bias the training data accordingly.** Lean toward emitting 1-3 useful query hints when the request contains searchable context that could improve the downstream answer. Use `[]` only when memory or prior-context search is unlikely to add value.
+- **False positive memory query (cost + accuracy + latency impact).** The caller's memory system runs a search that returns irrelevant hits. Cost impact: those hits get padded into the downstream prompt at frontier rates. Accuracy impact: the frontier model anchors on noise that doesn't match the user's actual context, producing a response that feels confidently wrong. Latency impact: the memory round-trip fired for nothing.
+- **False negative empty queries (accuracy impact).** The frontier model answers without the user's saved preferences, prior decisions, recurring workflow, or relationship context. The output is generic and doesn't sound like the user's voice or prior decisions. The user often re-asks with the missing context inline, doubling the round-trip count.
+- **Over-specific query (accuracy impact).** The memory search misses relevant facts because the hint copied too much of the current wording instead of targeting searchable terms. "Send Morgan the renewal email I usually send him" → bad query "Morgan renewal email"; good query "Morgan communication preferences" or "user renewal email template".
+- **Too many queries (cost + latency impact).** Three queries means three memory searches and three result sets to merge into the prompt. Use the cap only when the request genuinely spans three independent retrieval surfaces.
+- **Leaking sensitive values (privacy + correctness).** Queries should ask for a category of durable fact, not repeat secrets, addresses, tokens, or personal data verbatim. A query string sits in logs and indices; treat it as observable.
+
+**Bias the training data accordingly.** Lean toward emitting 1–3 useful query hints when the request contains searchable context that could improve the downstream answer. Empty `[]` is the right answer for transformations, general knowledge, live-tool work, or self-contained writing — not a hedge for "I'm not sure". Use `[]` decisively when no saved context is likely to help, and emit specific noun-phrase queries decisively when it is.
 
 ## Output Contract
 
@@ -106,7 +117,7 @@ Sample combinations from these axes:
 
 **User personas:** founder, engineer, PM, sales rep, recruiter, lawyer, consultant, parent, executive assistant, support lead.
 
-**Multi-message windows:** 20-30% of rows. Include cases where supplied context contributes useful query terms.
+**Multi-message windows:** **15–20% of rows.** Most memory decisions are evident from the latest message alone (a "usual" or "preferred" word, a named recurring entity, a request that depends on a prior decision). Reserve multi-message rows for cases where the supplied context contributes the useful query terms (e.g., earlier turn names a project the latest turn refers back to) or for cases where the prior turn explicitly resolves what would otherwise be a memory query (`[]` is correct because the context is already in the window).
 
 ## Boundary Pairs (Generate These Adjacent In Output)
 
@@ -139,7 +150,7 @@ When generating a batch:
 - **Query-count distribution (per 100):** 30-40 rows with `[]`, 40-50 rows with 1 query, 10-20 rows with 2 or 3 queries.
 - **Negative examples:** at least 15 no-memory rows should contain tempting cues where memory would still not add value, especially purely mechanical tasks, live lookups, tools, or generic knowledge.
 - **Positive examples:** cover all query signal types listed above.
-- **Multi-message windows:** 20-30% of rows, including supplied-context-as-query-surface positives.
+- **Multi-message windows:** 15–20% of rows, including supplied-context-as-query-surface positives and the inverse case where supplied context resolves a would-be memory query into `[]`.
 - **Boundary pairs:** 8-12 pairs per batch, emitted on adjacent lines.
 
 **Per-record self-check (HARD GATE -- do not emit on failure):**

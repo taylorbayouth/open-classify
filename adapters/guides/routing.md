@@ -4,6 +4,12 @@ This is the classifier-specific companion to `adapters/README.md` for generating
 
 Append output to `adapters/routing.jsonl`. Hold back 10–20% as an eval split per the README's generation workflow.
 
+## North Star
+
+Routing produces the two-axis output that most directly controls downstream cost: `execution_mode` (how the work runs — direct, tool-assisted, workflow) and `model_tier` (which capability/latency class handles it — local_fast through frontier_strong). The output populates `handoff.execution_mode` and combines with `model_specialization` to resolve a concrete downstream model via `DownstreamModelConfig`.
+
+In the dynamic context-window control story, routing decides which lane the request runs in. A `direct + local_fast` choice means a one-turn cheap-and-fast call. A `workflow + frontier_strong` choice means a long-running expensive-and-careful pipeline. Same user message could be routed several ways depending on stakes and freshness needs; the classifier's job is to pick the cheapest plausible lane that still gets the answer right. A small dedicated model exists for this so the lane decision happens locally — the routing decision must precede the routed call.
+
 ## Quick-Start (Human Curator)
 
 A row is one JSON line. Pick an execution_mode and a model_tier, write a realistic message, paste into a new line.
@@ -26,12 +32,13 @@ It should learn:
 
 ## What Failure Costs In Production
 
-Routing has the most economically asymmetric error costs:
+Routing has the most economically asymmetric error costs. Tagged with the README's Cost-Of-Error Vocabulary:
 
-- **Under-routing model_tier (expensive bad outcomes).** Sending a high-stakes legal/financial/strategic question to `local_fast` produces a cheap but wrong answer. The user acts on it. The cost is the downstream consequence, not the inference cost.
-- **Over-routing model_tier (predictable extra cost).** Sending a trivial rewrite to `frontier_strong` wastes money but the answer is correct. This is the cheap error.
-- **Wrong execution_mode (correctness risk).** Picking `direct` when the user wanted `workflow` ("remind me tomorrow") produces a useless answer. Picking `direct` when the user wanted `tool_assisted` ("look at the repo") produces a hallucination.
-- **`unable_to_determine` on either dimension.** The downstream router escalates to a frontier model with full context. Safe but expensive. Reserve for genuine ambiguity.
+- **Under-routing model_tier (accuracy + correctness, expensive bad outcomes).** Sending a high-stakes legal/financial/strategic question to `local_fast` produces a cheap but wrong answer. Cost impact: tiny per-call. Accuracy impact: catastrophic — the user acts on the wrong answer. The downstream consequence dwarfs the inference savings.
+- **Over-routing model_tier (cost impact, predictable).** Sending a trivial rewrite to `frontier_strong` wastes money but the answer is correct. The cheap error.
+- **Wrong execution_mode (accuracy + latency impact).** Picking `direct` when the user wanted `workflow` ("remind me tomorrow") produces a useless answer that ignores the durability requirement. Picking `direct` when the user wanted `tool_assisted` ("look at the repo") produces a hallucination because the model lacks the tools.
+- **Picking `tool_assisted` when `direct` would do (cost + latency impact).** Loads tool manifests on every turn for the rest of the conversation. Cumulative.
+- **`unable_to_determine` on either dimension (cost + latency impact).** The downstream router escalates to a frontier model with full context. Safe but expensive. Reserve for genuine ambiguity.
 
 **Bias the training data accordingly.** When a model_tier is on the boundary, prefer the higher tier — mistake cost outweighs inference cost for ambiguous inputs. When an execution_mode is on the boundary between `direct` and `tool_assisted`, prefer `tool_assisted` if any signal points to live state. When the message is truly opaque, prefer `unable_to_determine` over a confident wrong route.
 
@@ -113,7 +120,7 @@ Sample combinations from these axes — do not free-generate.
 
 **User personas:** senior engineer, junior dev, founder, designer, PM, marketer, recruiter, parent, student, scientist, sales rep, support agent, lawyer, doctor, writer.
 
-**Multi-message windows:** about 10% of rows. Use only when the latest message's routing depends on prior turns (e.g., the prior turn established that this is a continuation of an earlier scheduled task).
+**Multi-message windows:** **about 5% of rows** — the lowest of any classifier. Routing is almost fully self-contained on the latest message. Use multi-message only when the latest message's routing genuinely depends on prior turns (e.g., the prior turn established that this is a continuation of an earlier scheduled task that flips the execution mode to `workflow`, or the prior turn established that this is a high-stakes context that flips the tier upward).
 
 ## Boundary Pairs (Generate These Adjacent In Output)
 
@@ -152,7 +159,7 @@ When generating a batch:
 - **Cell coverage:** at least 4 examples in each populated cell of the coverage matrix.
 - **Frontier calibration:** include hard negatives that mention serious domains but are still cheap (`local_fast`/`local_strong`), plus hard positives where under-routing would materially hurt quality.
 - **Partial unknowns:** include 3-5 partial-unknown rows only when one dimension is still clear.
-- **Multi-message windows:** about 10% of rows. Use only when context shifts the routing.
+- **Multi-message windows:** about 5% of rows — lowest of any classifier. Use only when prior context flips the routing (continuation of earlier scheduled work, or stakes context that flips the tier upward).
 - **Boundary pairs:** 6–10 pairs per batch, emitted on adjacent lines.
 
 **Per-record self-check (HARD GATE — do not emit on failure):**

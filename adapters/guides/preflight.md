@@ -4,6 +4,12 @@ This is the classifier-specific companion to `adapters/README.md` for generating
 
 Append output to `adapters/preflight.jsonl`. Hold back 10–20% as an eval split per the README's generation workflow.
 
+## North Star
+
+Preflight is the first early-exit gate in the pipeline and the most direct cost lever in Open Classify. When `terminality: "terminal"` comes back from the model (not the fallback), the pipeline aborts every other classifier and the assistant's `reply` is delivered verbatim as the final answer — no downstream model call, no tool use, no escalation. Greetings, thanks, tiny self-contained questions, and acknowledgement closers never reach the frontier.
+
+In the dynamic context-window control story, this is the cleanest win: a correct `terminal` saves an entire frontier call. A correct `continue` is the price of admission for everything else — it keeps the pipeline running so the other six classifiers can build the lean handoff. A wrong `terminal` discards the user's actual request and replaces it with a polite phrase. A small dedicated model exists for this so the gating decision happens in milliseconds locally; if you waited for the frontier model to "decide it doesn't need to do work," you'd already have paid for the work.
+
 ## Quick-Start (Human Curator)
 
 A row is one JSON line. The user message wraps the conversation window; the assistant message is the classifier's JSON output, and nothing else. Pick a label, write a realistic message, write a 1–5 word reply, add a short reason, paste into a new line.
@@ -28,13 +34,13 @@ The behavior is conservative:
 
 ## What Failure Costs In Production
 
-Preflight has the most asymmetric error costs in the system:
+Preflight has the most asymmetric error costs in the system. Tagged with the README's Cost-Of-Error Vocabulary:
 
-- **False terminal (catastrophic).** The user asked for substantive work; we returned `"Hi."` or `"56."` and discarded the request. The user gets a wrong answer and the entire downstream pipeline never ran. This is the worst failure preflight can produce.
-- **False continue (cheap).** The message could have been answered with a phrase, but we routed it to the rest of the pipeline. Cost is one wasted classifier pass and a small latency hit.
-- **Over-using `unable_to_determine`.** The downstream router will escalate to a frontier model. That is expensive but safe; the user still gets a correct answer.
+- **False terminal (catastrophic, all three axes plus correctness failure).** The user asked for substantive work; we returned `"Hi."` or `"56."` and discarded the request. Cost impact: zero on the surface, but the user re-asks immediately, so the system pays twice. Accuracy impact: the user gets a wrong answer that pretends to be the answer. Latency impact: doubled round-trip count once the user notices. The entire downstream pipeline never ran.
+- **False continue (cheap, mostly cost + latency).** The message could have been answered with a phrase, but we routed it to the rest of the pipeline. Cost impact: one wasted classifier pass plus a downstream model call. Latency impact: a few hundred milliseconds. Accuracy impact: zero — the user still gets a correct answer.
+- **Over-using `unable_to_determine` (cost + latency impact).** The downstream router escalates to a frontier model with full context. Expensive but safe; the user still gets a correct answer.
 
-**Bias the training data accordingly.** When a careful reader is on the boundary between `terminal` and `continue`, the right label is `continue`. When a careful reader cannot decide what the user even means, the right label is `unable_to_determine`. Reserve `terminal` for cases where the 1–5 word `reply` is unambiguously the complete answer.
+**Bias the training data accordingly.** When a careful reader is on the boundary between `terminal` and `continue`, the right label is `continue` — the cost gradient is steep. When a careful reader cannot decide what the user even means, the right label is `unable_to_determine`. Reserve `terminal` for cases where the 1–5 word `reply` is unambiguously the complete answer.
 
 ## Output Contract
 

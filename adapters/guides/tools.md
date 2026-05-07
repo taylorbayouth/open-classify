@@ -4,6 +4,14 @@ This is the classifier-specific companion to `adapters/README.md` for generating
 
 Append output to `adapters/tools.jsonl`. Hold back 10-20% as an eval split per the README's generation workflow.
 
+## North Star
+
+This classifier narrows the tool manifest sent to the frontier model. Loading every tool definition on every call is the single largest fixed-cost line item in a downstream prompt — tool schemas, descriptions, and parameter docs add up fast and get charged on every turn until the conversation ends. Every unneeded family included here is pure dead-weight tokens for the rest of the session.
+
+The output populates `handoff.context.tools` with `needed: boolean` and `families: ToolFamily[]`. The downstream caller uses that to materialize a narrow tool manifest — `web` only, `workspace + developer_platforms`, no tools at all — instead of handing the model the full manifest. A small dedicated model exists for this so the manifest-narrowing decision happens before the frontier model sees the prompt; if you waited for the frontier model to "decide it doesn't need tools," you'd already have paid to include them.
+
+The classifier outputs broad families, not individual tool names. Tool-level decisions happen downstream once the manifest is loaded.
+
 ## Quick-Start (Human Curator)
 
 A row is one JSON line. Pick only the broad tool families required for the downstream assistant to complete the latest request. Return no tools for self-contained work.
@@ -26,12 +34,15 @@ The desired behavior is precise but practical:
 
 ## What Failure Costs In Production
 
-- **False negative (`needed:false` when tools are required).** Downstream hallucinates current facts, file contents, app state, or attachment contents. This is the worst tools-classifier failure.
-- **Missing a required family.** Downstream has some tools but cannot complete the task, causing retries or wrong work.
-- **False positive family.** Downstream sees unnecessary tools, increasing prompt size, latency, and risk surface. Usually cheaper than a false negative.
-- **Over-broad multi-family output.** Tool menus become noisy and may steer the downstream model into unnecessary actions.
+Tagged with the README's Cost-Of-Error Vocabulary:
 
-**Bias the training data accordingly.** Include tools whenever the request requires live state, files, apps, URLs, attachments, or external systems. Do not include a family simply because it could make a good answer better.
+- **False negative (`needed:false` when tools are required) — accuracy + latency impact, worst tools-classifier failure.** Downstream hallucinates current facts, file contents, app state, or attachment contents because it lacks the tool to look them up. The user gets a confident wrong answer and either acts on it or has to re-prompt with explicit instructions, doubling the round-trip count.
+- **Missing a required family (accuracy + latency impact).** Downstream has some tools but cannot complete the task, causing retries, partial work, or wrong work. "Apply the PR feedback to the local branch" with `workspace` but not `developer_platforms` means the model can edit but can't read the comments.
+- **False positive family (cost impact, sometimes accuracy).** Downstream sees unnecessary tools, increasing every-turn prompt size by the family's full schema. The frontier model occasionally wanders into a wrong tool because it was offered. Cheaper per-call than a false negative but it pays *every turn for the rest of the conversation*, not just once.
+- **Over-broad multi-family output (cost + accuracy impact).** Tool menus become noisy and may steer the downstream model into unnecessary actions. Three families when one is enough = three full schemas in the manifest forever.
+- **`needed: true` with empty families or vice versa (correctness failure).** Hard contract violation. The two fields must always agree: `needed === true` ⟺ `families.length > 0`.
+
+**Bias the training data accordingly.** Include tools whenever the request requires live state, files, apps, URLs, attachments, or external systems. Do not include a family simply because it could make a good answer better — convenience-only families are pure cost. Empty `families: []` is the correct answer for self-contained transformations, opinion, general knowledge, and code-only work without external lookup; do not hedge.
 
 ## Output Contract
 
@@ -103,6 +114,8 @@ Sample combinations from these axes:
 
 **Multi-family combos:** web+spreadsheets, workspace+developer_platforms, communications+documents, communications+project_management, web+documents, workspace+web, project_management+developer_platforms.
 
+**Multi-message windows:** **5–10% of rows.** Tool needs are usually evident from the latest message alone (a verb like "look up", "run", "open"; an attachment; a URL). Reserve multi-message rows for follow-up requests like "do that for the other file too" where the family is obvious from the prior turn but the latest turn is a bare directive.
+
 **Domains:** engineering, data analysis, finance, legal/contracts, sales/customer support, marketing, recruiting, personal logistics, travel, education.
 
 **User personas:** engineer, PM, analyst, lawyer, sales rep, recruiter, executive assistant, founder, student, support agent.
@@ -144,6 +157,7 @@ When generating a batch:
 - **Family coverage:** at least 8 examples of each family per 100 rows; include both easy and boundary cases.
 - **Multi-family coverage:** include at least 3 examples each of `workspace`+`developer_platforms`, `web`+`documents`, `web`+`spreadsheets`, and `communications`+one other family.
 - **Attachment rows:** 15-20% of rows, covering documents and spreadsheets separately.
+- **Multi-message windows:** 5–10% of rows. Mostly follow-up directives that inherit the family from the prior turn.
 - **Boundary pairs:** 8-12 pairs per batch, emitted on adjacent lines.
 
 **Per-record self-check (HARD GATE -- do not emit on failure):**

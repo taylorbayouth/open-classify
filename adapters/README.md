@@ -28,6 +28,18 @@ Each adapter output must match its classifier's schema. Do not train the seven a
 
 Each line is one chat-format training record. Add new examples by appending a single JSON object on a new line.
 
+## North Star
+
+Open Classify is a local context-routing control plane for AI assistants. The seven classifiers do not build the answer. They build a deterministic handoff that controls which downstream model runs, how much visible conversation history it sees, which saved-memory searches run before prompt construction, which tool families are exposed, what execution mode is used, and what safety posture applies.
+
+The product goal is **dynamic downstream context-window control**. Instead of dumping the same giant prompt package into every frontier-model call, Open Classify decides per-message what context belongs in the downstream prompt. That decision moves three levers at once:
+
+- **Cost**: terminal messages never reach the frontier; routed messages get a smaller payload.
+- **Accuracy**: the downstream model sees less noise, so it anchors on the right signal.
+- **Latency**: smaller prompts and cheaper model lanes return faster; terminal short-circuits return immediately.
+
+Every training row should be judged against this goal. A classifier that hedges, over-includes, or guesses high "to be safe" pushes the system back toward the giant prompt that Open Classify exists to avoid. A classifier that under-includes or refuses to flag a real signal makes the downstream model worse. Per-classifier guides spell out which direction the bias goes for that classifier's specific role.
+
 ## Two Ways to Generate Training Data
 
 The guides serve two consumers:
@@ -63,6 +75,16 @@ The prompt bundle for generation is:
 
 Emit only raw JSONL records for the selected classifier. Do not emit Markdown fences, commentary, headings, combined classifier objects, or rows for other classifiers.
 
+## Cost-Of-Error Vocabulary
+
+Every classifier guide tags its failure modes with the same three impact axes. Use these terms consistently when reasoning about whether a row is worth emitting:
+
+- **Cost impact** — wasted frontier tokens, wrong-tier escalation, redundant tool manifests, unnecessary memory searches, or any work the downstream pipeline does that should not have happened.
+- **Accuracy impact** — the downstream model receives noise that distracts it, or misses context that would have produced a meaningfully better answer. Includes referent loss, stale memory, mismatched specialization, and over-broad tool menus.
+- **Latency impact** — extra round-trips, larger model lanes than needed, tool calls that did not need to fire, or pipeline branches that did not need to be taken.
+
+Most classifier failures hit one or two of these axes. Some failures (false-terminal preflight, false-normal security) hit all three plus a correctness failure. Asymmetric error costs are called out per classifier; weight your distribution and boundary pairs accordingly.
+
 ## Training Record Strategy
 
 Keep records lean and focused on the distinct input-to-output mapping.
@@ -84,7 +106,7 @@ none
 
 This keeps examples compact while still teaching the model that classification targets the final conversation-window message and that attachments are represented as metadata.
 
-Single-message windows are preferred for simple examples. Use multi-message windows only when the label depends on context, such as conversation history selection, memory hints, or model-specialization boundaries. Use `Attachments: none` unless the classifier label depends on attachment metadata.
+**Multi-message percentage is per-classifier — see the matching guide.** Most classifiers should still skew heavily single-message because production inputs match that shape and large histories burn training tokens without adding signal. The Conversation History classifier is the exception: its entire job is reasoning about prior visible messages, so it needs the highest percentage of multi-message rows. Use `Attachments: none` unless the classifier label depends on attachment metadata.
 
 The assistant message must contain only the classifier's JSON result. Do not include explanations, Markdown, comments, or combined outputs from other classifiers.
 
@@ -136,5 +158,7 @@ When using the LLM-as-generator path:
 6. Re-train the adapter, point `adapter-models.json` at the new model name, and run the eval split through the new adapter to confirm the change moved the metric in the right direction.
 
 The eval-split discipline matters most for the five currently-empty classifier files (`conversation_history`, `memory_retrieval_queries`, `tools`, `model_specialization`, `security`), where the next batch of generated data will define the model's behavior with no historical baseline to compare against.
+
+The two existing files (`preflight.jsonl` with 100 rows, `routing.jsonl` with 126 rows) predate the rewritten guides. Treat them as the historical baseline. New appends should follow the rewritten guide; do not retroactively edit the existing rows.
 
 Runtime model selection is configured separately in `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.
