@@ -197,12 +197,10 @@ export type RunClassifier = <Name extends ClassifierName>(
 export type ClassifierFallbackReason = "error" | "timeout";
 
 // Per-classifier execution metadata. Surfaced on every pipeline result so
-// callers can tell which outputs came from the model vs. from a fallback,
-// and how many attempts it took.
+// callers can tell which outputs came from the model vs. from a fallback.
 export interface ClassifierRunStatus {
   ok: boolean;
   source: "model" | "fallback";
-  attempts: number;
   reason?: ClassifierFallbackReason;
   error?: string;
 }

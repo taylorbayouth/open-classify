@@ -86,14 +86,12 @@ type SettledClassifierResult<Name extends ClassifierName> =
       ok: true;
       name: Name;
       value: ClassifierOutput<Name>;
-      attempts: number;
     }
   | {
       ok: false;
       name: Name;
       error: unknown;
       reason: ClassifierFallbackReason;
-      attempts: number;
     };
 
 export async function classifyOpenClassifyInput(
@@ -333,7 +331,6 @@ async function runClassifierWithRetry<Name extends ClassifierName>(
   timeoutMs: number,
   retryCount: number,
 ): Promise<SettledClassifierResult<Name>> {
-  let attempts = 0;
   let lastError: unknown = new Error(`${name} classifier did not run`);
   let lastReason: ClassifierFallbackReason = "error";
 
@@ -342,7 +339,6 @@ async function runClassifierWithRetry<Name extends ClassifierName>(
       break;
     }
 
-    attempts += 1;
     const result = await runClassifierAttempt(
       name,
       input,
@@ -356,7 +352,6 @@ async function runClassifierWithRetry<Name extends ClassifierName>(
         ok: true,
         name,
         value: result.value,
-        attempts,
       };
     }
 
@@ -369,7 +364,6 @@ async function runClassifierWithRetry<Name extends ClassifierName>(
     name,
     error: lastError,
     reason: lastReason,
-    attempts,
   };
 }
 
@@ -481,14 +475,12 @@ function classifierRunStatus(
     return {
       ok: true,
       source: "model",
-      attempts: settled.attempts,
     };
   }
 
   return {
     ok: false,
     source: "fallback",
-    attempts: settled.attempts,
     reason: settled.reason,
     error: errorMessage(settled.error),
   };

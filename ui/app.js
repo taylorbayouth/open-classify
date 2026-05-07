@@ -668,8 +668,14 @@ function renderDetails(name, item) {
       ? `<span class="option selected">${n} message${n === 1 ? "" : "s"}</span>`
       : "";
     const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
+    const refersClass = result.refers_to_history ? " selected" : "";
+    const unseenClass = result.needs_unseen_history ? " selected" : "";
     return `
       <div class="option-row">${msgPill}${noHistoryPill}</div>
+      <div class="option-row">
+        <span class="option${refersClass}">Refers to History</span>
+        <span class="option${unseenClass}">Needs Unseen History</span>
+      </div>
       ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
     `;
   }
