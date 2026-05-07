@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { CLASSIFIERS } from "../dist/src/classifiers.js";
+import { TOOL_FAMILY_NEED_SYSTEM_PROMPT } from "../dist/src/prompts.js";
 import {
   classifyWithOllama,
   createOllamaClassifierRunner,
@@ -239,6 +240,38 @@ test("createOllamaClassifierRunner validates preflight terminality enum", async 
   );
 });
 
+test("createOllamaClassifierRunner validates preflight reply length", async () => {
+  const runner = runnerReturning({
+    terminality: "continue",
+    reply: "x".repeat(201),
+    reason: "The reply is intentionally too long.",
+  });
+
+  await assert.rejects(
+    runner("preflight", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "preflight" &&
+      /reply must be 200 characters or fewer/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner rejects empty preflight replies", async () => {
+  const runner = runnerReturning({
+    terminality: "continue",
+    reply: "   ",
+    reason: "The reply is intentionally empty.",
+  });
+
+  await assert.rejects(
+    runner("preflight", classifierInput(), new AbortController().signal),
+    (error) =>
+      error instanceof OllamaClassifierError &&
+      error.classifier === "preflight" &&
+      /reply must not be empty/.test(error.message),
+  );
+});
+
 test("createOllamaClassifierRunner validates routing enum values", async () => {
   const runner = runnerReturning({
     execution_mode: "tool_assisted",
@@ -338,6 +371,13 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
       error instanceof OllamaClassifierError &&
       error.classifier === "tools" &&
       /families must not include duplicates/.test(error.message),
+  );
+});
+
+test("tool family prompt keeps needed aligned with families", () => {
+  assert.match(
+    TOOL_FAMILY_NEED_SYSTEM_PROMPT,
+    /Return ONLY valid JSON matching:\n\{"needed":false,"families":\[\],"reason":"<one sentence>"\}/,
   );
 });
 
@@ -467,6 +507,29 @@ test("resource check can fail before fetch is called", async () => {
     runner("preflight", classifierInput(), new AbortController().signal),
     OllamaResourceError,
   );
+  assert.equal(called, false);
+});
+
+test("classifyWithOllama rejects resource failures instead of returning fallbacks", async () => {
+  let called = false;
+
+  await assert.rejects(
+    classifyWithOllama(
+      { messages: [{ role: "user", text: "review this" }] },
+      {
+        minTotalMemoryBytes: Number.MAX_SAFE_INTEGER,
+        minAvailableMemoryBytes: Number.MAX_SAFE_INTEGER,
+        fetch: async () => {
+          called = true;
+          return jsonResponse({
+            message: { content: JSON.stringify(validOutputs.preflight) },
+          });
+        },
+      },
+    ),
+    OllamaResourceError,
+  );
+
   assert.equal(called, false);
 });
 

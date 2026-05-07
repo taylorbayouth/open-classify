@@ -345,6 +345,34 @@ test("classifier timeout retries once and falls back even if signal is ignored",
   assert.equal(result.classifier_status.routing.reason, "timeout");
 });
 
+test("external abort signal cancels in-flight classifiers", async () => {
+  const controller = new AbortController();
+  const started = [];
+
+  const promise = classifyOpenClassifyInput(
+    { messages: [userMessage("review this")] },
+    {
+      signal: controller.signal,
+      classifierRetryCount: 0,
+      runClassifier(name) {
+        started.push(name);
+        return new Promise(() => {});
+      },
+    },
+  );
+
+  controller.abort(new Error("client disconnected"));
+  const result = await promise;
+
+  assert.equal(result.stop_downstream, false);
+  assert.equal(result.decision, "route");
+  assert.deepEqual(started.sort(), Object.keys(results).sort());
+  assert.equal(result.classifier_status.preflight.ok, false);
+  assert.equal(result.classifier_status.preflight.reason, "error");
+  assert.match(result.classifier_status.preflight.error, /client disconnected/);
+  assert.equal(result.classifier_status.security.ok, false);
+});
+
 test("preflight failure falls back to unable_to_determine and still routes", async () => {
   const attempts = {};
 

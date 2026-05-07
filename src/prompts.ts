@@ -214,7 +214,7 @@ export const TOOL_FAMILY_NEED_SYSTEM_PROMPT = `You are the tool family classifie
 Decide which broad tool families should be exposed to the downstream model for the latest normalized user message.
 
 Return ONLY valid JSON matching:
-{"needed":false,"families":["workspace"],"reason":"<one sentence>"}
+{"needed":false,"families":[],"reason":"<one sentence>"}
 
 Values:
 - "workspace": choose this for local files, source code, shell commands, git state, logs, local servers, or runtime inspection.

@@ -133,10 +133,10 @@ Pass a `messages` array with at least one message, ending with the user message 
 Every result carries a `decision` field — one of `"terminal"`, `"block"`, or `"route"`:
 
 - `"terminal"` — preflight handled the message; `reply` is the final answer, no downstream model is needed.
-- `"block"` — security flagged the message as `high_risk`; do not route. `reply` is present only if preflight produced one, otherwise omit it (silent block).
+- `"block"` — security flagged the message as `high_risk`; do not route. `reply` is the library's generic block response.
 - `"route"` — dispatch the message downstream using `classifiers.routing`. `reply` is the model's short acknowledgement and is present whenever preflight succeeded.
 
-All replies come from preflight; the pipeline never injects hardcoded user-facing text. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
+Terminal and route replies come from preflight. Block replies use a generic library refusal. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
 
 Routed results include a deterministic handoff object:
 

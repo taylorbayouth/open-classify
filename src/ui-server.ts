@@ -118,17 +118,17 @@ async function classifyStream(
   // batching kills the "live" feel.
   request.socket.setNoDelay(true);
 
-  // TODO: when the SSE client disconnects, the in-flight
-  // classifyOpenClassifyInput run is not cancelled and keeps consuming
-  // Ollama parallelism until it finishes. Plumb an AbortSignal through
-  // the pipeline (or wrap runClassifier here) so close/error tear down
-  // outstanding classifier requests.
   let closed = false;
-  response.on("close", () => {
+  const clientAbortController = new AbortController();
+  const abortForClientClose = (): void => {
     closed = true;
+    clientAbortController.abort(new Error("SSE client disconnected"));
+  };
+  response.on("close", () => {
+    abortForClientClose();
   });
   response.on("error", () => {
-    closed = true;
+    abortForClientClose();
   });
 
   const send = (event: string, data: unknown): void => {
@@ -195,6 +195,7 @@ async function classifyStream(
     const result = await classifyOpenClassifyInput(input, {
       runClassifier,
       downstreamModels: EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
+      signal: clientAbortController.signal,
     });
     send("pipeline_completed", result);
   } catch (error) {

@@ -59,6 +59,7 @@ export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
+const PREFLIGHT_REPLY_MAX_CHARS = 200;
 const CLASSIFIER_REASON_MAX_CHARS = 200;
 const CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT = 19;
 const CONVERSATION_HISTORY_REASON_MAX_CHARS = 200;
@@ -260,8 +261,20 @@ export async function classifyWithOllama(
   input: OpenClassifyInput,
   config: ClassifyWithOllamaConfig = {},
 ): Promise<OpenClassifyPipelineResult> {
+  let runnerConfig = config;
+  if (!config.skipResourceCheck) {
+    await assertOllamaResources({
+      minTotalMemoryBytes: config.minTotalMemoryBytes,
+      minAvailableMemoryBytes: config.minAvailableMemoryBytes,
+    });
+    runnerConfig = {
+      ...config,
+      skipResourceCheck: true,
+    };
+  }
+
   return classifyOpenClassifyInput(input, {
-    runClassifier: createOllamaClassifierRunner(config),
+    runClassifier: createOllamaClassifierRunner(runnerConfig),
     downstreamModels: config.downstreamModels,
   });
 }
@@ -576,7 +589,13 @@ function validatePreflight(
 ): PreflightResult {
   ensureExactKeys(value, ["terminality", "reply", "reason"], name, model);
   const terminality = requireEnum(value.terminality, TERMINALITY_VALUES, name, model, "terminality");
-  const reply = requireString(value.reply, name, model, "reply");
+  const reply = requireNonEmptyStringMaxLength(
+    value.reply,
+    name,
+    model,
+    "reply",
+    PREFLIGHT_REPLY_MAX_CHARS,
+  );
   return {
     terminality,
     reply,
@@ -892,6 +911,20 @@ function requireStringMaxLength(
   const text = requireString(value, classifier, model, path);
   if (text.length > maxChars) {
     throwInvalid(classifier, model, `${path} must be ${maxChars} characters or fewer`);
+  }
+  return text;
+}
+
+function requireNonEmptyStringMaxLength(
+  value: unknown,
+  classifier: ClassifierName,
+  model: string,
+  path: string,
+  maxChars: number,
+): string {
+  const text = requireStringMaxLength(value, classifier, model, path, maxChars);
+  if (text.trim().length === 0) {
+    throwInvalid(classifier, model, `${path} must not be empty`);
   }
   return text;
 }

@@ -50,6 +50,7 @@ export interface ClassifyOptions {
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
   downstreamModels?: DownstreamModelConfig;
+  signal?: AbortSignal;
 }
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
@@ -110,6 +111,14 @@ export async function classifyOpenClassifyInput(
   // early exit, we abort the rest of the in-flight runs so we don't pay
   // for work nobody will read.
   const controller = new AbortController();
+  const abortFromOptions = (): void => {
+    controller.abort(options.signal?.reason ?? new Error("classification aborted"));
+  };
+  if (options.signal?.aborted) {
+    abortFromOptions();
+  } else {
+    options.signal?.addEventListener("abort", abortFromOptions, { once: true });
+  }
   const classifierInput = toClassifierInput(request);
   const classifierTimeoutMs =
     options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
@@ -129,85 +138,89 @@ export async function classifyOpenClassifyInput(
     ]),
   );
 
-  const preflightSettled = await (runs.get("preflight") as Promise<SettledClassifierResult<"preflight">>);
-  const preflight = preflightSettled.ok
-    ? preflightSettled.value
-    : fallbackClassifierOutput("preflight");
+  try {
+    const preflightSettled = await (runs.get("preflight") as Promise<SettledClassifierResult<"preflight">>);
+    const preflight = preflightSettled.ok
+      ? preflightSettled.value
+      : fallbackClassifierOutput("preflight");
 
-  // Note: only honor "terminal" if preflight actually succeeded. A fallback
-  // preflight reports `terminality: "unable_to_determine"`, which falls
-  // through to the normal route path (this is the conservative choice — a
-  // misfire shouldn't silently terminate the conversation).
-  if (preflightSettled.ok && preflight.terminality === "terminal") {
-    controller.abort();
-    // Drain the aborted runs so they can clean up before we return. We
-    // don't care about their results; we just don't want dangling promises.
-    await settleClassifierRunsExcept(runs, ["preflight"]);
+    // Note: only honor "terminal" if preflight actually succeeded. A fallback
+    // preflight reports `terminality: "unable_to_determine"`, which falls
+    // through to the normal route path (this is the conservative choice — a
+    // misfire shouldn't silently terminate the conversation).
+    if (preflightSettled.ok && preflight.terminality === "terminal") {
+      controller.abort();
+      // Drain the aborted runs so they can clean up before we return. We
+      // don't care about their results; we just don't want dangling promises.
+      await settleClassifierRunsExcept(runs, ["preflight"]);
+
+      return {
+        stop_downstream: true,
+        decision: "terminal",
+        target_message_hash: request.target_message_hash,
+        reply: preflight.reply,
+        preflight,
+        classifier_status: {
+          preflight: classifierRunStatus(preflightSettled),
+        },
+      };
+    }
+
+    const securitySettled = await (runs.get("security") as Promise<
+      SettledClassifierResult<"security">
+    >);
+    const security = securitySettled.ok
+      ? securitySettled.value
+      : fallbackClassifierOutput("security");
+
+    // Same caveat as preflight: only block on a real model verdict, never on
+    // a fallback. A failed security classifier should not block the user.
+    if (securitySettled.ok && security.risk_level === "high_risk") {
+      controller.abort();
+      await settleClassifierRunsExcept(runs, ["preflight", "security"]);
+
+      return {
+        stop_downstream: true,
+        decision: "block",
+        target_message_hash: request.target_message_hash,
+        reply: SECURITY_BLOCK_REPLY,
+        preflight,
+        security,
+        classifier_status: {
+          preflight: classifierRunStatus(preflightSettled),
+          security: classifierRunStatus(securitySettled),
+        },
+      };
+    }
+
+    const settled = await Promise.all(
+      CLASSIFIER_NAMES.map((name) => runs.get(name)!),
+    );
+
+    const results = new Map(settled.map((entry) => [entry.name, entry]));
+
+    const classifiers: OpenClassifyResult = {
+      preflight: resultOrFallback(results, "preflight"),
+      routing: resultOrFallback(results, "routing"),
+      conversation_history: resultOrFallback(results, "conversation_history"),
+      memory_retrieval_queries: resultOrFallback(results, "memory_retrieval_queries"),
+      tools: resultOrFallback(results, "tools"),
+      model_specialization: resultOrFallback(results, "model_specialization"),
+      security: resultOrFallback(results, "security"),
+    };
 
     return {
-      stop_downstream: true,
-      decision: "terminal",
+      stop_downstream: false,
+      decision: "route",
       target_message_hash: request.target_message_hash,
-      reply: preflight.reply,
-      preflight,
-      classifier_status: {
-        preflight: classifierRunStatus(preflightSettled),
-      },
+      reply: classifiers.preflight.reply,
+      handoff: buildHandoff(classifiers, options.downstreamModels),
+      classifiers,
+      classifier_status: classifierRunStatuses(settled),
     };
+  } finally {
+    options.signal?.removeEventListener("abort", abortFromOptions);
   }
-
-  const securitySettled = await (runs.get("security") as Promise<
-    SettledClassifierResult<"security">
-  >);
-  const security = securitySettled.ok
-    ? securitySettled.value
-    : fallbackClassifierOutput("security");
-
-  // Same caveat as preflight: only block on a real model verdict, never on
-  // a fallback. A failed security classifier should not block the user.
-  if (securitySettled.ok && security.risk_level === "high_risk") {
-    controller.abort();
-    await settleClassifierRunsExcept(runs, ["preflight", "security"]);
-
-    return {
-      stop_downstream: true,
-      decision: "block",
-      target_message_hash: request.target_message_hash,
-      reply: SECURITY_BLOCK_REPLY,
-      preflight,
-      security,
-      classifier_status: {
-        preflight: classifierRunStatus(preflightSettled),
-        security: classifierRunStatus(securitySettled),
-      },
-    };
-  }
-
-  const settled = await Promise.all(
-    CLASSIFIER_NAMES.map((name) => runs.get(name)!),
-  );
-
-  const results = new Map(settled.map((entry) => [entry.name, entry]));
-
-  const classifiers: OpenClassifyResult = {
-    preflight: resultOrFallback(results, "preflight"),
-    routing: resultOrFallback(results, "routing"),
-    conversation_history: resultOrFallback(results, "conversation_history"),
-    memory_retrieval_queries: resultOrFallback(results, "memory_retrieval_queries"),
-    tools: resultOrFallback(results, "tools"),
-    model_specialization: resultOrFallback(results, "model_specialization"),
-    security: resultOrFallback(results, "security"),
-  };
-
-  return {
-    stop_downstream: false,
-    decision: "route",
-    target_message_hash: request.target_message_hash,
-    reply: classifiers.preflight.reply,
-    handoff: buildHandoff(classifiers, options.downstreamModels),
-    classifiers,
-    classifier_status: classifierRunStatuses(settled),
-  };
 }
 
 // Folds the seven classifier outputs into the flattened handoff shape that
