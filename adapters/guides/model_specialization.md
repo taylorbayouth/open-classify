@@ -6,15 +6,15 @@ Append output to `adapters/model_specialization.jsonl`. Hold back 10–20% as an
 
 ## North Star
 
-This classifier picks the capability lane — `chat`, `writing`, `reasoning`, `planning`, `coding`, `instruction_following`, or `unclear` — that the downstream model and prompt should specialize for. It combines with `model_tier` (from the routing classifier) to resolve a concrete downstream model via `DownstreamModelConfig`. The output populates the model-selection lookup; a wrong specialization sends the request to a model whose system prompt or fine-tune is mismatched, producing a worse answer at the same price.
+This classifier picks the model/prompt specialization — `chat`, `writing`, `reasoning`, `planning`, `coding`, `instruction_following`, or `unclear` — that should handle the downstream answer. These enums are not just task categories. Each value means "route to a downstream model and system prompt specialized for this kind of work" at the separately selected model tier. It combines with `model_tier` (from the routing classifier) to resolve a concrete downstream model via `DownstreamModelConfig`, such as `writing.local_strong` or `coding.frontier_strong`. The output populates the model-selection lookup; a wrong specialization sends the request to a model whose system prompt or fine-tune is mismatched, producing a worse answer at the same price.
 
 In the dynamic context-window control story, this classifier doesn't shrink the prompt; it picks the *right* prompt. Two model lanes might both be available at `local_strong` tier, but the `coding` lane includes a coding-specialized system prompt and the `writing` lane includes a writing-specialized one. Sending a code-edit task to the writing lane wastes the specialized prompting on a mismatched task.
 
-A small dedicated model exists for this so the lane decision happens locally without a frontier round-trip. The choice is information-light per call (one of seven values) but high-leverage on output quality.
+A small dedicated model exists for this so the specialization decision happens locally without a frontier round-trip. The choice is information-light per call (one of seven values) but high-leverage on output quality.
 
 ## Quick-Start (Human Curator)
 
-A row is one JSON line. Choose the model specialization best suited to the latest user message — the lane that should drive model selection and prompt specialization for the downstream answer.
+A row is one JSON line. Choose the model specialization best suited to the latest user message — the downstream model/prompt family that should produce the final answer after tier routing is applied.
 
 ```json
 {"messages":[{"role":"system","content":"Return only valid JSON for this classifier. Do not answer the user."},{"role":"user","content":"Conversation window:\nMessage 1 (target):\nrole: user\ntext:\n<the user's message>\n\nAttachments:\nnone"},{"role":"assistant","content":"{\"model_specialization\":\"chat\",\"reason\":\"The request is a general conversational answer.\"}"}]}
@@ -22,9 +22,10 @@ A row is one JSON line. Choose the model specialization best suited to the lates
 
 ## What We Are Fine Tuning For
 
-The classifier picks one capability lane that should drive model selection and prompt specialization. It should learn:
+The classifier picks one model/prompt specialization that should drive downstream model selection. It should learn:
 
-- The lane is about the *final intended output*, not about tool use or execution mode. Repo work needing tools is still `coding`.
+- The enum is a routing key for specialized model behavior, not a generic topic label.
+- The lane is about the *final intended output* and the model specialization best suited to produce it, not about tool use or execution mode. Repo work needing tools is still `coding`.
 - Tool use does not imply a specialization. `tool_assisted` execution can be any lane.
 - When uncertain between `chat` and a more specific lane, prefer the more specific one. `chat` is the default, not the safe pick.
 - When uncertain between `reasoning` and a more specific lane (writing, planning, coding, instruction_following), prefer the more specific one. `reasoning` is broad; the others are sharp.
@@ -50,9 +51,21 @@ Tagged with the README's Cost-Of-Error Vocabulary:
 ```
 
 - `model_specialization` (required): exactly one of the seven enum values, lowercase, snake_case.
-- `reason` (required): compact diagnostic explanation for the lane choice, under 200 characters.
+- `reason` (required): compact diagnostic explanation for the model specialization choice, under 200 characters.
 
 JSON key order: `model_specialization`, then `reason`. No extra keys. No whitespace inside the assistant JSON.
+
+## Enum Meanings
+
+Read every enum as "send this request to the downstream model/prompt specialized for...":
+
+- `chat`: general conversation, normal answers, explanations, discussion, casual Q&A.
+- `writing`: drafting, rewriting, summarizing, translating, polishing, tone/style matching, prose formatting.
+- `reasoning`: analysis, comparison, diagnosis, evaluation, recommendations, tradeoffs, critique, decision support.
+- `planning`: plans, roadmaps, checklists, specs, strategies, sequencing, task decomposition, operational next steps.
+- `coding`: code questions, debugging, repo inspection, tests, implementation, refactors, code review, code edits.
+- `instruction_following`: strict extraction, classification, conversion, schema filling, rule application, exact format compliance.
+- `unclear`: too malformed or context-missing to identify which model specialization should handle it.
 
 ## Common LLM Failure Modes When Generating Specialization Data
 
@@ -70,7 +83,7 @@ Watch for these:
 A two-step test decides every row:
 
 > Step 1: What is the deliverable — the actual final output the downstream model should produce?
-> Step 2: Which lane's specialized prompt produces that deliverable best?
+> Step 2: Which specialized downstream model/prompt should produce that deliverable?
 
 - Prose for human consumption → `writing`.
 - Code, code edits, debugging output, code review → `coding`.
@@ -159,7 +172,7 @@ When generating a batch:
 
 1. Apply every hard gate from `adapters/README.md`.
 2. Parsed assistant JSON has exactly two keys: `model_specialization` and `reason`.
-3. The lane choice matches the deliverable, not the tool family or execution mode.
+3. The specialization choice matches the deliverable, not the tool family or execution mode.
 4. `reason` is short, factual, and consistent with the chosen lane.
 5. The user message is not a near-duplicate of any prior row in this batch and not a string copied from this guide's worked examples or appendix.
 
@@ -240,22 +253,26 @@ This is the system prompt the production runtime sends to Gemma at inference tim
 ```
 You are the model specialization classifier for an AI assistant handoff system.
 
-Choose the capability lane best suited to the latest normalized user message.
+Choose the model/prompt specialization best suited to the latest normalized user message.
+
+This is not a generic task taxonomy. Each enum value means "route to a downstream model and system prompt specialized for this kind of work" at the separately selected model tier.
 
 Return ONLY valid JSON matching:
 {"model_specialization":"chat|writing|reasoning|planning|coding|instruction_following|unclear","reason":"<one sentence>"}
 
 Values:
-- "chat": choose this for general answers, explanations, discussion, casual conversation, lightweight Q&A, or a normal assistant response.
-- "writing": choose this for drafting, rewriting, summarizing, translating, polishing, tone changes, style matching, or prose formatting.
-- "reasoning": choose this for analysis, comparison, diagnosis, evaluation, recommendation, tradeoff discussion, critique, or decision support.
-- "planning": choose this for plans, roadmaps, checklists, specs, strategies, sequencing, task decomposition, or operational next steps.
-- "coding": choose this for code questions, debugging, repo inspection, tests, implementation, refactors, code review, or code edits.
-- "instruction_following": choose this for precise extraction, classification, conversion, schema filling, rule application, or format compliance where obeying explicit constraints is the main task.
-- "unclear": choose this when the latest message is too malformed or context-missing to identify a capability lane.
+- "chat": route to a general conversation model/prompt for answers, explanations, discussion, casual conversation, lightweight Q&A, or a normal assistant response.
+- "writing": route to a writing-specialized model/prompt for drafting, rewriting, summarizing, translating, polishing, tone changes, style matching, or prose formatting.
+- "reasoning": route to a reasoning-specialized model/prompt for analysis, comparison, diagnosis, evaluation, recommendation, tradeoff discussion, critique, or decision support.
+- "planning": route to a planning-specialized model/prompt for plans, roadmaps, checklists, specs, strategies, sequencing, task decomposition, or operational next steps.
+- "coding": route to a coding-specialized model/prompt for code questions, debugging, repo inspection, tests, implementation, refactors, code review, or code edits.
+- "instruction_following": route to an instruction-following-specialized model/prompt for precise extraction, classification, conversion, schema filling, rule application, or strict format compliance where obeying explicit constraints is the main task.
+- "unclear": choose this when the latest message is too malformed or context-missing to identify which model specialization should handle it.
 
 Selection guide:
+- Choose the specialization that should combine with the separately selected model tier to resolve a concrete downstream model, such as writing.local_strong or coding.frontier_strong.
 - Choose the specialization that should drive model selection and prompt specialization, not the execution mode or tool access.
+- Ask: "Which specialized downstream model would produce the best final answer for this request?"
 - Do not use "instruction_following" merely because the user included a constraint; use it when precise rule/schema compliance is the core task.
 - Tool use does not imply a specialization by itself.
 - When a request mixes modes, choose the specialization for the final intended output or highest-skill part.
