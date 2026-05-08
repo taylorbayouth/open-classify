@@ -78,11 +78,6 @@ export const EXAMPLE_DOWNSTREAM_MODEL_CONFIG = {
   default: "gpt-5.4-mini",
 } as const satisfies DownstreamModelConfig;
 
-// Generic refusal string returned when security blocks. Intentionally vague —
-// callers who want a richer refusal flow should detect `decision === "block"`
-// and craft their own copy.
-const SECURITY_BLOCK_REPLY = "I can't help with that request.";
-
 type SettledClassifierResult<Name extends ClassifierName> =
   | {
       ok: true;
@@ -182,10 +177,8 @@ export async function classifyOpenClassifyInput(
       return {
         decision: "block",
         target_message_hash: request.target_message_hash,
-        reply: SECURITY_BLOCK_REPLY,
         meta: {
           classifiers: {
-            preflight: classifierEntry(preflight, classifierRunStatus(preflightSettled)),
             security: classifierEntry(security, classifierRunStatus(securitySettled)),
           },
         },
