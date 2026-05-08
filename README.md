@@ -67,7 +67,7 @@ Recommends how much visible prior conversation history to include with the lates
 Fields: `is_standalone`, `refers_to_history`, `relevant_conversation_history`, `needs_unseen_history`, `reason`
 
 **"Make the second option more direct."**
-→ `refers_to_history: true` with the relevant visible messages included. The route handoff also exposes `prior_messages_needed` for callers that prefer to fetch the suffix themselves.
+→ `refers_to_history: true` with the relevant visible messages included. The route handoff exposes them at `handoff.context.conversation.messages`; the array length is the count.
 
 ### Memory Retrieval Queries
 
@@ -134,9 +134,11 @@ Every result carries a `decision` field — one of `"terminal"`, `"block"`, or `
 
 - `"terminal"` — preflight handled the message; `reply` is the final answer, no downstream model is needed.
 - `"block"` — security flagged the message as `high_risk`; do not route. `reply` is the library's generic block response.
-- `"route"` — dispatch the message downstream using `classifiers.routing`. `reply` is the model's short acknowledgement and is present whenever preflight succeeded.
+- `"route"` — dispatch the message downstream using `handoff`. `reply` is the model's short acknowledgement and is present whenever preflight succeeded.
 
 Terminal and route replies come from preflight. Block replies use a generic library refusal. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
+
+Every result also has a `meta.classifiers` map. Each entry is the classifier's full verdict plus an embedded `status` object — when `status.ok` is `false`, the classifier fell back to a conservative default and `status.error` explains why. On terminal/block paths `meta.classifiers` only contains the classifiers that ran (preflight, optionally security); on route paths it contains all seven.
 
 Routed results include a deterministic handoff object:
 
@@ -144,16 +146,15 @@ Routed results include a deterministic handoff object:
 {
   "handoff": {
     "execution_mode": "tool_assisted",
-    "model": {
+    "model": "gpt-5.3-codex",
+    "model_resolution": {
       "key": "coding.frontier_fast",
-      "model": "gpt-5.3-codex",
       "resolved_from": "coding.frontier_fast",
       "tier": "frontier_fast",
       "specialization": "coding"
     },
     "context": {
       "conversation": {
-        "prior_messages_needed": 0,
         "messages": [],
         "needs_unseen_history": false
       },
@@ -164,6 +165,10 @@ Routed results include a deterministic handoff object:
   }
 }
 ```
+
+`handoff.model` is the resolved downstream model identifier (or `null`). `model_resolution` records how the lookup ran: `key` is the most-specific candidate tried (`${specialization}.${tier}`); `resolved_from` is the key that actually had a value in your `downstreamModels` config (it equals `key` on a direct hit, a less-specific fallback on a fallback, or `null` if nothing matched).
+
+`context.memory.status` flips to `"unavailable"` when the memory_retrieval_queries classifier itself fell back — distinguishing "no memory needed" from "we couldn't tell." Use it to decide whether to skip retrieval entirely or run a conservative default.
 
 The model is resolved without a second LLM call. Configure concrete downstream models by exact specialization+tier first, then broad fallbacks:
 
@@ -180,7 +185,7 @@ const result = await classifyWithOllama(input, {
 });
 ```
 
-Resolution order is: `${specialization}.${tier}`, then `tier`, then `specialization`, then `default`. If no configured key matches, `handoff.model.model` is `null` and the raw `tier` and `specialization` are still returned.
+Resolution order is: `${specialization}.${tier}`, then `tier`, then `specialization`, then `default`. If no configured key matches, `handoff.model` is `null` and `handoff.model_resolution` still reports the `tier` and `specialization` that were attempted.
 
 Fine-tuned adapters per classifier can be registered as Ollama models and mapped in `adapter-models.json`. Any classifier without an adapter falls back to the base model.
 

@@ -482,12 +482,17 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     },
   );
 
-  assert.equal(result.stop_downstream, false);
   assert.equal(result.decision, "route");
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
-  assert.deepEqual(result.classifiers, validOutputs);
-  assert.equal(result.handoff.model.model, "selected-downstream-model");
-  assert.equal(result.handoff.model.resolved_from, "reasoning.local_strong");
+  for (const [name, expected] of Object.entries(validOutputs)) {
+    const entry = result.meta.classifiers[name];
+    for (const [field, value] of Object.entries(expected)) {
+      assert.deepEqual(entry[field], value, `meta.classifiers.${name}.${field}`);
+    }
+    assert.equal(entry.status.ok, true);
+  }
+  assert.equal(result.handoff.model, "selected-downstream-model");
+  assert.equal(result.handoff.model_resolution.resolved_from, "reasoning.local_strong");
 });
 
 test("resource check can fail before fetch is called", async () => {

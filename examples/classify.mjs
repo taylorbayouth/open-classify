@@ -31,14 +31,15 @@ console.log(JSON.stringify(result, null, 2));
 if (result.decision === "terminal") {
   console.error(`\nDecision: terminal — assistant should reply with: "${result.reply}"`);
 } else if (result.decision === "block") {
+  const security = result.meta.classifiers.security;
   console.error(
-    `\nDecision: block — ${result.security.risk_level}: ${result.security.reason}`,
+    `\nDecision: block — ${security.risk_level}: ${security.reason}`,
   );
 } else {
-  const { routing, tools, security } = result.classifiers;
+  const { routing, tools, security } = result.meta.classifiers;
   console.error(
     `\nDecision: route → ${routing.execution_mode} on ${routing.model_tier}` +
-      ` | model: ${result.handoff.model.model ?? "(unresolved)"}` +
+      ` | model: ${result.handoff.model ?? "(unresolved)"}` +
       ` | tools: ${tools.families.join(", ") || "none"}` +
       ` | security: ${security.risk_level}`,
   );

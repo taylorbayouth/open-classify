@@ -466,12 +466,14 @@ function renderPipeline(result) {
   setRunState(finalState);
   showReply(result.reply);
 
-  if (result.classifiers) {
-    for (const name of Object.keys(result.classifiers)) {
-      const status = result.classifier_status?.[name];
+  if (result.meta?.classifiers) {
+    for (const name of Object.keys(result.meta.classifiers)) {
+      const entry = result.meta.classifiers[name];
+      const status = entry.status;
+      const { status: _ignored, ...verdict } = entry;
       updateClassifier(name, {
         status: status?.ok === false ? "fallback" : "done",
-        result: result.classifiers[name],
+        result: verdict,
         error: status?.ok === false ? status.error : null,
         finishedAt: performance.now(),
       });

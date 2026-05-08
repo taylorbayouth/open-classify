@@ -17,13 +17,15 @@
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
+  ClassifierEntry,
   ClassifierFallbackReason,
   ClassifierName,
   ClassifierOutput,
   ClassifierRunStatus,
-  ClassifierRunStatusMap,
   DownstreamModelConfig,
   DownstreamModelConfigKey,
+  FullClassifierEntries,
+  ModelResolution,
   ModelSpecializationResult,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
@@ -153,13 +155,13 @@ export async function classifyOpenClassifyInput(
       await settleClassifierRunsExcept(runs, ["preflight"]);
 
       return {
-        stop_downstream: true,
         decision: "terminal",
         target_message_hash: request.target_message_hash,
         reply: preflight.reply,
-        preflight,
-        classifier_status: {
-          preflight: classifierRunStatus(preflightSettled),
+        meta: {
+          classifiers: {
+            preflight: classifierEntry(preflight, classifierRunStatus(preflightSettled)),
+          },
         },
       };
     }
@@ -178,15 +180,14 @@ export async function classifyOpenClassifyInput(
       await settleClassifierRunsExcept(runs, ["preflight", "security"]);
 
       return {
-        stop_downstream: true,
         decision: "block",
         target_message_hash: request.target_message_hash,
         reply: SECURITY_BLOCK_REPLY,
-        preflight,
-        security,
-        classifier_status: {
-          preflight: classifierRunStatus(preflightSettled),
-          security: classifierRunStatus(securitySettled),
+        meta: {
+          classifiers: {
+            preflight: classifierEntry(preflight, classifierRunStatus(preflightSettled)),
+            security: classifierEntry(security, classifierRunStatus(securitySettled)),
+          },
         },
       };
     }
@@ -206,15 +207,26 @@ export async function classifyOpenClassifyInput(
       model_specialization: resultOrFallback(results, "model_specialization"),
       security: resultOrFallback(results, "security"),
     };
+    const statuses = classifierRunStatusByName(settled);
+    const entries: FullClassifierEntries = {
+      preflight: classifierEntry(classifiers.preflight, statuses.preflight),
+      routing: classifierEntry(classifiers.routing, statuses.routing),
+      conversation_history: classifierEntry(classifiers.conversation_history, statuses.conversation_history),
+      memory_retrieval_queries: classifierEntry(
+        classifiers.memory_retrieval_queries,
+        statuses.memory_retrieval_queries,
+      ),
+      tools: classifierEntry(classifiers.tools, statuses.tools),
+      model_specialization: classifierEntry(classifiers.model_specialization, statuses.model_specialization),
+      security: classifierEntry(classifiers.security, statuses.security),
+    };
 
     return {
-      stop_downstream: false,
       decision: "route",
       target_message_hash: request.target_message_hash,
       reply: classifiers.preflight.reply,
-      handoff: buildHandoff(classifiers, options.downstreamModels),
-      classifiers,
-      classifier_status: classifierRunStatuses(settled),
+      handoff: buildHandoff(classifiers, statuses, options.downstreamModels),
+      meta: { classifiers: entries },
     };
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
@@ -224,26 +236,35 @@ export async function classifyOpenClassifyInput(
 // Folds the seven classifier outputs into the flattened handoff shape that
 // downstream code typically wants. Exported so callers who built their own
 // classifier results (e.g. cached, partial) can still produce a handoff.
+//
+// `statuses` controls the conservative-fallback signaling: when a classifier
+// fell back, fields derived from it (e.g. `memory.status`) flag that, so a
+// consumer can distinguish "the model said empty" from "we couldn't tell."
+// Pass an empty object if you don't have status info; everything will report
+// "ok" by default.
 export function buildHandoff(
   classifiers: OpenClassifyResult,
+  statuses: Partial<Record<ClassifierName, ClassifierRunStatus>> = {},
   downstreamModels: DownstreamModelConfig = {},
 ): OpenClassifyHandoff {
+  const { model, model_resolution } = resolveDownstreamModel(
+    classifiers.routing,
+    classifiers.model_specialization,
+    downstreamModels,
+  );
+
   return {
     execution_mode: classifiers.routing.execution_mode,
-    model: resolveDownstreamModel(
-      classifiers.routing,
-      classifiers.model_specialization,
-      downstreamModels,
-    ),
+    model,
+    model_resolution,
     context: {
       conversation: {
-        prior_messages_needed:
-          classifiers.conversation_history.relevant_conversation_history.length,
         messages: classifiers.conversation_history.relevant_conversation_history,
         needs_unseen_history: classifiers.conversation_history.needs_unseen_history,
       },
       memory: {
         queries: classifiers.memory_retrieval_queries.queries,
+        status: statuses.memory_retrieval_queries?.ok === false ? "unavailable" : "ok",
       },
       tools: {
         needed: classifiers.tools.needed,
@@ -261,7 +282,7 @@ function resolveDownstreamModel(
   routing: RoutingResult,
   specialization: ModelSpecializationResult,
   downstreamModels: DownstreamModelConfig,
-): OpenClassifyHandoff["model"] {
+): { model: string | null; model_resolution: ModelResolution } {
   const candidates = downstreamModelConfigKeys(
     specialization.model_specialization,
     routing.model_tier,
@@ -270,11 +291,13 @@ function resolveDownstreamModel(
     candidates.find((key) => modelValue(downstreamModels, key) !== null) ?? null;
 
   return {
-    key: candidates[0],
     model: resolvedFrom ? modelValue(downstreamModels, resolvedFrom) : null,
-    resolved_from: resolvedFrom,
-    tier: routing.model_tier,
-    specialization: specialization.model_specialization,
+    model_resolution: {
+      key: candidates[0],
+      resolved_from: resolvedFrom,
+      tier: routing.model_tier,
+      specialization: specialization.model_specialization,
+    },
   };
 }
 
@@ -460,12 +483,12 @@ function resultOrFallback<Name extends ClassifierName>(
   return fallbackClassifierOutput(name);
 }
 
-function classifierRunStatuses(
+function classifierRunStatusByName(
   settled: SettledClassifierResult<ClassifierName>[],
-): ClassifierRunStatusMap {
+): Record<ClassifierName, ClassifierRunStatus> {
   return Object.fromEntries(
     settled.map((entry) => [entry.name, classifierRunStatus(entry)]),
-  ) as ClassifierRunStatusMap;
+  ) as Record<ClassifierName, ClassifierRunStatus>;
 }
 
 function classifierRunStatus(
@@ -486,11 +509,25 @@ function classifierRunStatus(
   };
 }
 
+// Merge a classifier verdict with its execution status into the single entry
+// shape that ships under `meta.classifiers.{name}`.
+function classifierEntry<Name extends ClassifierName>(
+  output: ClassifierOutput<Name>,
+  status: ClassifierRunStatus,
+): ClassifierEntry<Name> {
+  return { ...output, status } as ClassifierEntry<Name>;
+}
+
 // Conservative defaults for when a classifier fails or times out. Prefer
 // "unable to determine" / empty collections over guessing. The pipeline
-// soft-fails on these (route still happens; `classifier_status` flags the
+// soft-fails on these (route still happens; the entry's `status` flags the
 // fallback) — except for preflight/security, where a fallback verdict is
 // never honored as an early-exit trigger.
+//
+// Verdict-level `reason` is intentionally empty on fallback. Operational
+// explanations (why we fell back) live in `status.error` — keeping them
+// out of `reason` prevents consumers from confusing infrastructure errors
+// with the model's reasoning.
 //
 // Typed as a mapped object so each entry is checked against its own output
 // shape — no casts needed when indexing by a generic `Name`.
@@ -498,37 +535,37 @@ const FALLBACK_OUTPUTS: { [Name in ClassifierName]: ClassifierOutput<Name> } = {
   preflight: {
     terminality: "unable_to_determine",
     reply: "Let me check.",
-    reason: "Preflight classifier unavailable.",
+    reason: "",
   },
   routing: {
     execution_mode: "direct",
     model_tier: "local_strong",
-    reason: "Routing classifier unavailable.",
+    reason: "",
   },
   conversation_history: {
     is_standalone: false,
     refers_to_history: false,
     relevant_conversation_history: [],
     needs_unseen_history: true,
-    reason: "Conversation history classifier unavailable.",
+    reason: "",
   },
   memory_retrieval_queries: {
     queries: [],
-    reason: "Memory retrieval query classifier unavailable.",
+    reason: "",
   },
   tools: {
     needed: false,
     families: [],
-    reason: "Tool classifier unavailable.",
+    reason: "",
   },
   model_specialization: {
     model_specialization: "unclear",
-    reason: "Model specialization classifier unavailable.",
+    reason: "",
   },
   security: {
     risk_level: "unable_to_determine",
     signals: [],
-    reason: "Security classifier unavailable.",
+    reason: "",
   },
 };
 

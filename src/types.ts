@@ -142,34 +142,48 @@ export interface OpenClassifyResult {
   security: SecurityResult;
 }
 
-// The concrete model the pipeline picked for the downstream assistant. `key`
-// is the most-specific candidate that was tried; `resolved_from` is the key
-// that actually had a value (may equal `key`, or be a less specific fallback,
-// or be null if nothing matched).
-export interface OpenClassifyModelRecommendation {
+// How the pipeline arrived at the chosen downstream model. `key` is the most-
+// specific candidate that was tried (always set); `resolved_from` is the key
+// that actually had a value in the caller's `downstreamModels` config (may
+// equal `key`, or be a less specific fallback, or be null if nothing matched).
+// The resolved model identifier itself lives at `OpenClassifyHandoff.model`.
+export interface ModelResolution {
   key: DownstreamModelConfigKey;
-  model: string | null;
   resolved_from: DownstreamModelConfigKey | null;
   tier: DownstreamModelTier;
   specialization: ModelSpecialization;
 }
+
+// Whether the rolled-up memory queries are trustworthy. "ok" means the
+// memory_retrieval_queries classifier ran and produced a verdict (possibly
+// empty); "unavailable" means it fell back, so an empty `queries` array is
+// the absence of a verdict, not a real "no memory needed" signal.
+export type MemoryStatus = "ok" | "unavailable";
 
 // The shape downstream code actually consumes — a flattened, opinionated view
 // of the seven classifier outputs. If you only care about "what should the
 // assistant do next?", this is the type to lean on.
 export interface OpenClassifyHandoff {
   execution_mode: DownstreamExecutionMode;
-  model: OpenClassifyModelRecommendation;
+  // The resolved downstream model identifier, or null when the caller's
+  // `downstreamModels` config has no matching entry. This is the irreducible
+  // routing answer; `model_resolution` is the breakdown of how it was picked.
+  model: string | null;
+  model_resolution: ModelResolution;
   context: {
     conversation: {
-      prior_messages_needed: number;
+      // Length of this array IS the prior-messages count — the runner sliced
+      // the right suffix for you. There's no separate count field.
       messages: ConversationMessageInput[];
       needs_unseen_history: boolean;
     };
     memory: {
       queries: string[];
+      status: MemoryStatus;
     };
     tools: {
+      // Kept distinct from `families.length > 0`: the model can flag "yes
+      // tools needed" without picking a specific family.
       needed: boolean;
       families: ToolFamily[];
     };
@@ -196,8 +210,8 @@ export type RunClassifier = <Name extends ClassifierName>(
 // Why a classifier fell back to its default output instead of a model answer.
 export type ClassifierFallbackReason = "error" | "timeout";
 
-// Per-classifier execution metadata. Surfaced on every pipeline result so
-// callers can tell which outputs came from the model vs. from a fallback.
+// Per-classifier execution metadata. Lives inside the merged classifier entry
+// so callers see the verdict and the operational state in one place.
 export interface ClassifierRunStatus {
   ok: boolean;
   source: "model" | "fallback";
@@ -205,47 +219,69 @@ export interface ClassifierRunStatus {
   error?: string;
 }
 
-// Partial because early-exit decisions (terminal, block) only run a subset of
-// classifiers — the ones that didn't run are simply absent.
-export type ClassifierRunStatusMap = Partial<Record<ClassifierName, ClassifierRunStatus>>;
+// One per classifier: the verdict fields plus an embedded `status`. When
+// `status.ok` is false, the verdict fields are the conservative fallback
+// defaults and verdict-level `reason` is empty — read `status.error` for the
+// operational explanation.
+export type ClassifierEntry<Name extends ClassifierName> = ClassifierOutput<Name> & {
+  status: ClassifierRunStatus;
+};
 
-// Pipeline returns one of three shapes, discriminated by `decision`. Always
-// narrow on `decision` (or `stop_downstream`) before reaching for shape-
-// specific fields like `handoff` or `security`.
+// All seven classifiers ran (or fell back) and produced an entry. Used on the
+// route path.
+export type FullClassifierEntries = {
+  [Name in ClassifierName]: ClassifierEntry<Name>;
+};
+
+// Subset of classifiers ran. Used on terminal (preflight only) and block
+// (preflight + security) paths — the other classifiers were aborted before
+// they could finish, so they don't appear at all.
+export type PartialClassifierEntries = Partial<{
+  [Name in ClassifierName]: ClassifierEntry<Name>;
+}>;
+
+// Observability surface. Lives under `meta` on every pipeline result so the
+// top-level (decision, reply, target_message_hash, handoff?) can stay lean.
+export interface OpenClassifyMeta<Entries extends PartialClassifierEntries = PartialClassifierEntries> {
+  classifiers: Entries;
+}
+
+// Pipeline returns one of three shapes, discriminated by `decision`. Narrow
+// on `decision` before reaching for shape-specific fields (e.g. `handoff` is
+// only present on the route variant).
 
 // Preflight said the assistant can stop now and reply with `reply` directly.
-// No other classifiers ran (they were aborted to save compute).
+// No other classifiers ran (they were aborted to save compute), so
+// `meta.classifiers` contains only `preflight`.
 export interface OpenClassifyTerminalPipelineResult {
-  stop_downstream: true;
   decision: "terminal";
   target_message_hash: string;
   reply: string;
-  preflight: PreflightResult;
-  classifier_status: ClassifierRunStatusMap;
+  meta: OpenClassifyMeta<{ preflight: ClassifierEntry<"preflight"> }>;
 }
 
 // Security flagged the message as high-risk. Pipeline aborts the rest and
-// returns a generic refusal reply. Only preflight + security ran.
+// returns a generic refusal reply. `meta.classifiers` contains preflight and
+// security.
 export interface OpenClassifyBlockPipelineResult {
-  stop_downstream: true;
   decision: "block";
   target_message_hash: string;
   reply: string;
-  preflight: PreflightResult;
-  security: SecurityResult;
-  classifier_status: ClassifierRunStatusMap;
+  meta: OpenClassifyMeta<{
+    preflight: ClassifierEntry<"preflight">;
+    security: ClassifierEntry<"security">;
+  }>;
 }
 
 // Normal path: route the message to the downstream assistant. All seven
-// classifiers ran (or fell back), and `handoff` summarizes their decisions.
+// classifiers ran (or fell back), and `handoff` summarizes their decisions
+// for downstream consumption.
 export interface OpenClassifyRoutePipelineResult {
-  stop_downstream: false;
   decision: "route";
   target_message_hash: string;
   reply: string;
   handoff: OpenClassifyHandoff;
-  classifiers: OpenClassifyResult;
-  classifier_status: ClassifierRunStatusMap;
+  meta: OpenClassifyMeta<FullClassifierEntries>;
 }
 
 export type OpenClassifyPipelineResult =
