@@ -361,7 +361,7 @@ test("createOllamaClassifierRunner validates memory query word count", async () 
 test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
   const runner = runnerReturning({
     needed: true,
-    families: ["workspace", "workspace"],
+    families: ["code", "code"],
     reason: "The families are intentionally duplicated.",
   });
 

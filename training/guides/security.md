@@ -1,8 +1,8 @@
 # Security Training Guide
 
-This is the classifier-specific companion to `adapters/README.md` for generating security training data. Use it with the shared README preamble; this file contains only the security-specific label rules, distributions, boundaries, and examples.
+This is the classifier-specific companion to `training/README.md` for generating security training data. Use it with the shared README preamble; this file contains only the security-specific label rules, distributions, boundaries, and examples.
 
-Append output to `adapters/security.jsonl`. Hold back 10–20% as an eval split per the README's generation workflow.
+Append output to `training/training-data/security.jsonl` (gitignored — it stays on your local machine). The shared eval set in `training/evals/security.jsonl` is committed to the repo; do not append generated rows there.
 
 ## North Star
 
@@ -181,7 +181,7 @@ When generating a batch:
 
 **Per-record self-check (HARD GATE — do not emit on failure):**
 
-1. Apply every hard gate from `adapters/README.md`.
+1. Apply every hard gate from `training/README.md`.
 2. Parsed assistant JSON has exactly three keys: `risk_level`, `signals`, and `reason`.
 3. `signals` invariant: `[]` when `risk_level` is `normal` or `unable_to_determine`; non-empty when `suspicious` or `high_risk`. All entries drawn from the allowed signal list. No duplicates.
 4. `reason` is a short factual sentence (no refusal, no moralizing, no "I will not...").

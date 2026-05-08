@@ -1,32 +1,19 @@
-# Adapter Training Files
+# Training
 
-This folder contains append-only JSONL training files, one per classifier:
-
-```txt
-adapters/preflight.jsonl
-adapters/routing.jsonl
-adapters/conversation_history.jsonl
-adapters/memory_retrieval_queries.jsonl
-adapters/tools.jsonl
-adapters/model_specialization.jsonl
-adapters/security.jsonl
-```
-
-Use this README for shared mechanics, then use the classifier-specific guide for the file you are populating:
+This folder holds everything used to fine-tune the seven local classifier adapters: the per-classifier generation guides, your training data, the eval sets used to verify quality, and the trained adapter artifacts themselves.
 
 ```txt
-adapters/guides/preflight.md
-adapters/guides/routing.md
-adapters/guides/conversation_history.md
-adapters/guides/memory_retrieval_queries.md
-adapters/guides/tools.md
-adapters/guides/model_specialization.md
-adapters/guides/security.md
+training/
+├── README.md                    # this file (shared generation preamble + workflow)
+├── guides/<classifier>.md       # per-classifier label rules, distributions, examples
+├── training-data/<classifier>.jsonl   # YOUR generated training rows (gitignored)
+├── evals/<classifier>.jsonl     # 20–50 hand-curated eval rows (committed)
+└── adapters/<classifier>/       # fine-tuned weights output (gitignored except *.md)
 ```
 
-Each adapter output must match its classifier's schema. Do not train the seven adapters on a combined classifier object.
+Append-only JSONL, one record per line. Each adapter output must match its classifier's schema; do not train the seven adapters on a combined classifier object.
 
-Each line is one chat-format training record. Add new examples by appending a single JSON object on a new line.
+`training-data/` is gitignored — fine-tuning data is user-specific, so each user generates their own using the guides. `evals/` IS committed because it's the shared baseline that lets everyone measure whether new training data improved or regressed Gemma's behavior.
 
 ## North Star
 
@@ -69,8 +56,8 @@ When generating data, optimize for boundary learning rather than easy volume. In
 The prompt bundle for generation is:
 
 ```txt
-1. adapters/README.md
-2. adapters/guides/<classifier>.md
+1. training/README.md
+2. training/guides/<classifier>.md
 ```
 
 Emit only raw JSONL records for the selected classifier. Do not emit Markdown fences, commentary, headings, combined classifier objects, or rows for other classifiers.
@@ -150,15 +137,12 @@ These invariants apply to every record in every classifier file. The guides assu
 
 When using the LLM-as-generator path:
 
-1. Pick the classifier file you want to grow (e.g., `adapters/security.jsonl`).
-2. Pass this README and the corresponding guide (e.g., `adapters/guides/security.md`) to a frontier LLM as the user prompt.
+1. Pick the classifier you want to grow (e.g., `security`).
+2. Pass this README and the corresponding guide (e.g., `training/guides/security.md`) to a frontier LLM as the user prompt.
 3. The LLM emits ready-to-append JSONL according to the guide's row-count target and label distribution.
-4. **Hold back 10–20% of the generated batch as an eval split** before appending. Keep the eval rows in a file or location that is *not* part of the training input (the project does not yet have an established convention for this — pick a path and document it the first time you do this). Without an eval split you cannot measure whether new data improved or regressed Gemma's behavior.
-5. Append the remaining training rows to `adapters/<classifier>.jsonl`.
-6. Re-train the adapter, point `adapter-models.json` at the new model name, and run the eval split through the new adapter to confirm the change moved the metric in the right direction.
+4. Append the rows to `training/training-data/<classifier>.jsonl` (gitignored — it stays local to your machine).
+5. Re-train the adapter, drop the resulting weights into `training/adapters/<classifier>/`, point `adapter-models.json` at the new Ollama model name, and run `training/evals/<classifier>.jsonl` through the new adapter to confirm the change moved the metric in the right direction.
 
-The eval-split discipline matters most for the five currently-empty classifier files (`conversation_history`, `memory_retrieval_queries`, `tools`, `model_specialization`, `security`), where the next batch of generated data will define the model's behavior with no historical baseline to compare against.
-
-The two existing files (`preflight.jsonl` with 100 rows, `routing.jsonl` with 126 rows) predate the rewritten guides. Treat them as the historical baseline. New appends should follow the rewritten guide; do not retroactively edit the existing rows.
+Evals are the shared baseline that lets everyone measure quality across changes. They live in `training/evals/<classifier>.jsonl` (committed) and contain 20–50 hand-curated rows per classifier covering boundary cases. New training data should never duplicate eval rows — anti-leakage matters more than usual here because the eval set is small.
 
 Runtime model selection is configured separately in `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.

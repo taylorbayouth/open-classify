@@ -49,7 +49,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
       },
       tools: {
         needed: true,
-        families: ["workspace"],
+        families: ["code"],
       },
     },
     safety: {

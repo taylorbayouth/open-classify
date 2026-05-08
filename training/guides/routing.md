@@ -1,8 +1,8 @@
 # Routing Training Guide
 
-This is the classifier-specific companion to `adapters/README.md` for generating routing training data. Use it with the shared README preamble; this file contains only the routing-specific label rules, distributions, boundaries, and examples.
+This is the classifier-specific companion to `training/README.md` for generating routing training data. Use it with the shared README preamble; this file contains only the routing-specific label rules, distributions, boundaries, and examples.
 
-Append output to `adapters/routing.jsonl`. Hold back 10–20% as an eval split per the README's generation workflow.
+Append output to `training/training-data/routing.jsonl` (gitignored — it stays on your local machine). The shared eval set in `training/evals/routing.jsonl` is committed to the repo; do not append generated rows there.
 
 ## North Star
 
@@ -164,7 +164,7 @@ When generating a batch:
 
 **Per-record self-check (HARD GATE — do not emit on failure):**
 
-1. Apply every hard gate from `adapters/README.md`.
+1. Apply every hard gate from `training/README.md`.
 2. Parsed assistant JSON has exactly three keys: `execution_mode`, `model_tier`, and `reason`.
 3. The execution_mode is consistent with the message: `tool_assisted` only if live state must be inspected; `workflow` only if work persists past this turn.
 4. The model_tier is consistent with the stakes and complexity, biased upward on boundary cases.
