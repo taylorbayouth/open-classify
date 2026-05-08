@@ -261,14 +261,13 @@ export interface OpenClassifyTerminalPipelineResult {
 }
 
 // Security flagged the message as high-risk. Pipeline aborts the rest and
-// returns a generic refusal reply. `meta.classifiers` contains preflight and
-// security.
+// returns no reply — callers who want a refusal should detect
+// `decision === "block"` and craft their own copy. `meta.classifiers`
+// contains only `security` (the classifier whose verdict drove the block).
 export interface OpenClassifyBlockPipelineResult {
   decision: "block";
   target_message_hash: string;
-  reply: string;
   meta: OpenClassifyMeta<{
-    preflight: ClassifierEntry<"preflight">;
     security: ClassifierEntry<"security">;
   }>;
 }

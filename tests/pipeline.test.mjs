@@ -232,14 +232,8 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   assert.equal(result.decision, "block");
   assert.equal("stop_downstream" in result, false);
   assert.equal("handoff" in result, false);
+  assert.equal("reply" in result, false);
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
-  assert.equal(result.reply, "I can't help with that request.");
-  assert.deepEqual(result.meta.classifiers.preflight, {
-    terminality: "continue",
-    reply: "Let me check.",
-    reason: "The message requires downstream handling.",
-    status: { ok: true, source: "model" },
-  });
   assert.deepEqual(result.meta.classifiers.security, {
     ...security,
     status: { ok: true, source: "model" },
@@ -249,8 +243,8 @@ test("high risk security aborts non-gate classifiers and returns block", async (
     Object.keys(results).filter((name) => !["preflight", "security"].includes(name)).sort(),
   );
   assert.deepEqual(
-    Object.keys(result.meta.classifiers).sort(),
-    ["preflight", "security"],
+    Object.keys(result.meta.classifiers),
+    ["security"],
   );
 });
 

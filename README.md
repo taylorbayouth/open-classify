@@ -133,12 +133,12 @@ Pass a `messages` array with at least one message, ending with the user message 
 Every result carries a `decision` field — one of `"terminal"`, `"block"`, or `"route"`:
 
 - `"terminal"` — preflight handled the message; `reply` is the final answer, no downstream model is needed.
-- `"block"` — security flagged the message as `high_risk`; do not route. `reply` is the library's generic block response.
+- `"block"` — security flagged the message as `high_risk`; do not route. There is no `reply` — detect `decision === "block"` and craft your own refusal copy.
 - `"route"` — dispatch the message downstream using `handoff`. `reply` is the model's short acknowledgement and is present whenever preflight succeeded.
 
-Terminal and route replies come from preflight. Block replies use a generic library refusal. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
+Terminal and route replies come from preflight. Block results omit `reply` entirely. `target_message_hash` is generated from the sanitized final message for callers that want a stable handle.
 
-Every result also has a `meta.classifiers` map. Each entry is the classifier's full verdict plus an embedded `status` object — when `status.ok` is `false`, the classifier fell back to a conservative default and `status.error` explains why. On terminal/block paths `meta.classifiers` only contains the classifiers that ran (preflight, optionally security); on route paths it contains all seven.
+Every result also has a `meta.classifiers` map. Each entry is the classifier's full verdict plus an embedded `status` object — when `status.ok` is `false`, the classifier fell back to a conservative default and `status.error` explains why. On terminal paths `meta.classifiers` contains only `preflight`; on block paths only `security` (the classifier whose verdict drove the decision); on route paths it contains all seven.
 
 Routed results include a deterministic handoff object:
 
