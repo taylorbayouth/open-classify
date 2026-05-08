@@ -85,12 +85,12 @@ Fields: `queries`, `reason`
 
 Identifies which tool families the downstream model should have access to. Narrows the manifest so the model isn't handed everything on every call.
 
-Families: `workspace`, `web`, `communications`, `documents`, `spreadsheets`, `project_management`, `developer_platforms`
+Families: `web`, `email_and_chat`, `calendar`, `files`, `docs_and_sheets`, `tasks_and_projects`, `code`, `business_apps`
 
 Fields: `needed`, `families`, `reason`
 
 **"Find time with Robert next week and draft the email."**
-→ `communications` only — calendar and email tools, nothing else loaded.
+→ `email_and_chat` + `calendar` — messaging and scheduling tools only, nothing else loaded.
 
 ### Model Specialization
 
@@ -158,7 +158,7 @@ Routed results include a deterministic handoff object:
         "needs_unseen_history": false
       },
       "memory": { "queries": ["user code review preferences"] },
-      "tools": { "needed": true, "families": ["workspace"] }
+      "tools": { "needed": true, "families": ["code"] }
     },
     "safety": { "risk_level": "normal", "signals": [] }
   }

@@ -1,8 +1,8 @@
 # Preflight Training Guide
 
-This is the classifier-specific companion to `adapters/README.md` for generating preflight training data. Use it with the shared README preamble; this file contains only the preflight-specific label rules, distributions, boundaries, and examples.
+This is the classifier-specific companion to `training/README.md` for generating preflight training data. Use it with the shared README preamble; this file contains only the preflight-specific label rules, distributions, boundaries, and examples.
 
-Append output to `adapters/preflight.jsonl`. Hold back 10–20% as an eval split per the README's generation workflow.
+Append output to `training/training-data/preflight.jsonl` (gitignored — it stays on your local machine). The shared eval set in `training/evals/preflight.jsonl` is committed to the repo; do not append generated rows there.
 
 ## North Star
 
@@ -179,7 +179,7 @@ When generating a batch:
 
 **Per-record self-check (HARD GATE — do not emit on failure):**
 
-1. Apply every hard gate from `adapters/README.md`.
+1. Apply every hard gate from `training/README.md`.
 2. Parsed assistant JSON has exactly three keys: `terminality`, `reply`, and `reason`.
 3. The label and the reply are consistent: `terminal` replies answer the message in 1–5 words; `continue` and `unable_to_determine` replies are placeholders that do not answer.
 4. `reason` is short, factual, and consistent with the label.

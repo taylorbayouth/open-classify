@@ -1,8 +1,8 @@
 # Memory Retrieval Queries Training Guide
 
-This is the classifier-specific companion to `adapters/README.md` for generating memory-retrieval-query training data. Use it with the shared README preamble; this file contains only the memory-specific label rules, distributions, boundaries, and examples.
+This is the classifier-specific companion to `training/README.md` for generating memory-retrieval-query training data. Use it with the shared README preamble; this file contains only the memory-specific label rules, distributions, boundaries, and examples.
 
-Append output to `adapters/memory_retrieval_queries.jsonl`. Hold back 10-20% as an eval split per the README's generation workflow.
+Append output to `training/training-data/memory_retrieval_queries.jsonl` (gitignored — it stays on your local machine). The shared eval set in `training/evals/memory_retrieval_queries.jsonl` is committed to the repo; do not append generated rows there.
 
 ## North Star
 
@@ -155,7 +155,7 @@ When generating a batch:
 
 **Per-record self-check (HARD GATE -- do not emit on failure):**
 
-1. Apply every hard gate from `adapters/README.md`.
+1. Apply every hard gate from `training/README.md`.
 2. Parsed assistant JSON has exactly two keys: `queries` and `reason`.
 3. `queries` contains 0-3 unique strings; each string is 3-10 words.
 4. Each non-empty query targets a useful searchable context surface.

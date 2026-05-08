@@ -40,13 +40,14 @@ export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 // Broad tool families the downstream assistant might need exposed. Intentionally
 // coarse — tool-level decisions happen downstream once the manifest is loaded.
 export const TOOL_FAMILY_VALUES = [
-  "workspace",
-  "web",
-  "communications",
-  "documents",
-  "spreadsheets",
-  "project_management",
-  "developer_platforms",
+  "web",                // search, fetch, browse
+  "email_and_chat",     // Gmail, Slack, Teams, Discord, iMessage
+  "calendar",           // Google Calendar, Outlook, scheduling
+  "files",              // Drive, Dropbox, Box, local file ops
+  "docs_and_sheets",    // Google Docs, Notion, Word, Sheets, Excel, Airtable
+  "tasks_and_projects", // Jira, Linear, Asana, Todoist, Trello, GitHub Issues
+  "code",               // GitHub, GitLab, Vercel, AWS, CI/CD, deploy
+  "business_apps",      // CRM (Salesforce, HubSpot), finance (Stripe), design (Figma), everything else
 ] as const;
 export type ToolFamily = (typeof TOOL_FAMILY_VALUES)[number];
 

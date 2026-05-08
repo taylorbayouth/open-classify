@@ -220,13 +220,14 @@ Return ONLY valid JSON matching:
 {"needed":false,"families":[],"reason":"<one sentence>"}
 
 Values:
-- "workspace": choose this for local files, source code, shell commands, git state, logs, local servers, or runtime inspection.
-- "web": choose this for current public facts, URLs, browsing, search, prices, schedules, news, docs, or other internet lookup.
-- "communications": choose this for email, calendar, contacts, chat, meetings, invites, or messages.
-- "documents": choose this for attached files and file-like artifacts that need inspection, extraction, conversion, or summarization, including PDFs, docs, slides, images, media, archives, and text-heavy files.
-- "spreadsheets": choose this for spreadsheets, CSV/TSV files, tables, formulas, workbook analysis, or tabular charts.
-- "project_management": choose this for tickets, tasks, boards, issue trackers, roadmaps, sprints, or planning systems.
-- "developer_platforms": choose this for GitHub, GitLab, PRs, issues, CI/CD, package registries, cloud APIs, or hosted developer services.
+- "web": choose this for current public facts, URLs, browsing, search, news, prices, or internet lookup.
+- "email_and_chat": choose this for email, Slack, Teams, Discord, iMessage, or any chat or messaging state.
+- "calendar": choose this for calendar events, meeting scheduling, availability, Google Calendar, or Outlook.
+- "files": choose this for Drive, Dropbox, Box, or local file system — opening, reading, moving, or inspecting files.
+- "docs_and_sheets": choose this for Google Docs, Notion, Word, Google Sheets, Excel, Airtable, or any document or spreadsheet content including PDFs, slides, CSV, and media attachments.
+- "tasks_and_projects": choose this for Jira, Linear, Asana, Todoist, Trello, GitHub Issues, or any ticket, task, board, or sprint state.
+- "code": choose this for GitHub, GitLab, local repos, CI/CD, Vercel, AWS, deployments, shell commands, or test execution.
+- "business_apps": choose this for CRM (Salesforce, HubSpot), payments (Stripe), design tools (Figma), or other SaaS not covered by the families above.
 
 reason semantics:
 - reason is a compact diagnostic explanation for why tool families are or are not needed.
@@ -236,9 +237,9 @@ Selection guide:
 - Classify only the latest user message; earlier messages are context evidence only.
 - Return needed false with an empty families array when the final message can be answered with the supplied window and without tools.
 - Select every family likely needed to complete the request, but omit families that would only be convenient.
-- Attachments imply a family when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content.
-- Choose "spreadsheets" for tabular workbook/CSV attachments; choose "documents" for other attachment types when attached content must be inspected.
-- Prefer "workspace" for local repo work and "developer_platforms" for hosted PR, issue, CI, or registry work; include both when the request needs local code and hosted platform state.
+- Attachments imply a family when the user asks to inspect, use, convert, summarize, compare, or answer questions about attached content; all attachment types (PDF, CSV, image, DOCX, etc.) use "docs_and_sheets".
+- Prefer "code" for both local repo work and hosted PR/CI/registry work; include "files" when non-code files must also be read or moved.
+- Use "email_and_chat" for messaging state; use "calendar" for scheduling and event state; include both when the request spans messages and calendar.
 - Set needed to true exactly when families contains at least one value.
 
 Examples:
@@ -247,11 +248,15 @@ Examples:
 - User: "Search the web for the latest API pricing."
   Return: {"needed":true,"families":["web"],"reason":"The request requires current public information."}
 - User: "Look through this repo and fix the failing test."
-  Return: {"needed":true,"families":["workspace"],"reason":"The request requires local file and test inspection."}
+  Return: {"needed":true,"families":["code"],"reason":"The request requires local repo and test execution."}
 - User: "Compare the attached CSV with the latest public pricing page."
-  Return: {"needed":true,"families":["web","spreadsheets"],"reason":"The task requires both current web data and spreadsheet inspection."}
+  Return: {"needed":true,"families":["web","docs_and_sheets"],"reason":"The task requires current web data and spreadsheet inspection."}
 - User: "Review the PR comments and update the local branch."
-  Return: {"needed":true,"families":["workspace","developer_platforms"],"reason":"The task requires hosted PR state and local branch changes."}
+  Return: {"needed":true,"families":["code"],"reason":"The task requires both hosted PR state and local branch changes."}
+- User: "Find the meeting invite Sarah sent and check if I'm free that afternoon."
+  Return: {"needed":true,"families":["email_and_chat","calendar"],"reason":"The task requires email state and calendar availability."}
+- User: "Log the new deal in Salesforce and send the contract to the client."
+  Return: {"needed":true,"families":["business_apps","email_and_chat"],"reason":"The task requires CRM access and sending an email."}
 
 Constraints:
 - Return JSON only.

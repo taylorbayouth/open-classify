@@ -24,8 +24,8 @@ export const validClassifierOutputs = {
   },
   tools: {
     needed: true,
-    families: ["workspace"],
-    reason: "The request requires workspace access.",
+    families: ["code"],
+    reason: "The request requires code access.",
   },
   model_specialization: {
     model_specialization: "reasoning",
