@@ -42,6 +42,20 @@ import type {
   SecurityResult,
   ToolsResult,
 } from "./types.js";
+import {
+  ClassifierValidationError,
+  ensureExactKeys,
+  ensureNoDuplicates,
+  isRecord,
+  requireBoolean,
+  requireEnum,
+  requireNonEmptyStringMaxLength,
+  requireNonNegativeSafeInteger,
+  requireString,
+  requireStringArray,
+  requireStringMaxLength,
+  throwInvalid,
+} from "./validation.js";
 
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
@@ -380,7 +394,17 @@ async function runOllamaClassifier<Name extends ClassifierName>(
   }
 
   const parsed = parseJsonObject(content, name, model);
-  return validateClassifierOutput(name, parsed, model, input) as ClassifierOutput<Name>;
+  try {
+    return validateClassifierOutput(name, parsed, model, input) as ClassifierOutput<Name>;
+  } catch (error) {
+    // Validation helpers throw the backend-neutral ClassifierValidationError.
+    // The public Ollama API keeps OllamaClassifierError, so wrap at the
+    // boundary instead of leaking the internal type.
+    if (error instanceof ClassifierValidationError) {
+      throw new OllamaClassifierError(name, model, error.message, error);
+    }
+    throw error;
+  }
 }
 
 // Cross-platform "available memory" reading. On macOS, `os.freemem()` only
@@ -876,141 +900,6 @@ function validateSecurity(
       CLASSIFIER_REASON_MAX_CHARS,
     ),
   };
-}
-
-function requireString(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): string {
-  if (typeof value !== "string") {
-    throwInvalid(classifier, model, `${path} must be a string`);
-  }
-  return value;
-}
-
-function requireBoolean(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): boolean {
-  if (typeof value !== "boolean") {
-    throwInvalid(classifier, model, `${path} must be a boolean`);
-  }
-  return value;
-}
-
-function requireNonNegativeSafeInteger(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throwInvalid(classifier, model, `${path} must be a non-negative safe integer`);
-  }
-  return value;
-}
-
-function requireStringArray(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-    throwInvalid(classifier, model, `${path} must be an array of strings`);
-  }
-  return value;
-}
-
-function requireStringMaxLength(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-  maxChars: number,
-): string {
-  const text = requireString(value, classifier, model, path);
-  if (text.length > maxChars) {
-    throwInvalid(classifier, model, `${path} must be ${maxChars} characters or fewer`);
-  }
-  return text;
-}
-
-function requireNonEmptyStringMaxLength(
-  value: unknown,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-  maxChars: number,
-): string {
-  const text = requireStringMaxLength(value, classifier, model, path, maxChars);
-  if (text.trim().length === 0) {
-    throwInvalid(classifier, model, `${path} must not be empty`);
-  }
-  return text;
-}
-
-function requireEnum<const Values extends readonly string[]>(
-  value: unknown,
-  values: Values,
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): Values[number] {
-  if (typeof value !== "string" || !values.includes(value)) {
-    throwInvalid(classifier, model, `${path} has an unsupported value`);
-  }
-  return value;
-}
-
-function ensureExactKeys(
-  value: Record<string, unknown>,
-  keys: string[],
-  classifier: ClassifierName,
-  model: string,
-): void {
-  const expected = new Set(keys);
-  for (const key of Object.keys(value)) {
-    if (!expected.has(key)) {
-      throwInvalid(classifier, model, `${key} is not a supported field`);
-    }
-  }
-  for (const key of keys) {
-    if (!(key in value)) {
-      throwInvalid(classifier, model, `${key} is required`);
-    }
-  }
-}
-
-function throwInvalid(
-  classifier: ClassifierName,
-  model: string,
-  message: string,
-): never {
-  throw new OllamaClassifierError(
-    classifier,
-    model,
-    `${classifier} classifier returned invalid output: ${message}`,
-  );
-}
-
-function ensureNoDuplicates(
-  values: string[],
-  classifier: ClassifierName,
-  model: string,
-  path: string,
-): void {
-  if (new Set(values).size !== values.length) {
-    throwInvalid(classifier, model, `${path} must not include duplicates`);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isFile(path: string): boolean {
