@@ -1,20 +1,27 @@
 // The orchestration layer. Given a `RunClassifier` (e.g. the Ollama runner),
 // this module:
 //   1. Normalizes input.
-//   2. Kicks off all seven classifiers in parallel with timeout + retry.
-//   3. Awaits preflight first; if it says "terminal", abort the rest and return.
-//   4. Awaits security next; if it's "high_risk", abort and return a block.
-//   5. Otherwise wait for everything to settle and return a full route result.
+//   2. Kicks off every registered classifier in parallel with timeout + retry.
+//   3. Awaits each module with a `shortCircuit` in priority order. If any
+//      returns a verdict, aborts the rest and emits a `short_circuit` envelope.
+//   4. Otherwise waits for every run to settle, composes the route envelope
+//      via `composeEnvelope`, and returns it.
 //
 // Two design choices worth flagging:
-// - All classifiers start at the same time. Sequential preflight → security →
-//   ... would be cheaper on the happy path but slower in the common case. We
-//   pay for everything upfront and just throw away work on early exit.
+// - All classifiers start at the same time. Sequential short-circuit checks
+//   would be cheaper on the happy path but slower in the common case. We pay
+//   for everything upfront and just throw away work on early exit.
 // - Any classifier that errors or times out falls back to a conservative
-//   default (see `fallbackClassifierOutput`). The pipeline never throws from
-//   a single classifier failure — only normalization can throw.
+//   default (its module's `fallback`, which must carry `confidence: 0`). The
+//   pipeline never throws from a single classifier failure — only
+//   normalization, missing catalog (on route), or envelope composition can.
 
-import { CLASSIFIER_NAMES } from "./classifiers.js";
+import {
+  CLASSIFIERS,
+  REGISTRY,
+  type Registry,
+} from "./classifiers.js";
+import { composeEnvelope } from "./aggregator.js";
 import { PREFLIGHT_FALLBACK } from "./classifiers/preflight/result.js";
 import { ROUTING_FALLBACK } from "./classifiers/routing/result.js";
 import { CONVERSATION_HISTORY_FALLBACK } from "./classifiers/conversation_history/result.js";
@@ -24,23 +31,24 @@ import { MODEL_SPECIALIZATION_FALLBACK } from "./classifiers/model_specializatio
 import { SECURITY_FALLBACK } from "./classifiers/security/result.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
+  AggregatorConfig,
+  AnyClassifierModule,
+  Catalog,
+  ClassifierResultBase,
+  ClassifierResultsMap,
+  FullClassifierEntriesOf,
+  PartialClassifierEntriesOf,
+  PipelineResult,
+  ShortCircuitVerdict,
+} from "./manifest.js";
+import type {
   ClassifierEntry,
   ClassifierFallbackReason,
   ClassifierName,
   ClassifierOutput,
   ClassifierRunStatus,
-  DownstreamModelConfig,
-  DownstreamModelConfigKey,
-  FullClassifierEntries,
-  ModelResolution,
-  ModelSpecializationResult,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
-  OpenClassifyHandoff,
-  OpenClassifyPipelineResult,
-  OpenClassifyResult,
-  PreflightResult,
-  RoutingResult,
   RunClassifier,
 } from "./types.js";
 
@@ -54,36 +62,78 @@ export class OpenClassifyNormalizationError extends Error {
   }
 }
 
-export interface ClassifyOptions {
+export interface ClassifyOptions extends AggregatorConfig {
   runClassifier: RunClassifier;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
-  downstreamModels?: DownstreamModelConfig;
+  // Required for the route path so the model resolver has metadata to read.
+  // Short-circuit paths don't use it. If omitted and the pipeline reaches the
+  // route path, the pipeline throws.
+  catalog?: Catalog;
   signal?: AbortSignal;
 }
+
+// Re-export for consumers that prefer to import the pipeline output type from
+// the orchestrator module. The shape itself lives in manifest.ts.
+export type OpenClassifyPipelineResult = PipelineResult<Registry>;
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
 
-// Reference config showing how to populate `DownstreamModelConfig`. Not used
-// by the pipeline by default — callers pass their own. Lookup goes most-
-// specific to least-specific (see `downstreamModelConfigKeys`), so populating
-// only `default` is a perfectly valid minimum.
-export const EXAMPLE_DOWNSTREAM_MODEL_CONFIG = {
-  "chat.local_fast": "gemma4:e4b-it-q4_K_M",
-  "writing.frontier_fast": "gpt-5.4-mini",
-  "reasoning.local_strong": "gemma4:e4b-it-q4_K_M",
-  "reasoning.frontier_strong": "gpt-5.5",
-  "planning.local_strong": "gemma4:e4b-it-q4_K_M",
-  "coding.local_strong": "qwen2.5-coder:14b",
-  "coding.frontier_fast": "gpt-5.3-codex",
-  "instruction_following.local_fast": "gemma4:e4b-it-q4_K_M",
-  local_fast: "gemma4:e4b-it-q4_K_M",
-  local_strong: "gemma4:e4b-it-q4_K_M",
-  frontier_fast: "gpt-5.4-mini",
-  frontier_strong: "gpt-5.5",
+// Reference catalog showing how to populate `downstream-models.json`. Not
+// used by the pipeline by default — callers pass their own via `catalog`.
+export const EXAMPLE_CATALOG: Catalog = {
+  models: [
+    {
+      id: "gpt-5.5",
+      specializations: [
+        "reasoning",
+        "coding",
+        "writing",
+        "planning",
+        "chat",
+        "instruction_following",
+      ],
+      execution_modes: ["direct", "tool_assisted", "workflow"],
+      tiers: ["frontier_strong"],
+      params_in_millions: 800_000,
+      context_window: 1_000_000,
+    },
+    {
+      id: "gpt-5.4-mini",
+      specializations: ["chat", "writing"],
+      execution_modes: ["direct"],
+      tiers: ["frontier_fast"],
+      params_in_millions: 15_000,
+      context_window: 200_000,
+    },
+    {
+      id: "gpt-5.3-codex",
+      specializations: ["coding"],
+      execution_modes: ["direct", "tool_assisted"],
+      tiers: ["frontier_fast"],
+      params_in_millions: 30_000,
+      context_window: 500_000,
+    },
+    {
+      id: "qwen2.5-coder:14b",
+      specializations: ["coding"],
+      execution_modes: ["direct", "tool_assisted"],
+      tiers: ["local_strong"],
+      params_in_millions: 14_000,
+      context_window: 128_000,
+    },
+    {
+      id: "gemma4:e4b-it-q4_K_M",
+      specializations: ["chat", "reasoning", "planning", "instruction_following"],
+      execution_modes: ["direct"],
+      tiers: ["local_fast", "local_strong"],
+      params_in_millions: 4_000,
+      context_window: 8192,
+    },
+  ],
   default: "gpt-5.4-mini",
-} as const satisfies DownstreamModelConfig;
+};
 
 type SettledClassifierResult<Name extends ClassifierName> =
   | {
@@ -98,6 +148,18 @@ type SettledClassifierResult<Name extends ClassifierName> =
       reason: ClassifierFallbackReason;
     };
 
+// Typed as a mapped object so each entry is checked against its own output
+// shape — no casts needed when indexing by a generic `Name`.
+const FALLBACK_OUTPUTS: { [Name in ClassifierName]: ClassifierOutput<Name> } = {
+  preflight: PREFLIGHT_FALLBACK,
+  routing: ROUTING_FALLBACK,
+  conversation_history: CONVERSATION_HISTORY_FALLBACK,
+  memory_retrieval_queries: MEMORY_RETRIEVAL_QUERIES_FALLBACK,
+  tools: TOOLS_FALLBACK,
+  model_specialization: MODEL_SPECIALIZATION_FALLBACK,
+  security: SECURITY_FALLBACK,
+};
+
 export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
   options: ClassifyOptions,
@@ -109,9 +171,9 @@ export async function classifyOpenClassifyInput(
     throw new OpenClassifyNormalizationError(error);
   }
 
-  // Single shared abort signal: when preflight or security triggers an
-  // early exit, we abort the rest of the in-flight runs so we don't pay
-  // for work nobody will read.
+  // Single shared abort signal: when any classifier's shortCircuit fires, we
+  // abort the rest of the in-flight runs so we don't pay for work nobody will
+  // read.
   const controller = new AbortController();
   const abortFromOptions = (): void => {
     controller.abort(options.signal?.reason ?? new Error("classification aborted"));
@@ -126,11 +188,11 @@ export async function classifyOpenClassifyInput(
     options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
   const classifierRetryCount =
     options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
-  const runs = new Map(
-    CLASSIFIER_NAMES.map((name) => [
-      name,
+  const runs = new Map<ClassifierName, Promise<SettledClassifierResult<ClassifierName>>>(
+    REGISTRY.map((module_) => [
+      module_.name,
       runClassifierWithRetry(
-        name,
+        module_.name,
         classifierInput,
         options.runClassifier,
         controller.signal,
@@ -141,207 +203,146 @@ export async function classifyOpenClassifyInput(
   );
 
   try {
-    const preflightSettled = await (runs.get("preflight") as Promise<SettledClassifierResult<"preflight">>);
-    const preflight = preflightSettled.ok
-      ? preflightSettled.value
-      : fallbackClassifierOutput("preflight");
+    // ─── Generic short-circuit loop ──────────────────────────────────────
+    // Iterate modules with shortCircuit in priority order (ascending).
+    // Await each. If a verdict comes back, abort the rest and emit a
+    // short_circuit envelope. The `finishedSoFar` set tracks which modules
+    // have settled before the firing one — they're the only ones included in
+    // `meta.classifiers` on the short_circuit envelope.
+    const shortCircuiters = (REGISTRY as ReadonlyArray<AnyClassifierModule>)
+      .filter((m) => m.shortCircuit !== undefined)
+      .slice()
+      .sort(
+        (a, b) =>
+          (a.shortCircuit?.priority ?? 0) - (b.shortCircuit?.priority ?? 0),
+      );
 
-    // Note: only honor "terminal" if preflight actually succeeded. A fallback
-    // preflight reports `terminality: "unable_to_determine"`, which falls
-    // through to the normal route path (this is the conservative choice — a
-    // misfire shouldn't silently terminate the conversation).
-    if (preflightSettled.ok && preflight.terminality === "terminal") {
+    const finishedSoFar = new Set<ClassifierName>();
+
+    for (const module_ of shortCircuiters) {
+      const name = module_.name as ClassifierName;
+      const settled = (await runs.get(name)) as SettledClassifierResult<typeof name>;
+      finishedSoFar.add(name);
+
+      // Never honor a verdict from a fallback. A failed classifier should not
+      // short-circuit the pipeline — return-to-route is the conservative call.
+      if (!settled.ok) continue;
+
+      const verdict = module_.shortCircuit?.evaluate(
+        settled.value as ClassifierResultBase,
+      );
+      if (!verdict) continue;
+
       controller.abort();
-      // Drain the aborted runs so they can clean up before we return. We
-      // don't care about their results; we just don't want dangling promises.
-      await settleClassifierRunsExcept(runs, ["preflight"]);
+      await settleClassifierRunsExcept(runs, [...finishedSoFar]);
 
-      return {
-        decision: "terminal",
-        target_message_hash: request.target_message_hash,
-        reply: preflight.reply,
-        meta: {
-          classifiers: {
-            preflight: classifierEntry(preflight, classifierRunStatus(preflightSettled)),
-          },
-        },
-      };
+      return await buildShortCircuitResult(
+        request.target_message_hash,
+        name,
+        verdict,
+        runs,
+        finishedSoFar,
+      );
     }
 
-    const securitySettled = await (runs.get("security") as Promise<
-      SettledClassifierResult<"security">
-    >);
-    const security = securitySettled.ok
-      ? securitySettled.value
-      : fallbackClassifierOutput("security");
-
-    // Same caveat as preflight: only block on a real model verdict, never on
-    // a fallback. A failed security classifier should not block the user.
-    if (securitySettled.ok && security.risk_level === "high_risk") {
-      controller.abort();
-      await settleClassifierRunsExcept(runs, ["preflight", "security"]);
-
-      return {
-        decision: "block",
-        target_message_hash: request.target_message_hash,
-        meta: {
-          classifiers: {
-            security: classifierEntry(security, classifierRunStatus(securitySettled)),
-          },
-        },
-      };
+    // ─── Route path ──────────────────────────────────────────────────────
+    if (options.catalog === undefined) {
+      throw new Error(
+        "classifyOpenClassifyInput: `catalog` is required on the route path; " +
+          "no module short-circuited and the model resolver needs a catalog. " +
+          "Pass `EXAMPLE_CATALOG` for examples or load yours via `loadCatalog`.",
+      );
     }
 
-    const settled = await Promise.all(
-      CLASSIFIER_NAMES.map((name) => runs.get(name)!),
+    const settled = await Promise.all([...runs.values()]);
+    const settledByName = new Map<ClassifierName, SettledClassifierResult<ClassifierName>>(
+      settled.map((s) => [s.name, s]),
     );
 
-    const results = new Map(settled.map((entry) => [entry.name, entry]));
+    const results: Record<string, ClassifierResultBase> = {};
+    const entries: Record<string, ClassifierEntry<ClassifierName> & { version: string }> = {};
+    for (const module_ of REGISTRY) {
+      const name = module_.name as ClassifierName;
+      const s = settledByName.get(name)!;
+      const status = classifierRunStatus(s);
+      const value = s.ok ? s.value : FALLBACK_OUTPUTS[name];
+      results[name] = value as ClassifierResultBase;
+      entries[name] = {
+        ...(value as object),
+        status,
+        version: module_.version,
+      } as ClassifierEntry<typeof name> & { version: string };
+    }
 
-    const classifiers: OpenClassifyResult = {
-      preflight: resultOrFallback(results, "preflight"),
-      routing: resultOrFallback(results, "routing"),
-      conversation_history: resultOrFallback(results, "conversation_history"),
-      memory_retrieval_queries: resultOrFallback(results, "memory_retrieval_queries"),
-      tools: resultOrFallback(results, "tools"),
-      model_specialization: resultOrFallback(results, "model_specialization"),
-      security: resultOrFallback(results, "security"),
-    };
-    const statuses = classifierRunStatusByName(settled);
-    const entries: FullClassifierEntries = {
-      preflight: classifierEntry(classifiers.preflight, statuses.preflight),
-      routing: classifierEntry(classifiers.routing, statuses.routing),
-      conversation_history: classifierEntry(classifiers.conversation_history, statuses.conversation_history),
-      memory_retrieval_queries: classifierEntry(
-        classifiers.memory_retrieval_queries,
-        statuses.memory_retrieval_queries,
-      ),
-      tools: classifierEntry(classifiers.tools, statuses.tools),
-      model_specialization: classifierEntry(classifiers.model_specialization, statuses.model_specialization),
-      security: classifierEntry(classifiers.security, statuses.security),
-    };
+    const envelope = composeEnvelope({
+      registry: REGISTRY,
+      results: results as ClassifierResultsMap<Registry>,
+      catalog: options.catalog,
+      input: classifierInput,
+      config: {
+        confidenceThreshold: options.confidenceThreshold,
+        mergeOverrides: options.mergeOverrides,
+      },
+    });
 
     return {
       decision: "route",
       target_message_hash: request.target_message_hash,
-      reply: classifiers.preflight.reply,
-      handoff: buildHandoff(classifiers, statuses, options.downstreamModels),
-      meta: { classifiers: entries },
+      ...envelope,
+      meta: {
+        classifiers: entries as unknown as FullClassifierEntriesOf<Registry>,
+      },
     };
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
   }
 }
 
-// Folds the seven classifier outputs into the flattened handoff shape that
-// downstream code typically wants. Exported so callers who built their own
-// classifier results (e.g. cached, partial) can still produce a handoff.
-//
-// `statuses` controls the conservative-fallback signaling: when a classifier
-// fell back, fields derived from it (e.g. `memory.status`) flag that, so a
-// consumer can distinguish "the model said empty" from "we couldn't tell."
-// Pass an empty object if you don't have status info; everything will report
-// "ok" by default.
-export function buildHandoff(
-  classifiers: OpenClassifyResult,
-  statuses: Partial<Record<ClassifierName, ClassifierRunStatus>> = {},
-  downstreamModels: DownstreamModelConfig = {},
-): OpenClassifyHandoff {
-  const { model, model_resolution } = resolveDownstreamModel(
-    classifiers.routing,
-    classifiers.model_specialization,
-    downstreamModels,
-  );
+// Build the short_circuit envelope. Pulls already-settled entries for the
+// modules that finished before the firing one (always includes `firedBy`).
+async function buildShortCircuitResult(
+  target_message_hash: string,
+  firedBy: ClassifierName,
+  verdict: ShortCircuitVerdict,
+  runs: ReadonlyMap<ClassifierName, Promise<SettledClassifierResult<ClassifierName>>>,
+  finishedSoFar: ReadonlySet<ClassifierName>,
+): Promise<OpenClassifyPipelineResult> {
+  const partialEntries: Record<string, ClassifierEntry<ClassifierName> & { version: string }> = {};
+  for (const name of finishedSoFar) {
+    const run = runs.get(name);
+    if (!run) continue;
+    const s = await run;
+    const status = classifierRunStatus(s);
+    const value = s.ok ? s.value : FALLBACK_OUTPUTS[name];
+    const module_ = CLASSIFIERS[name];
+    partialEntries[name] = {
+      ...(value as object),
+      status,
+      version: module_.version,
+    } as ClassifierEntry<typeof name> & { version: string };
+  }
 
-  return {
-    execution_mode: classifiers.routing.execution_mode,
-    model,
-    model_resolution,
-    context: {
-      conversation: {
-        messages: classifiers.conversation_history.relevant_conversation_history,
-        needs_unseen_history: classifiers.conversation_history.needs_unseen_history,
-      },
-      memory: {
-        queries: classifiers.memory_retrieval_queries.queries,
-        status: statuses.memory_retrieval_queries?.ok === false ? "unavailable" : "ok",
-      },
-      tools: {
-        needed: classifiers.tools.needed,
-        families: classifiers.tools.families,
-      },
-    },
-    safety: {
-      risk_level: classifiers.security.risk_level,
-      signals: classifiers.security.signals,
-    },
+  const meta = {
+    classifiers: partialEntries as unknown as PartialClassifierEntriesOf<Registry>,
   };
-}
 
-function resolveDownstreamModel(
-  routing: RoutingResult,
-  specialization: ModelSpecializationResult,
-  downstreamModels: DownstreamModelConfig,
-): { model: string | null; model_resolution: ModelResolution } {
-  const candidates = downstreamModelConfigKeys(
-    specialization.model_specialization,
-    routing.model_tier,
-  );
-  const resolvedFrom =
-    candidates.find((key) => modelValue(downstreamModels, key) !== null) ?? null;
-
+  if (verdict.kind === "block") {
+    return {
+      decision: "short_circuit",
+      target_message_hash,
+      fired_by: firedBy,
+      kind: "block",
+      meta,
+    };
+  }
   return {
-    model: resolvedFrom ? modelValue(downstreamModels, resolvedFrom) : null,
-    model_resolution: {
-      key: candidates[0],
-      resolved_from: resolvedFrom,
-      tier: routing.model_tier,
-      specialization: specialization.model_specialization,
-    },
+    decision: "short_circuit",
+    target_message_hash,
+    fired_by: firedBy,
+    kind: verdict.kind,
+    reply: verdict.reply,
+    meta,
   };
-}
-
-// Build the lookup-priority list for resolving a downstream model. Order
-// matters: callers who only fill in a few keys should still get the most
-// specific match available.
-//   coding.frontier_strong  →  most specific
-//   frontier_strong         →  tier only
-//   coding                  →  specialization only
-//   default                 →  fallback
-// Keys involving `unclear` or `unable_to_determine` are skipped — we don't
-// want to materialize lookup keys with escape-hatch values in them.
-function downstreamModelConfigKeys(
-  specialization: ModelSpecializationResult["model_specialization"],
-  tier: RoutingResult["model_tier"],
-): DownstreamModelConfigKey[] {
-  const keys: DownstreamModelConfigKey[] = [];
-  const hasSpecialization = specialization !== "unclear";
-  const hasTier = tier !== "unable_to_determine";
-
-  if (hasSpecialization && hasTier) {
-    keys.push(`${specialization}.${tier}` as DownstreamModelConfigKey);
-  }
-  if (hasTier) {
-    keys.push(tier);
-  }
-  if (hasSpecialization) {
-    keys.push(specialization);
-  }
-  keys.push("default");
-
-  return keys;
-}
-
-function modelValue(
-  downstreamModels: DownstreamModelConfig,
-  key: DownstreamModelConfigKey,
-): string | null {
-  const value = downstreamModels[key];
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 // One classifier, with bounded retries. Stops early if the root signal has
@@ -471,26 +472,6 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-function resultOrFallback<Name extends ClassifierName>(
-  results: ReadonlyMap<ClassifierName, SettledClassifierResult<ClassifierName>>,
-  name: Name,
-): ClassifierOutput<Name> {
-  const settled = results.get(name);
-  if (settled?.ok) {
-    return settled.value as ClassifierOutput<Name>;
-  }
-
-  return fallbackClassifierOutput(name);
-}
-
-function classifierRunStatusByName(
-  settled: SettledClassifierResult<ClassifierName>[],
-): Record<ClassifierName, ClassifierRunStatus> {
-  return Object.fromEntries(
-    settled.map((entry) => [entry.name, classifierRunStatus(entry)]),
-  ) as Record<ClassifierName, ClassifierRunStatus>;
-}
-
 function classifierRunStatus(
   settled: SettledClassifierResult<ClassifierName>,
 ): ClassifierRunStatus {
@@ -507,42 +488,4 @@ function classifierRunStatus(
     reason: settled.reason,
     error: errorMessage(settled.error),
   };
-}
-
-// Merge a classifier verdict with its execution status into the single entry
-// shape that ships under `meta.classifiers.{name}`.
-function classifierEntry<Name extends ClassifierName>(
-  output: ClassifierOutput<Name>,
-  status: ClassifierRunStatus,
-): ClassifierEntry<Name> {
-  return { ...output, status } as ClassifierEntry<Name>;
-}
-
-// Conservative defaults for when a classifier fails or times out. Prefer
-// "unable to determine" / empty collections over guessing. The pipeline
-// soft-fails on these (route still happens; the entry's `status` flags the
-// fallback) — except for preflight/security, where a fallback verdict is
-// never honored as an early-exit trigger.
-//
-// Verdict-level `reason` is intentionally empty on fallback. Operational
-// explanations (why we fell back) live in `status.error` — keeping them
-// out of `reason` prevents consumers from confusing infrastructure errors
-// with the model's reasoning.
-//
-// Typed as a mapped object so each entry is checked against its own output
-// shape — no casts needed when indexing by a generic `Name`.
-const FALLBACK_OUTPUTS: { [Name in ClassifierName]: ClassifierOutput<Name> } = {
-  preflight: PREFLIGHT_FALLBACK,
-  routing: ROUTING_FALLBACK,
-  conversation_history: CONVERSATION_HISTORY_FALLBACK,
-  memory_retrieval_queries: MEMORY_RETRIEVAL_QUERIES_FALLBACK,
-  tools: TOOLS_FALLBACK,
-  model_specialization: MODEL_SPECIALIZATION_FALLBACK,
-  security: SECURITY_FALLBACK,
-};
-
-function fallbackClassifierOutput<Name extends ClassifierName>(
-  name: Name,
-): ClassifierOutput<Name> {
-  return FALLBACK_OUTPUTS[name];
 }

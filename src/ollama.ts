@@ -20,20 +20,22 @@ import { validateMemoryRetrievalQueries as memoryRetrievalQueriesValidator } fro
 import { validateTools as toolsValidator } from "./classifiers/tools/result.js";
 import { validateModelSpecialization as modelSpecializationValidator } from "./classifiers/model_specialization/result.js";
 import { validateSecurity as securityValidator } from "./classifiers/security/result.js";
-import { classifyOpenClassifyInput } from "./pipeline.js";
+import {
+  classifyOpenClassifyInput,
+  type OpenClassifyPipelineResult,
+} from "./pipeline.js";
+import { loadCatalog } from "./catalog.js";
+import type { Catalog } from "./manifest.js";
 import type {
   ClassifierInput,
   ClassifierName,
   ClassifierOutput,
   ConversationHistoryResult,
   ConversationMessageInput,
-  DownstreamModelConfig,
-  DownstreamModelConfigKey,
   RoutingResult,
   MemoryRetrievalQueriesResult,
   ModelSpecializationResult,
   OpenClassifyInput,
-  OpenClassifyPipelineResult,
   OpenClassifyResult,
   PreflightResult,
   RunClassifier,
@@ -127,8 +129,12 @@ export interface OllamaClassifierRunnerConfig {
 }
 
 export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
-  downstreamModels?: DownstreamModelConfig;
-  downstreamModelConfig?: string;
+  // Pre-loaded catalog (preferred for tests + production where the catalog
+  // is built once). Required for the route path.
+  catalog?: Catalog;
+  // Alternative: path to a downstream-models.json on disk. Loaded strictly
+  // (throws on missing/malformed). Only used when `catalog` is absent.
+  catalogPath?: string;
 }
 
 interface OllamaChatResponse {
@@ -246,25 +252,14 @@ export function discoverOllamaClassifierAdapterModels(
   return models;
 }
 
-// Best-effort load of `downstream-models.json` (or the path the caller picks).
-// Missing/malformed files are not fatal — returns {} so model resolves to null.
-export function discoverDownstreamModels(
+// Strict catalog discovery. Returns `undefined` if no file exists at the
+// given path, or throws on malformed content. The route path requires a
+// catalog; callers that don't supply one must ensure the file exists.
+export function discoverDownstreamCatalog(
   configPath = OLLAMA_DEFAULT_DOWNSTREAM_MODEL_CONFIG,
-): DownstreamModelConfig {
-  if (!isFile(configPath)) return {};
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
-    if (!isRecord(parsed)) return {};
-    const result: DownstreamModelConfig = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string" && value.trim().length > 0) {
-        result[key as DownstreamModelConfigKey] = value.trim();
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
+): Catalog | undefined {
+  if (!isFile(configPath)) return undefined;
+  return loadCatalog(configPath);
 }
 
 export async function assertOllamaResources(
@@ -310,8 +305,7 @@ export async function classifyWithOllama(
 
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(runnerConfig),
-    downstreamModels:
-      config.downstreamModels ?? discoverDownstreamModels(config.downstreamModelConfig),
+    catalog: config.catalog ?? discoverDownstreamCatalog(config.catalogPath),
   });
 }
 

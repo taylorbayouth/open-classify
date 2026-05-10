@@ -265,8 +265,15 @@ export interface ClassifierModule<
 // ─── Registry + derived types ───────────────────────────────────────────────
 
 // Loosely-typed alias for cases where the specific Name/Result are erased
-// (e.g. iterating the registry without narrowing).
-export type AnyClassifierModule = ClassifierModule<string, ClassifierResultBase>;
+// (e.g. iterating the registry without narrowing). `any` on Result works
+// around TypeScript variance: ClassifierModule has Result in a contravariant
+// position (shortCircuit.evaluate input) AND covariant positions, so a
+// narrowed module like ClassifierModule<"preflight", PreflightResult> can't
+// be widened to ClassifierModule<string, ClassifierResultBase>. Using `any`
+// for the constraint here is the same workaround `Array<unknown>` does — the
+// runtime contract is identical regardless of the specific Result type.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyClassifierModule = ClassifierModule<string, any>;
 
 // Registry is a hand-maintained tuple. Hand-maintained because TypeScript
 // needs literal references for the mapped types below to work — filesystem

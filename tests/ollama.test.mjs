@@ -471,8 +471,26 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     { messages: [{ role: "user", text: "review this" }] },
     {
       skipResourceCheck: true,
-      downstreamModels: {
-        "reasoning.local_strong": "selected-downstream-model",
+      catalog: {
+        models: [
+          {
+            id: "selected-downstream-model",
+            specializations: ["reasoning"],
+            execution_modes: ["tool_assisted"],
+            tiers: ["local_strong"],
+            params_in_millions: 14_000,
+            context_window: 128_000,
+          },
+          {
+            id: "fallback-model",
+            specializations: ["chat"],
+            execution_modes: ["direct"],
+            tiers: ["local_fast"],
+            params_in_millions: 4_000,
+            context_window: 8192,
+          },
+        ],
+        default: "fallback-model",
       },
       fetch: async (_url, init) => {
         const body = JSON.parse(init.body);
@@ -503,8 +521,12 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     }
     assert.equal(entry.status.ok, true);
   }
-  assert.equal(result.handoff.model, "selected-downstream-model");
-  assert.equal(result.handoff.model_resolution.resolved_from, "reasoning.local_strong");
+  assert.equal(result.model_recommendation.id, "selected-downstream-model");
+  assert.deepEqual(result.model_recommendation.resolution.constraints_used, {
+    specialization: "reasoning",
+    execution_mode: "tool_assisted",
+    tier: "local_strong",
+  });
 });
 
 test("resource check can fail before fetch is called", async () => {

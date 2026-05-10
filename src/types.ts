@@ -114,57 +114,10 @@ export interface OpenClassifyResult {
   security: SecurityResult;
 }
 
-// How the pipeline arrived at the chosen downstream model. `key` is the most-
-// specific candidate that was tried (always set); `resolved_from` is the key
-// that actually had a value in the caller's `downstreamModels` config (may
-// equal `key`, or be a less specific fallback, or be null if nothing matched).
-// The resolved model identifier itself lives at `OpenClassifyHandoff.model`.
-export interface ModelResolution {
-  key: DownstreamModelConfigKey;
-  resolved_from: DownstreamModelConfigKey | null;
-  tier: DownstreamModelTier;
-  specialization: ModelSpecialization;
-}
-
-// Whether the rolled-up memory queries are trustworthy. "ok" means the
-// memory_retrieval_queries classifier ran and produced a verdict (possibly
-// empty); "unavailable" means it fell back, so an empty `queries` array is
-// the absence of a verdict, not a real "no memory needed" signal.
-export type MemoryStatus = "ok" | "unavailable";
-
-// The shape downstream code actually consumes — a flattened, opinionated view
-// of the seven classifier outputs. If you only care about "what should the
-// assistant do next?", this is the type to lean on.
-export interface OpenClassifyHandoff {
-  execution_mode: DownstreamExecutionMode;
-  // The resolved downstream model identifier, or null when the caller's
-  // `downstreamModels` config has no matching entry. This is the irreducible
-  // routing answer; `model_resolution` is the breakdown of how it was picked.
-  model: string | null;
-  model_resolution: ModelResolution;
-  context: {
-    conversation: {
-      // Length of this array IS the prior-messages count — the runner sliced
-      // the right suffix for you. There's no separate count field.
-      messages: ConversationMessageInput[];
-      needs_unseen_history: boolean;
-    };
-    memory: {
-      queries: string[];
-      status: MemoryStatus;
-    };
-    tools: {
-      // Kept distinct from `families.length > 0`: the model can flag "yes
-      // tools needed" without picking a specific family.
-      needed: boolean;
-      families: ToolFamily[];
-    };
-  };
-  safety: {
-    risk_level: SecurityRiskLevel;
-    signals: SecuritySignal[];
-  };
-}
+// `OpenClassifyHandoff`, `ModelResolution`, and `MemoryStatus` were the
+// downstream-output shape in the pre-manifest design. They've been replaced
+// by the modular `Envelope` + `ModelRecommendation` in `src/manifest.ts`
+// (constructed by `composeEnvelope` in `src/aggregator.ts`).
 
 export type ClassifierName = keyof OpenClassifyResult;
 
@@ -218,44 +171,8 @@ export interface OpenClassifyMeta<Entries extends PartialClassifierEntries = Par
   classifiers: Entries;
 }
 
-// Pipeline returns one of three shapes, discriminated by `decision`. Narrow
-// on `decision` before reaching for shape-specific fields (e.g. `handoff` is
-// only present on the route variant).
+// Pipeline output shape lives in `src/pipeline.ts` as
+// `OpenClassifyPipelineResult` (a registry-derived two-variant union:
+// `short_circuit | route`). Import it from "./pipeline.js" or from the
+// package root.
 
-// Preflight said the assistant can stop now and reply with `reply` directly.
-// No other classifiers ran (they were aborted to save compute), so
-// `meta.classifiers` contains only `preflight`.
-export interface OpenClassifyTerminalPipelineResult {
-  decision: "terminal";
-  target_message_hash: string;
-  reply: string;
-  meta: OpenClassifyMeta<{ preflight: ClassifierEntry<"preflight"> }>;
-}
-
-// Security flagged the message as high-risk. Pipeline aborts the rest and
-// returns no reply — callers who want a refusal should detect
-// `decision === "block"` and craft their own copy. `meta.classifiers`
-// contains only `security` (the classifier whose verdict drove the block).
-export interface OpenClassifyBlockPipelineResult {
-  decision: "block";
-  target_message_hash: string;
-  meta: OpenClassifyMeta<{
-    security: ClassifierEntry<"security">;
-  }>;
-}
-
-// Normal path: route the message to the downstream assistant. All seven
-// classifiers ran (or fell back), and `handoff` summarizes their decisions
-// for downstream consumption.
-export interface OpenClassifyRoutePipelineResult {
-  decision: "route";
-  target_message_hash: string;
-  reply: string;
-  handoff: OpenClassifyHandoff;
-  meta: OpenClassifyMeta<FullClassifierEntries>;
-}
-
-export type OpenClassifyPipelineResult =
-  | OpenClassifyTerminalPipelineResult
-  | OpenClassifyBlockPipelineResult
-  | OpenClassifyRoutePipelineResult;

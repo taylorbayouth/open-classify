@@ -40,7 +40,7 @@ import {
 } from "./ollama.js";
 import {
   classifyOpenClassifyInput,
-  EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
+  EXAMPLE_CATALOG,
 } from "./pipeline.js";
 import type { OpenClassifyInput, RunClassifier } from "./types.js";
 
@@ -201,7 +201,7 @@ async function classifyStream(
     send("pipeline_phase", { phase: "running" });
     const result = await classifyOpenClassifyInput(input, {
       runClassifier,
-      downstreamModels: EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
+      catalog: EXAMPLE_CATALOG,
       signal: clientAbortController.signal,
     });
     send("pipeline_completed", result);

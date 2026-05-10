@@ -68,3 +68,42 @@ export function classifierInput(overrides = {}) {
 export function userMessage(text, extra = {}) {
   return { role: "user", text, ...extra };
 }
+
+// Minimal catalog used by tests that exercise the route path. Covers every
+// specialization × tier combo the mock outputs in `validClassifierOutputs`
+// can produce, so the model resolver always lands on a specific entry.
+export const TEST_CATALOG = {
+  models: [
+    {
+      id: "test-frontier-strong",
+      specializations: [
+        "reasoning",
+        "coding",
+        "writing",
+        "planning",
+        "chat",
+        "instruction_following",
+      ],
+      execution_modes: ["direct", "tool_assisted", "workflow"],
+      tiers: ["frontier_strong"],
+      params_in_millions: 800_000,
+      context_window: 1_000_000,
+    },
+    {
+      id: "test-local-strong",
+      specializations: [
+        "reasoning",
+        "coding",
+        "writing",
+        "planning",
+        "chat",
+        "instruction_following",
+      ],
+      execution_modes: ["direct", "tool_assisted", "workflow"],
+      tiers: ["local_strong", "local_fast"],
+      params_in_millions: 10_000,
+      context_window: 128_000,
+    },
+  ],
+  default: "test-local-strong",
+};
