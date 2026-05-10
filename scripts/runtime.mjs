@@ -3,16 +3,42 @@
 // resource floor lives here so the two top-level scripts can stay tiny.
 
 import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import os from "node:os";
 
 export const baseModel = "gemma4:e4b-it-q4_K_M";
 export const baseModelNativeContextLength = 131_072;
-export const requiredParallelism = 7;
+// Default classifier count used pre-build (when dist/ doesn't exist yet, e.g.
+// during `npm run setup` before TypeScript compiles). Keep this in sync with
+// the bundled REGISTRY size; after build it's replaced by the actual count.
+const DEFAULT_REQUIRED_PARALLELISM = 7;
+// Reads REGISTRY.length from the compiled artifact when available; falls
+// back to the hardcoded default for the first-run case (setup runs before
+// build). This keeps Ollama's parallelism env vars in sync with the actual
+// number of classifiers, so adding/removing modules doesn't silently leave
+// Ollama under-configured.
+export const requiredParallelism = await resolveRequiredParallelism();
 export const contextLength = 4096;
 export const minTotalMemoryBytes = 16 * 1024 * 1024 * 1024;
 export const ollamaHost = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
+
+async function resolveRequiredParallelism() {
+  const distPath = new URL("../dist/src/classifiers.js", import.meta.url);
+  if (!existsSync(distPath)) {
+    return DEFAULT_REQUIRED_PARALLELISM;
+  }
+  try {
+    const mod = await import(distPath.href);
+    if (Array.isArray(mod?.CLASSIFIER_NAMES) && mod.CLASSIFIER_NAMES.length > 0) {
+      return mod.CLASSIFIER_NAMES.length;
+    }
+    return DEFAULT_REQUIRED_PARALLELISM;
+  } catch {
+    return DEFAULT_REQUIRED_PARALLELISM;
+  }
+}
 
 const execFileAsync = promisify(execFile);
 
