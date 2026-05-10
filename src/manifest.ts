@@ -102,12 +102,21 @@ export interface EnvelopeSlots {
   attachment_relevance: Array<{ hash: string; keep: boolean; reason?: string }>;
 }
 
-// Per-slot contribution. Discriminated union over `slot`: the type system
-// enforces that `build` returns the value type matching the declared slot.
+// Per-slot contribution. This is a discriminated union over `slot`: each
+// member declares one specific slot key (e.g. `"memory_queries"`) and a
+// `build` function whose return type is exactly `EnvelopeSlots[that key]`
+// (`string[]` for memory_queries, `{text, kind, ...}` for quick_reply, etc.).
+// The `{ [S in keyof EnvelopeSlots]: ... }[keyof EnvelopeSlots]` pattern is
+// the canonical TypeScript trick for "build one variant per key, then take
+// the union" — it lets a single Contribution<T> value still be narrowed by
+// switching on `c.slot`. Returning `undefined` from `build` means the
+// contributor abstains for this input (the aggregator drops it from the
+// merge pool).
 export type Contribution<Result extends ClassifierResultBase> = {
   [S in keyof EnvelopeSlots]: {
     readonly slot: S;
     // Lower runs first when multiple modules contribute to the same slot.
+    // Confidence is the secondary tiebreak; if both match, first-seen wins.
     readonly priority: number;
     readonly build: (
       result: Result,

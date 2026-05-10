@@ -204,11 +204,21 @@ export async function classifyOpenClassifyInput(
 
   try {
     // ─── Generic short-circuit loop ──────────────────────────────────────
-    // Iterate modules with shortCircuit in priority order (ascending).
-    // Await each. If a verdict comes back, abort the rest and emit a
-    // short_circuit envelope. The `finishedSoFar` set tracks which modules
-    // have settled before the firing one — they're the only ones included in
-    // `meta.classifiers` on the short_circuit envelope.
+    // Iterate modules with shortCircuit in priority order (ascending) and
+    // serialize their evaluation. Lower priority = earlier check, so a cheap
+    // module (e.g. preflight at 0) gets to halt the pipeline before an
+    // expensive one (e.g. security at 10) even has its verdict considered.
+    //
+    // Important: classifiers themselves all run in parallel (kicked off
+    // above). The priority loop only serializes *evaluation* of already-
+    // running tasks — we await each one in turn, but they're racing to
+    // completion concurrently.
+    //
+    // `finishedSoFar` accumulates the names of modules whose verdicts have
+    // been observed (resolved promises). When a short-circuit fires, those
+    // are exactly the modules included in `meta.classifiers` on the
+    // short_circuit envelope — preflight's verdict is visible on a
+    // security-driven block because preflight settled first at priority 0.
     const shortCircuiters = (REGISTRY as ReadonlyArray<AnyClassifierModule>)
       .filter((m) => m.shortCircuit !== undefined)
       .slice()

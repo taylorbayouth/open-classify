@@ -268,6 +268,23 @@ function dedupeStrings<T extends string>(values: ReadonlyArray<T>): T[] {
 }
 
 // ─── Model resolver ─────────────────────────────────────────────────────────
+//
+// Confidence-gated, biggest-wins resolution. Reads three categorical signals
+// from two well-known classifier names (`model_specialization`, `routing`)
+// and turns them into filter constraints. A signal is dropped if either:
+//   - the source classifier's `confidence < threshold` (low_confidence), or
+//   - the value itself is an escape hatch like "unclear"/"unable_to_determine"
+//     (escape_hatch).
+//
+// The surviving constraints filter the catalog. Among matches, the entry
+// with the largest `params_in_millions` wins (tiebreak: larger
+// `context_window`). If no entry matches, the catalog's `default` wins and
+// `fell_back_to_default` is set on the resolution trace.
+//
+// Why low confidence widens the pool: a low-confidence signal is treated as
+// "no signal" → fewer constraints → larger candidate set → bigger model.
+// That's the safe failure mode — when uncertain about the request, pay for
+// more capability rather than less.
 
 export function resolveModel(
   results: Readonly<Record<string, ClassifierResultBase>>,
