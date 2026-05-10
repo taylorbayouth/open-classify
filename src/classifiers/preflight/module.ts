@@ -51,7 +51,6 @@ export const preflightModule: ClassifierModule<"preflight", PreflightResult> = {
   contributions: [preflightAckContribution],
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-preflight:v0.1.0",
     },
   },

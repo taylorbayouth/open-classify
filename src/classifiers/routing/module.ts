@@ -20,7 +20,6 @@ export const routingModule: ClassifierModule<"routing", RoutingResult> = {
   fallback: ROUTING_FALLBACK,
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-routing:v0.1.0",
     },
   },

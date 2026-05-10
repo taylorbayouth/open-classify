@@ -27,7 +27,6 @@ export const memoryRetrievalQueriesModule: ClassifierModule<
   contributions: [memoryQueriesContribution],
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-memory-retrieval-queries:v0.1.0",
     },
   },

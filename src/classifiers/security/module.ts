@@ -40,7 +40,6 @@ export const securityModule: ClassifierModule<"security", SecurityResult> = {
   contributions: [safetySignalsContribution],
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-security:v0.1.0",
     },
   },

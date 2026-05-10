@@ -27,7 +27,6 @@ export const toolsModule: ClassifierModule<"tools", ToolsResult> = {
   contributions: [toolFamiliesContribution],
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-tool-family-need:v0.1.0",
     },
   },

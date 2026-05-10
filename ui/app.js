@@ -113,10 +113,24 @@ const phaseTrail = document.querySelector("#phaseTrail");
 init();
 
 async function init() {
-  [ENUMS, state.samples] = await Promise.all([
+  let descriptors;
+  [ENUMS, descriptors, state.samples] = await Promise.all([
     fetch("/api/enums").then((r) => r.json()),
+    fetch("/api/classifiers").then((r) => r.json()).catch(() => null),
     loadSamples(),
   ]);
+
+  // UI-descriptor protocol: server enumerates the active registry and the
+  // UI overrides its defaults from that. Keeps the hardcoded constants as a
+  // safe fallback when /api/classifiers isn't available (older servers,
+  // offline screenshots, etc.).
+  if (Array.isArray(descriptors) && descriptors.length > 0) {
+    state.classifierNames = descriptors.map((d) => d.name);
+    for (const d of descriptors) {
+      labels[d.name] = d.label ?? labels[d.name] ?? d.name;
+    }
+  }
+
   resetClassifiers("idle");
   renderMessages();
   renderAttachments();
@@ -458,19 +472,25 @@ function showReply(value) {
 
 function renderPipeline(result) {
   let finalState = "complete";
-  if (result.decision === "terminal") {
-    finalState = "terminal";
-  } else if (result.decision === "block") {
-    finalState = "block";
+  if (result.decision === "short_circuit") {
+    if (result.kind === "final") finalState = "terminal";
+    else if (result.kind === "block") finalState = "block";
+    else if (result.kind === "clarify") finalState = "clarify";
   }
   setRunState(finalState);
-  showReply(result.reply);
+  // On short_circuit/final and short_circuit/clarify, `reply` is at the top
+  // level. On route, the brief acknowledgement (if any) is on `quick_reply`.
+  const replyText =
+    result.decision === "short_circuit"
+      ? result.reply
+      : result.quick_reply?.text;
+  showReply(replyText);
 
   if (result.meta?.classifiers) {
     for (const name of Object.keys(result.meta.classifiers)) {
       const entry = result.meta.classifiers[name];
       const status = entry.status;
-      const { status: _ignored, ...verdict } = entry;
+      const { status: _ignored, version: _v, ...verdict } = entry;
       updateClassifier(name, {
         status: status?.ok === false ? "fallback" : "done",
         result: verdict,
@@ -480,10 +500,8 @@ function renderPipeline(result) {
     }
   }
 
-  if (result.decision === "terminal") {
-    cancelClassifiersExcept(["preflight"]);
-  } else if (result.decision === "block") {
-    cancelClassifiersExcept(["preflight", "security"]);
+  if (result.decision === "short_circuit") {
+    cancelClassifiersExcept(Object.keys(result.meta?.classifiers ?? {}));
   }
 
   hashes.hidden = false;
@@ -827,6 +845,7 @@ function setRunState(value) {
     complete: "Complete",
     terminal: "Terminal",
     block: "Block",
+    clarify: "Clarify",
     failed: "Failed",
   };
   runState.textContent = labelMap[value] ?? value;

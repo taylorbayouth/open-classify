@@ -21,7 +21,7 @@
 import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
-import { CLASSIFIER_NAMES } from "./classifiers.js";
+import { CLASSIFIER_NAMES, REGISTRY } from "./classifiers.js";
 import {
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
@@ -90,6 +90,23 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === "GET" && url.pathname === "/api/enums") {
       sendJson(response, CLASSIFIER_ENUMS);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/classifiers") {
+      // UI descriptor protocol: every module's ui hint surfaced verbatim so
+      // ui/app.js doesn't have to duplicate labels/optionEnum/renderer.
+      sendJson(
+        response,
+        REGISTRY.map((module_) => ({
+          name: module_.name,
+          version: module_.version,
+          purpose: module_.purpose,
+          label: module_.ui?.label ?? module_.name,
+          optionEnum: module_.ui?.optionEnum ?? null,
+          renderer: module_.ui?.renderer ?? "object",
+        })),
+      );
       return;
     }
 

@@ -23,7 +23,6 @@ export const modelSpecializationModule: ClassifierModule<
   fallback: MODEL_SPECIALIZATION_FALLBACK,
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-model-specialization:v0.1.0",
     },
   },

@@ -41,7 +41,6 @@ export const conversationHistoryModule: ClassifierModule<
   ],
   backends: {
     ollama: {
-      baseModel: "",
       adapterModel: "open-classify-conversation-history:v0.1.0",
     },
   },

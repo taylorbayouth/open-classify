@@ -26,8 +26,9 @@ export const DOWNSTREAM_EXECUTION_MODE_VALUES = [
 ] as const;
 export type DownstreamExecutionMode = (typeof DOWNSTREAM_EXECUTION_MODE_VALUES)[number];
 
-// Coarse capability+latency tier for the downstream model. Callers map these
-// onto concrete model names via `DownstreamModelConfig` (see types.ts).
+// Coarse capability+latency tier for the downstream model. Catalog entries
+// in `downstream-models.json` advertise which tiers each model fits; the
+// resolver in `src/aggregator.ts` filters candidates by this axis.
 export const DOWNSTREAM_MODEL_TIER_VALUES = [
   "local_fast",
   "local_strong",
@@ -52,7 +53,8 @@ export const TOOL_FAMILY_VALUES = [
 export type ToolFamily = (typeof TOOL_FAMILY_VALUES)[number];
 
 // Which kind of model/prompt specialization fits the request best. Combined
-// with the tier to look up a concrete model in `DownstreamModelConfig`.
+// with the tier and execution mode by the resolver in `src/aggregator.ts`
+// to pick a catalog entry from `downstream-models.json`.
 export const MODEL_SPECIALIZATION_VALUES = [
   "chat",
   "writing",

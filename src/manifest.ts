@@ -224,9 +224,12 @@ export interface ClassifierUiDescriptor {
 
 // Backend hints. Today only Ollama is supported; structure leaves room for
 // future backends (OpenAI, Anthropic, etc.) without churning every module.
+// `baseModel` is optional — omit to use the runner's global default.
+// `adapterModel` is the published LoRA/fine-tune id; the runner prefers it
+// over `baseModel` when set.
 export interface ClassifierBackends {
   readonly ollama?: {
-    readonly baseModel: string;
+    readonly baseModel?: string;
     readonly adapterModel?: string;
   };
 }

@@ -3,12 +3,8 @@
 // the contract a custom `RunClassifier` must satisfy.
 
 import type {
-  DownstreamExecutionMode,
   DownstreamModelTier,
   ModelSpecialization,
-  SecurityRiskLevel,
-  SecuritySignal,
-  ToolFamily,
 } from "./enums.js";
 import type { PreflightResult } from "./classifiers/preflight/result.js";
 import type { RoutingResult } from "./classifiers/routing/result.js";
@@ -18,6 +14,8 @@ import type { ToolsResult } from "./classifiers/tools/result.js";
 import type { ModelSpecializationResult } from "./classifiers/model_specialization/result.js";
 import type { SecurityResult } from "./classifiers/security/result.js";
 
+// Per-classifier Result types are owned by each module. Re-exported here for
+// callers that previously imported them through the package root.
 export type { PreflightResult } from "./classifiers/preflight/result.js";
 export type { RoutingResult } from "./classifiers/routing/result.js";
 export type { ConversationHistoryResult } from "./classifiers/conversation_history/result.js";
@@ -28,27 +26,13 @@ export type { SecurityResult } from "./classifiers/security/result.js";
 export { TERMINALITY_VALUES, type Terminality } from "./classifiers/preflight/result.js";
 
 // "Concrete" variants drop the escape-hatch values (`unable_to_determine`,
-// `unclear`). They exist because those fallbacks shouldn't be valid lookup
-// keys when resolving a downstream model — you can't have a model named
-// `unclear.unable_to_determine`.
+// `unclear`). They exist so catalog entries can't advertise an escape-hatch
+// axis value — you can't have a model with specialization "unclear".
 export type ConcreteDownstreamModelTier = Exclude<
   DownstreamModelTier,
   "unable_to_determine"
 >;
 export type ConcreteModelSpecialization = Exclude<ModelSpecialization, "unclear">;
-
-// Lookup keys for `DownstreamModelConfig`. The pipeline tries them in this
-// order: most-specific (`coding.local_strong`) → tier alone → specialization
-// alone → `default`. See `resolveDownstreamModel` in pipeline.ts.
-export type DownstreamModelConfigKey =
-  | `${ConcreteModelSpecialization}.${ConcreteDownstreamModelTier}`
-  | ConcreteDownstreamModelTier
-  | ConcreteModelSpecialization
-  | "default";
-
-// Caller-supplied mapping from lookup key → model identifier string. Sparse
-// is fine; missing keys just fall through to less-specific entries.
-export type DownstreamModelConfig = Partial<Record<DownstreamModelConfigKey, string>>;
 
 export type ConversationMessageRole = "user" | "assistant";
 
@@ -98,12 +82,8 @@ export interface ClassifierInput {
   target_message_hash: string;
 }
 
-// All per-classifier Result types now live in `src/classifiers/<name>/result.ts`
-// and are re-exported above for backwards compatibility with consumers that
-// haven't migrated their imports yet. Each one extends ClassifierResultBase
-// (reason + confidence).
-
 // Aggregate of every classifier's output. Keys must match `ClassifierName`.
+// Each value comes from the corresponding module's exported Result type.
 export interface OpenClassifyResult {
   preflight: PreflightResult;
   routing: RoutingResult;
@@ -114,13 +94,7 @@ export interface OpenClassifyResult {
   security: SecurityResult;
 }
 
-// `OpenClassifyHandoff`, `ModelResolution`, and `MemoryStatus` were the
-// downstream-output shape in the pre-manifest design. They've been replaced
-// by the modular `Envelope` + `ModelRecommendation` in `src/manifest.ts`
-// (constructed by `composeEnvelope` in `src/aggregator.ts`).
-
 export type ClassifierName = keyof OpenClassifyResult;
-
 export type ClassifierOutput<Name extends ClassifierName> = OpenClassifyResult[Name];
 
 // The function shape required to plug a custom backend into the pipeline. The
@@ -144,35 +118,16 @@ export interface ClassifierRunStatus {
   error?: string;
 }
 
-// One per classifier: the verdict fields plus an embedded `status`. When
-// `status.ok` is false, the verdict fields are the conservative fallback
-// defaults and verdict-level `reason` is empty — read `status.error` for the
-// operational explanation.
+// One per classifier: the verdict fields plus an embedded `status` and
+// module `version`. When `status.ok` is false, the verdict fields are the
+// conservative fallback defaults and verdict-level `reason` is empty —
+// read `status.error` for the operational explanation.
 export type ClassifierEntry<Name extends ClassifierName> = ClassifierOutput<Name> & {
   status: ClassifierRunStatus;
+  version: string;
 };
-
-// All seven classifiers ran (or fell back) and produced an entry. Used on the
-// route path.
-export type FullClassifierEntries = {
-  [Name in ClassifierName]: ClassifierEntry<Name>;
-};
-
-// Subset of classifiers ran. Used on terminal (preflight only) and block
-// (preflight + security) paths — the other classifiers were aborted before
-// they could finish, so they don't appear at all.
-export type PartialClassifierEntries = Partial<{
-  [Name in ClassifierName]: ClassifierEntry<Name>;
-}>;
-
-// Observability surface. Lives under `meta` on every pipeline result so the
-// top-level (decision, reply, target_message_hash, handoff?) can stay lean.
-export interface OpenClassifyMeta<Entries extends PartialClassifierEntries = PartialClassifierEntries> {
-  classifiers: Entries;
-}
 
 // Pipeline output shape lives in `src/pipeline.ts` as
 // `OpenClassifyPipelineResult` (a registry-derived two-variant union:
 // `short_circuit | route`). Import it from "./pipeline.js" or from the
 // package root.
-

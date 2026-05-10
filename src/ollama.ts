@@ -9,7 +9,7 @@
 // Custom backend? Implement `RunClassifier` directly and pass it to
 // `classifyOpenClassifyInput` — you don't have to use this module at all.
 
-import { CLASSIFIERS, CLASSIFIER_NAMES } from "./classifiers.js";
+import { CLASSIFIERS, CLASSIFIER_NAMES, REGISTRY } from "./classifiers.js";
 import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
@@ -85,30 +85,28 @@ const MEMORY_QUERY_MAX_WORDS = 10;
 const execFileAsync = promisify(execFile);
 
 // Per-classifier model overrides. `null` means "use the base model with the
-// classifier's system prompt." Values are filled in either from this default
-// or from `adapter-models.json` via `discoverOllamaClassifierAdapterModels`.
-export const OLLAMA_CLASSIFIER_MODELS = {
-  preflight: null,
-  routing: null,
-  conversation_history: null,
-  memory_retrieval_queries: null,
-  tools: null,
-  model_specialization: null,
-  security: null,
-} as const satisfies Record<ClassifierName, string | null>;
+// classifier's system prompt." Derived from each module's
+// `backends.ollama.baseModel` — modules that omit it map to null (the global
+// base model). Values can still be overridden at runtime via the runner
+// config (see `OllamaClassifierRunnerConfig.models`) or from disk via
+// `adapter-models.json`.
+export const OLLAMA_CLASSIFIER_MODELS = Object.fromEntries(
+  REGISTRY.map((module_) => [
+    module_.name,
+    module_.backends?.ollama?.baseModel ?? null,
+  ]),
+) as Record<ClassifierName, string | null>;
 
-// Reference adapter model names — these are the LoRA/fine-tunes published as
-// part of the Open Classify project. Useful as a starting point if you're
-// pre-publishing your own adapters and want a versioned naming scheme.
-export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
-  preflight: "open-classify-preflight:v0.1.0",
-  routing: "open-classify-routing:v0.1.0",
-  conversation_history: "open-classify-conversation-history:v0.1.0",
-  memory_retrieval_queries: "open-classify-memory-retrieval-queries:v0.1.0",
-  tools: "open-classify-tools:v0.1.0",
-  model_specialization: "open-classify-model-specialization:v0.1.0",
-  security: "open-classify-security:v0.1.0",
-} as const satisfies Record<ClassifierName, string>;
+// Reference adapter model names — derived from each module's
+// `backends.ollama.adapterModel`. These are the LoRA/fine-tunes published as
+// part of the Open Classify project; modules can publish their own adapter
+// ids and they show up here automatically.
+export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = Object.fromEntries(
+  REGISTRY.map((module_) => [
+    module_.name,
+    module_.backends?.ollama?.adapterModel ?? null,
+  ]),
+) as Record<ClassifierName, string | null>;
 
 export interface OllamaOptions {
   temperature?: number;
