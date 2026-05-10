@@ -15,6 +15,7 @@
 //   a single classifier failure — only normalization can throw.
 
 import { CLASSIFIER_NAMES } from "./classifiers.js";
+import { PREFLIGHT_FALLBACK } from "./classifiers/preflight/result.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
   ClassifierEntry,
@@ -525,11 +526,7 @@ function classifierEntry<Name extends ClassifierName>(
 // Typed as a mapped object so each entry is checked against its own output
 // shape — no casts needed when indexing by a generic `Name`.
 const FALLBACK_OUTPUTS: { [Name in ClassifierName]: ClassifierOutput<Name> } = {
-  preflight: {
-    terminality: "unable_to_determine",
-    reply: "Let me check.",
-    reason: "",
-  },
+  preflight: PREFLIGHT_FALLBACK,
   routing: {
     execution_mode: "direct",
     model_tier: "local_strong",

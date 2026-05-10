@@ -8,9 +8,11 @@ import type {
   ModelSpecialization,
   SecurityRiskLevel,
   SecuritySignal,
-  Terminality,
   ToolFamily,
 } from "./enums.js";
+import type { PreflightResult } from "./classifiers/preflight/result.js";
+export type { PreflightResult } from "./classifiers/preflight/result.js";
+export { TERMINALITY_VALUES, type Terminality } from "./classifiers/preflight/result.js";
 
 // "Concrete" variants drop the escape-hatch values (`unable_to_determine`,
 // `unclear`). They exist because those fallbacks shouldn't be valid lookup
@@ -85,12 +87,8 @@ export interface ClassifierInput {
 
 // One result type per classifier. `reason` is a short diagnostic string the
 // model emits to explain its choice; useful for debugging and UI display.
-
-export interface PreflightResult {
-  terminality: Terminality;
-  reply: string;
-  reason: string;
-}
+// `PreflightResult` moved to `src/classifiers/preflight/result.ts` (now
+// extends ClassifierResultBase with `confidence`); re-exported above.
 
 export interface RoutingResult {
   execution_mode: DownstreamExecutionMode;

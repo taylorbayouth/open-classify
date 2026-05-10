@@ -229,6 +229,7 @@ test("createOllamaClassifierRunner validates preflight terminality enum", async 
     terminality: "bad",
     reply: "Nope.",
     reason: "Invalid terminality.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -245,6 +246,7 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
     terminality: "continue",
     reply: "x".repeat(201),
     reason: "The reply is intentionally too long.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -261,6 +263,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
     terminality: "continue",
     reply: "   ",
     reason: "The reply is intentionally empty.",
+    confidence: 0.7,
   });
 
   await assert.rejects(

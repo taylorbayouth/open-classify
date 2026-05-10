@@ -11,11 +11,11 @@
 // `name` field duplicates the key for ergonomic access via Object.values().
 
 import type { ClassifierName } from "./types.js";
+import { preflightModule } from "./classifiers/preflight/module.js";
 import {
   CONVERSATION_HISTORY_SYSTEM_PROMPT,
   MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
   MODEL_SPECIALIZATION_SYSTEM_PROMPT,
-  PREFLIGHT_SYSTEM_PROMPT,
   ROUTING_SYSTEM_PROMPT,
   SECURITY_SYSTEM_PROMPT,
   TOOL_FAMILY_NEED_SYSTEM_PROMPT,
@@ -29,9 +29,9 @@ export interface ClassifierDefinition {
 
 export const CLASSIFIERS = {
   preflight: {
-    name: "preflight",
-    purpose: "Determine whether to stop immediately or continue downstream planning.",
-    systemPrompt: PREFLIGHT_SYSTEM_PROMPT,
+    name: preflightModule.name,
+    purpose: preflightModule.purpose,
+    systemPrompt: preflightModule.systemPrompt,
   },
   routing: {
     name: "routing",

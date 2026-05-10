@@ -19,9 +19,9 @@ import {
   MODEL_SPECIALIZATION_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
-  TERMINALITY_VALUES,
   TOOL_FAMILY_VALUES,
 } from "./enums.js";
+import { validatePreflight as preflightValidator } from "./classifiers/preflight/result.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type {
   ClassifierInput,
@@ -75,7 +75,6 @@ export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
-const PREFLIGHT_REPLY_MAX_CHARS = 200;
 const CLASSIFIER_REASON_MAX_CHARS = 200;
 const CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT = 19;
 const CONVERSATION_HISTORY_REASON_MAX_CHARS = 200;
@@ -615,7 +614,7 @@ function validateClassifierOutput(
 ): OpenClassifyResult[ClassifierName] {
   switch (name) {
     case "preflight":
-      return validatePreflight(value, name, model);
+      return validatePreflight(value, name, model, input ?? ({} as ClassifierInput));
     case "routing":
       return validateRouting(value, name, model);
     case "conversation_history":
@@ -635,27 +634,12 @@ function validatePreflight(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  input: ClassifierInput,
 ): PreflightResult {
-  ensureExactKeys(value, ["terminality", "reply", "reason"], name, model);
-  const terminality = requireEnum(value.terminality, TERMINALITY_VALUES, name, model, "terminality");
-  const reply = requireNonEmptyStringMaxLength(
-    value.reply,
-    name,
-    model,
-    "reply",
-    PREFLIGHT_REPLY_MAX_CHARS,
-  );
-  return {
-    terminality,
-    reply,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
+  // Delegate to the preflight module's validator. The module owns the
+  // result-shape contract end-to-end (prompt + Zod-like validator + fallback
+  // all live next to each other).
+  return preflightValidator(value, { name, model, input });
 }
 
 function validateRouting(
