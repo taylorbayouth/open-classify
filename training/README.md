@@ -4,11 +4,13 @@ This folder holds everything used to fine-tune the seven local classifier adapte
 
 ```txt
 training/
-├── README.md                    # this file (shared generation preamble + workflow)
-├── guides/<classifier>.md       # per-classifier label rules, distributions, examples
+├── README.md                          # this file (shared generation preamble + workflow)
+├── scenarios.jsonl                    # canonical test scenarios (shared with the UI sample picker)
+├── guides/<classifier>.md             # per-classifier label rules, distributions, examples
 ├── training-data/<classifier>.jsonl   # YOUR generated training rows (gitignored)
-├── evals/<classifier>.jsonl     # 20–50 hand-curated eval rows (committed)
-└── adapters/<classifier>/       # fine-tuned weights output (gitignored except *.md)
+├── eval-labels/<classifier>.jsonl     # per-classifier expected outputs keyed by scenario title
+├── evals/<classifier>.jsonl           # built from scenarios + eval-labels by `npm run build-evals` (committed)
+└── adapters/<classifier>/             # fine-tuned weights output (gitignored except *.md)
 ```
 
 Append-only JSONL, one record per line. Each adapter output must match its classifier's schema; do not train the seven adapters on a combined classifier object.

@@ -1,0 +1,41 @@
+{"title":"explain what idempotency means in the","output":{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}}
+{"title":"rewrite this paragraph to sound less","output":{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}}
+{"title":"brainstorm five product names for a","output":{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}}
+{"title":"turn these meeting notes I pasted","output":{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}}
+{"title":"fetch the published changelog at https://docs.frostling","output":{"needed":true,"families":["web"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"look up today's USPS priority mail","output":{"needed":true,"families":["web"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"check the current EU AI Act","output":{"needed":true,"families":["web"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"find the message Ravi posted in","output":{"needed":true,"families":["email_and_chat"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"reply to the email from Janelle","output":{"needed":true,"families":["email_and_chat"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"search my unread Teams messages for","output":{"needed":true,"families":["email_and_chat"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"block Friday from 1pm to 4pm","output":{"needed":true,"families":["calendar"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"find the next 30-minute slot Tuesday","output":{"needed":true,"families":["calendar"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"set up a recurring biweekly product","output":{"needed":true,"families":["calendar"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"move every photo from this morning's","output":{"needed":true,"families":["files"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"list every file in /var/log/payments modified","output":{"needed":true,"families":["files"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"copy the Q4 deck folder from","output":{"needed":true,"families":["files"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"summarize the attached engineering offer letter","output":{"needed":true,"families":["docs_and_sheets"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"from the attached payroll workbook compute","output":{"needed":true,"families":["docs_and_sheets"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"open the launch plan in Notion","output":{"needed":true,"families":["docs_and_sheets"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"file a Linear ticket for the","output":{"needed":true,"families":["tasks_and_projects"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"close Jira ticket BUG-3382 with a","output":{"needed":true,"families":["tasks_and_projects"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"add Owen as an assignee on","output":{"needed":true,"families":["tasks_and_projects"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"run the integration tests in this","output":{"needed":true,"families":["code"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"grep the codebase for any remaining","output":{"needed":true,"families":["code"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"trigger a fresh GitHub Actions deploy","output":{"needed":true,"families":["code"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"pull the open opportunities in our","output":{"needed":true,"families":["business_apps"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"check whether the Stripe charge for","output":{"needed":true,"families":["business_apps"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"look up the Figma frame named","output":{"needed":true,"families":["business_apps"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"find the email Tessa sent yesterday","output":{"needed":true,"families":["email_and_chat","calendar"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"compare the rates in the attached","output":{"needed":true,"families":["web","docs_and_sheets"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"log the new deal in HubSpot","output":{"needed":true,"families":["email_and_chat","business_apps"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"apply the unresolved review comments from","output":{"needed":true,"families":["code"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"convert the action items from yesterday's","output":{"needed":true,"families":["email_and_chat","tasks_and_projects"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"perfect, just make the second line","output":{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}}
+{"title":"which of those would you pick","output":{"needed":false,"families":[],"reason":"The request can be handled without exposing tool families."}}
+{"title":"open the most recent one from","output":{"needed":true,"families":["email_and_chat"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"open those failing test files and","output":{"needed":true,"families":["code"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"create the follow-up tasks in our","output":{"needed":true,"families":["tasks_and_projects"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"compare those rules against the auth","output":{"needed":true,"families":["web","docs_and_sheets"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"update the expansion deal stage to","output":{"needed":true,"families":["business_apps"],"reason":"The selected tool families are required to complete the request."}}
+{"title":"book the team for a one-hour","output":{"needed":true,"families":["calendar"],"reason":"The selected tool families are required to complete the request."}}

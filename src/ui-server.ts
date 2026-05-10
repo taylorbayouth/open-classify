@@ -58,12 +58,14 @@ const CLASSIFIER_ENUMS = {
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
 const UI_DIR = join(process.cwd(), "ui");
+const SCENARIOS_PATH = join(process.cwd(), "training/scenarios.jsonl");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".jsonl": "application/x-ndjson; charset=utf-8",
 };
 
 const server = createServer((request, response) => {
@@ -88,6 +90,11 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === "GET" && url.pathname === "/api/enums") {
       sendJson(response, CLASSIFIER_ENUMS);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/scenarios.jsonl") {
+      serveScenarios(response);
       return;
     }
 
@@ -215,6 +222,15 @@ async function classifyStream(
 // reasons with a structured discriminator.
 function isTimeoutAbort(name: string, signal: AbortSignal): boolean {
   return errorMessage(signal.reason).includes(`${name} classifier timed out`);
+}
+
+function serveScenarios(response: ServerResponse): void {
+  if (!existsSync(SCENARIOS_PATH)) {
+    sendJson(response, { error: "scenarios not found" }, 404);
+    return;
+  }
+  response.writeHead(200, { "content-type": MIME_TYPES[".jsonl"]! });
+  createReadStream(SCENARIOS_PATH).on("error", () => response.destroy()).pipe(response);
 }
 
 function serveStatic(pathname: string, response: ServerResponse): void {
