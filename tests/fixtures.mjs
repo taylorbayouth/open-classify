@@ -5,6 +5,7 @@ export const validClassifierOutputs = {
     terminality: "continue",
     reply: "Let me check.",
     reason: "The latest message requires downstream work.",
+    confidence: 0.85,
   },
   routing: {
     execution_mode: "tool_assisted",

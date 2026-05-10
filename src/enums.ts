@@ -7,13 +7,13 @@
 // classifier can refuse to guess. The pipeline treats those as soft-fail and
 // keeps routing.
 
-// Should the assistant stop and reply now, or continue downstream planning?
-export const TERMINALITY_VALUES = [
-  "terminal",
-  "continue",
-  "unable_to_determine",
-] as const;
-export type Terminality = (typeof TERMINALITY_VALUES)[number];
+// Preflight's terminality enum moved to its module
+// (`src/classifiers/preflight/result.ts`). Re-exported here for backwards
+// compatibility with consumers that haven't migrated their imports yet.
+export {
+  TERMINALITY_VALUES,
+  type Terminality,
+} from "./classifiers/preflight/result.js";
 
 // How the downstream model should be invoked. `direct` is a plain chat call;
 // `tool_assisted` expects tool/function calling; `workflow` implies a multi-
