@@ -16,6 +16,12 @@
 
 import { CLASSIFIER_NAMES } from "./classifiers.js";
 import { PREFLIGHT_FALLBACK } from "./classifiers/preflight/result.js";
+import { ROUTING_FALLBACK } from "./classifiers/routing/result.js";
+import { CONVERSATION_HISTORY_FALLBACK } from "./classifiers/conversation_history/result.js";
+import { MEMORY_RETRIEVAL_QUERIES_FALLBACK } from "./classifiers/memory_retrieval_queries/result.js";
+import { TOOLS_FALLBACK } from "./classifiers/tools/result.js";
+import { MODEL_SPECIALIZATION_FALLBACK } from "./classifiers/model_specialization/result.js";
+import { SECURITY_FALLBACK } from "./classifiers/security/result.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
   ClassifierEntry,
@@ -527,36 +533,12 @@ function classifierEntry<Name extends ClassifierName>(
 // shape — no casts needed when indexing by a generic `Name`.
 const FALLBACK_OUTPUTS: { [Name in ClassifierName]: ClassifierOutput<Name> } = {
   preflight: PREFLIGHT_FALLBACK,
-  routing: {
-    execution_mode: "direct",
-    model_tier: "local_strong",
-    reason: "",
-  },
-  conversation_history: {
-    is_standalone: false,
-    refers_to_history: false,
-    relevant_conversation_history: [],
-    needs_unseen_history: true,
-    reason: "",
-  },
-  memory_retrieval_queries: {
-    queries: [],
-    reason: "",
-  },
-  tools: {
-    needed: false,
-    families: [],
-    reason: "",
-  },
-  model_specialization: {
-    model_specialization: "unclear",
-    reason: "",
-  },
-  security: {
-    risk_level: "unable_to_determine",
-    signals: [],
-    reason: "",
-  },
+  routing: ROUTING_FALLBACK,
+  conversation_history: CONVERSATION_HISTORY_FALLBACK,
+  memory_retrieval_queries: MEMORY_RETRIEVAL_QUERIES_FALLBACK,
+  tools: TOOLS_FALLBACK,
+  model_specialization: MODEL_SPECIALIZATION_FALLBACK,
+  security: SECURITY_FALLBACK,
 };
 
 function fallbackClassifierOutput<Name extends ClassifierName>(

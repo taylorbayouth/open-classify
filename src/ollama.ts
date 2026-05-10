@@ -13,15 +13,13 @@ import { CLASSIFIERS, CLASSIFIER_NAMES } from "./classifiers.js";
 import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
-import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
-  DOWNSTREAM_MODEL_TIER_VALUES,
-  MODEL_SPECIALIZATION_VALUES,
-  SECURITY_RISK_LEVEL_VALUES,
-  SECURITY_SIGNAL_VALUES,
-  TOOL_FAMILY_VALUES,
-} from "./enums.js";
 import { validatePreflight as preflightValidator } from "./classifiers/preflight/result.js";
+import { validateRouting as routingValidator } from "./classifiers/routing/result.js";
+import { validateConversationHistory as conversationHistoryValidator } from "./classifiers/conversation_history/result.js";
+import { validateMemoryRetrievalQueries as memoryRetrievalQueriesValidator } from "./classifiers/memory_retrieval_queries/result.js";
+import { validateTools as toolsValidator } from "./classifiers/tools/result.js";
+import { validateModelSpecialization as modelSpecializationValidator } from "./classifiers/model_specialization/result.js";
+import { validateSecurity as securityValidator } from "./classifiers/security/result.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type {
   ClassifierInput,
@@ -612,21 +610,22 @@ function validateClassifierOutput(
   model: string,
   input?: ClassifierInput,
 ): OpenClassifyResult[ClassifierName] {
+  const ctxInput = input ?? ({} as ClassifierInput);
   switch (name) {
     case "preflight":
-      return validatePreflight(value, name, model, input ?? ({} as ClassifierInput));
+      return validatePreflight(value, name, model, ctxInput);
     case "routing":
-      return validateRouting(value, name, model);
+      return validateRouting(value, name, model, ctxInput);
     case "conversation_history":
-      return validateConversationHistory(value, name, model, input?.messages ?? []);
+      return validateConversationHistory(value, name, model, ctxInput);
     case "memory_retrieval_queries":
-      return validateMemoryRetrievalQueries(value, name, model);
+      return validateMemoryRetrievalQueries(value, name, model, ctxInput);
     case "tools":
-      return validateTools(value, name, model);
+      return validateTools(value, name, model, ctxInput);
     case "model_specialization":
-      return validateModelSpecialization(value, name, model);
+      return validateModelSpecialization(value, name, model, ctxInput);
     case "security":
-      return validateSecurity(value, name, model);
+      return validateSecurity(value, name, model, ctxInput);
   }
 }
 
@@ -646,244 +645,54 @@ function validateRouting(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  input: ClassifierInput,
 ): RoutingResult {
-  ensureExactKeys(value, ["execution_mode", "model_tier", "reason"], name, model);
-  return {
-    execution_mode: requireEnum(
-      value.execution_mode,
-      DOWNSTREAM_EXECUTION_MODE_VALUES,
-      name,
-      model,
-      "execution_mode",
-    ),
-    model_tier: requireEnum(
-      value.model_tier,
-      DOWNSTREAM_MODEL_TIER_VALUES,
-      name,
-      model,
-      "model_tier",
-    ),
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
+  return routingValidator(value, { name, model, input });
 }
 
 function validateConversationHistory(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
-  inputMessages: ConversationMessageInput[],
+  input: ClassifierInput,
 ): ConversationHistoryResult {
-  ensureExactKeys(
-    value,
-    [
-      "is_standalone",
-      "refers_to_history",
-      "prior_messages_needed",
-      "needs_unseen_history",
-      "reason",
-    ],
-    name,
-    model,
-  );
-
-  const priorMessagesNeeded = requireNonNegativeSafeInteger(
-    value.prior_messages_needed,
-    name,
-    model,
-    "prior_messages_needed",
-  );
-  if (priorMessagesNeeded > CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT) {
-    throwInvalid(
-      name,
-      model,
-      `prior_messages_needed must be ${CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT} or fewer`,
-    );
-  }
-
-  const isStandalone = requireBoolean(value.is_standalone, name, model, "is_standalone");
-  const refersToHistory = requireBoolean(
-    value.refers_to_history,
-    name,
-    model,
-    "refers_to_history",
-  );
-  const needsUnseenHistory = requireBoolean(
-    value.needs_unseen_history,
-    name,
-    model,
-    "needs_unseen_history",
-  );
-
-  if (
-    isStandalone &&
-    (refersToHistory || priorMessagesNeeded !== 0 || needsUnseenHistory)
-  ) {
-    throwInvalid(
-      name,
-      model,
-      "standalone conversation_history must not require history",
-    );
-  }
-
-  const relevantConversationHistory =
-    priorMessagesNeeded > 0 && inputMessages.length > 1
-      ? inputMessages.slice(-1 - priorMessagesNeeded, -1)
-      : [];
-
-  return {
-    is_standalone: isStandalone,
-    refers_to_history: refersToHistory,
-    relevant_conversation_history: relevantConversationHistory,
-    needs_unseen_history: needsUnseenHistory,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CONVERSATION_HISTORY_REASON_MAX_CHARS,
-    ),
-  };
+  return conversationHistoryValidator(value, { name, model, input });
 }
 
 function validateMemoryRetrievalQueries(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  input: ClassifierInput,
 ): MemoryRetrievalQueriesResult {
-  ensureExactKeys(value, ["queries", "reason"], name, model);
-  const queries = requireStringArray(value.queries, name, model, "queries").map((query, index) => {
-    const trimmed = query.trim();
-    const wordCount = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
-    if (wordCount < MEMORY_QUERY_MIN_WORDS || wordCount > MEMORY_QUERY_MAX_WORDS) {
-      throwInvalid(
-        name,
-        model,
-        `queries[${index}] must be ${MEMORY_QUERY_MIN_WORDS} to ${MEMORY_QUERY_MAX_WORDS} words`,
-      );
-    }
-    return trimmed;
-  });
-
-  if (queries.length > MEMORY_QUERY_MAX_COUNT) {
-    throwInvalid(name, model, `queries must contain ${MEMORY_QUERY_MAX_COUNT} items or fewer`);
-  }
-  ensureNoDuplicates(queries, name, model, "queries");
-
-  return {
-    queries,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
+  return memoryRetrievalQueriesValidator(value, { name, model, input });
 }
 
 function validateTools(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  input: ClassifierInput,
 ): ToolsResult {
-  ensureExactKeys(value, ["needed", "families", "reason"], name, model);
-  if (typeof value.needed !== "boolean") {
-    throwInvalid(name, model, "needed must be a boolean");
-  }
-  if (!Array.isArray(value.families)) {
-    throwInvalid(name, model, "families must be an array");
-  }
-  const families = value.families.map((item, index) =>
-    requireEnum(item, TOOL_FAMILY_VALUES, name, model, `families[${index}]`),
-  );
-  ensureNoDuplicates(families, name, model, "families");
-  if (value.needed !== (families.length > 0)) {
-    throwInvalid(name, model, "needed must match whether families is non-empty");
-  }
-
-  return {
-    needed: value.needed,
-    families,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
+  return toolsValidator(value, { name, model, input });
 }
 
 function validateModelSpecialization(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  input: ClassifierInput,
 ): ModelSpecializationResult {
-  ensureExactKeys(value, ["model_specialization", "reason"], name, model);
-  return {
-    model_specialization: requireEnum(
-      value.model_specialization,
-      MODEL_SPECIALIZATION_VALUES,
-      name,
-      model,
-      "model_specialization",
-    ),
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
+  return modelSpecializationValidator(value, { name, model, input });
 }
 
 function validateSecurity(
   value: Record<string, unknown>,
   name: ClassifierName,
   model: string,
+  input: ClassifierInput,
 ): SecurityResult {
-  ensureExactKeys(value, ["risk_level", "signals", "reason"], name, model);
-  if (!Array.isArray(value.signals)) {
-    throwInvalid(name, model, "signals must be an array");
-  }
-
-  const riskLevel = requireEnum(
-    value.risk_level,
-    SECURITY_RISK_LEVEL_VALUES,
-    name,
-    model,
-    "risk_level",
-  );
-  const signals = value.signals.map((item, index) =>
-    requireEnum(item, SECURITY_SIGNAL_VALUES, name, model, `signals[${index}]`),
-  );
-  ensureNoDuplicates(signals, name, model, "signals");
-
-  if ((riskLevel === "normal" || riskLevel === "unable_to_determine") && signals.length > 0) {
-    throwInvalid(name, model, `${riskLevel} risk_level must not include signals`);
-  }
-  if (riskLevel !== "normal" && riskLevel !== "unable_to_determine" && signals.length === 0) {
-    throwInvalid(name, model, "elevated risk_level must include at least one signal");
-  }
-
-  return {
-    risk_level: riskLevel,
-    signals,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
+  return securityValidator(value, { name, model, input });
 }
 
 function isFile(path: string): boolean {

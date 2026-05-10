@@ -1,25 +1,19 @@
-// Central registry of every classifier. Adding a new classifier? You'll touch:
-//   1. enums.ts        — any new categorical output values
-//   2. types.ts        — the result interface, plus a key on `OpenClassifyResult`
-//   3. prompts.ts      — the system prompt
-//   4. ollama.ts       — a validator + a fallback shape (in pipeline.ts)
-//   5. this file       — wire the prompt into CLASSIFIERS
-//   6. pipeline.ts     — slot it into the route result and (if early-exit-worthy)
-//                        teach the staged decision flow about it
-//
-// `purpose` is human-readable docs only; nothing reads it at runtime. The
-// `name` field duplicates the key for ergonomic access via Object.values().
+// Central registry of every classifier. With the module migration, each
+// classifier owns its own purpose + systemPrompt (in its module manifest);
+// the entry here just reads from that manifest. To add a new classifier:
+//   1. Create src/classifiers/<name>/{prompt,result,fixtures,module}.ts
+//   2. Import the module here and slot it into CLASSIFIERS below
+//   3. If the classifier short-circuits or affects the handoff, the pipeline
+//      and aggregator will pick that up automatically from the manifest
 
 import type { ClassifierName } from "./types.js";
 import { preflightModule } from "./classifiers/preflight/module.js";
-import {
-  CONVERSATION_HISTORY_SYSTEM_PROMPT,
-  MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
-  MODEL_SPECIALIZATION_SYSTEM_PROMPT,
-  ROUTING_SYSTEM_PROMPT,
-  SECURITY_SYSTEM_PROMPT,
-  TOOL_FAMILY_NEED_SYSTEM_PROMPT,
-} from "./prompts.js";
+import { routingModule } from "./classifiers/routing/module.js";
+import { conversationHistoryModule } from "./classifiers/conversation_history/module.js";
+import { memoryRetrievalQueriesModule } from "./classifiers/memory_retrieval_queries/module.js";
+import { toolsModule } from "./classifiers/tools/module.js";
+import { modelSpecializationModule } from "./classifiers/model_specialization/module.js";
+import { securityModule } from "./classifiers/security/module.js";
 
 export interface ClassifierDefinition {
   name: ClassifierName;
@@ -34,34 +28,34 @@ export const CLASSIFIERS = {
     systemPrompt: preflightModule.systemPrompt,
   },
   routing: {
-    name: "routing",
-    purpose: "Recommend the downstream execution lane.",
-    systemPrompt: ROUTING_SYSTEM_PROMPT,
+    name: routingModule.name,
+    purpose: routingModule.purpose,
+    systemPrompt: routingModule.systemPrompt,
   },
   conversation_history: {
-    name: "conversation_history",
-    purpose: "Recommend how much visible conversation history the downstream assistant should include.",
-    systemPrompt: CONVERSATION_HISTORY_SYSTEM_PROMPT,
+    name: conversationHistoryModule.name,
+    purpose: conversationHistoryModule.purpose,
+    systemPrompt: conversationHistoryModule.systemPrompt,
   },
   memory_retrieval_queries: {
-    name: "memory_retrieval_queries",
-    purpose: "Generate short saved-memory query hints for the downstream assistant.",
-    systemPrompt: MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
+    name: memoryRetrievalQueriesModule.name,
+    purpose: memoryRetrievalQueriesModule.purpose,
+    systemPrompt: memoryRetrievalQueriesModule.systemPrompt,
   },
   tools: {
-    name: "tools",
-    purpose: "Choose broad tool manifest families for downstream exposure.",
-    systemPrompt: TOOL_FAMILY_NEED_SYSTEM_PROMPT,
+    name: toolsModule.name,
+    purpose: toolsModule.purpose,
+    systemPrompt: toolsModule.systemPrompt,
   },
   model_specialization: {
-    name: "model_specialization",
-    purpose: "Choose the model or prompt specialization best suited to the message.",
-    systemPrompt: MODEL_SPECIALIZATION_SYSTEM_PROMPT,
+    name: modelSpecializationModule.name,
+    purpose: modelSpecializationModule.purpose,
+    systemPrompt: modelSpecializationModule.systemPrompt,
   },
   security: {
-    name: "security",
-    purpose: "Assess prompt injection, exfiltration, and permission boundary risk.",
-    systemPrompt: SECURITY_SYSTEM_PROMPT,
+    name: securityModule.name,
+    purpose: securityModule.purpose,
+    systemPrompt: securityModule.systemPrompt,
   },
 } as const satisfies Record<ClassifierName, ClassifierDefinition>;
 

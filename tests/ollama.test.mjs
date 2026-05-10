@@ -280,6 +280,7 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
     execution_mode: "tool_assisted",
     model_tier: "ultra_strong",
     reason: "Invalid model tier.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -298,6 +299,7 @@ test("createOllamaClassifierRunner validates conversation_history prior message 
     prior_messages_needed: 20,
     needs_unseen_history: false,
     reason: "The latest message refers to visible history.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -316,6 +318,7 @@ test("createOllamaClassifierRunner validates conversation_history exact keys", a
     prior_messages_needed: 0,
     needs_unseen_history: false,
     reason: "The latest message can be handled without prior messages.",
+    confidence: 0.85,
     extra: true,
   });
 
@@ -335,6 +338,7 @@ test("createOllamaClassifierRunner validates conversation_history standalone con
     prior_messages_needed: 1,
     needs_unseen_history: false,
     reason: "The latest message refers to visible history.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -350,6 +354,7 @@ test("createOllamaClassifierRunner validates memory query word count", async () 
   const runner = runnerReturning({
     queries: ["too short"],
     reason: "The query is intentionally invalid.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -366,6 +371,7 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
     needed: true,
     families: ["code", "code"],
     reason: "The families are intentionally duplicated.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -380,7 +386,7 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
 test("tool family prompt keeps needed aligned with families", () => {
   assert.match(
     TOOL_FAMILY_NEED_SYSTEM_PROMPT,
-    /Return ONLY valid JSON matching:\n\{"needed":false,"families":\[\],"reason":"<one sentence>"\}/,
+    /Return ONLY valid JSON matching:\n\{"needed":false,"families":\[\],"reason":"<one sentence>","confidence":<0\.0 to 1\.0>\}/,
   );
 });
 
@@ -388,6 +394,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
   const runner = runnerReturning({
     model_specialization: "spreadsheet_magic",
     reason: "Invalid specialization.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -404,6 +411,7 @@ test("createOllamaClassifierRunner validates security risk-level / signals consi
     risk_level: "normal",
     signals: ["instruction_attack"],
     reason: "Conflicting output.",
+    confidence: 0.7,
   });
 
   await assert.rejects(
@@ -455,6 +463,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
       prior_messages_needed: 0,
       needs_unseen_history: false,
       reason: "The latest message can be handled without prior messages.",
+      confidence: 0.88,
     },
   };
 

@@ -11,7 +11,20 @@ import type {
   ToolFamily,
 } from "./enums.js";
 import type { PreflightResult } from "./classifiers/preflight/result.js";
+import type { RoutingResult } from "./classifiers/routing/result.js";
+import type { ConversationHistoryResult } from "./classifiers/conversation_history/result.js";
+import type { MemoryRetrievalQueriesResult } from "./classifiers/memory_retrieval_queries/result.js";
+import type { ToolsResult } from "./classifiers/tools/result.js";
+import type { ModelSpecializationResult } from "./classifiers/model_specialization/result.js";
+import type { SecurityResult } from "./classifiers/security/result.js";
+
 export type { PreflightResult } from "./classifiers/preflight/result.js";
+export type { RoutingResult } from "./classifiers/routing/result.js";
+export type { ConversationHistoryResult } from "./classifiers/conversation_history/result.js";
+export type { MemoryRetrievalQueriesResult } from "./classifiers/memory_retrieval_queries/result.js";
+export type { ToolsResult } from "./classifiers/tools/result.js";
+export type { ModelSpecializationResult } from "./classifiers/model_specialization/result.js";
+export type { SecurityResult } from "./classifiers/security/result.js";
 export { TERMINALITY_VALUES, type Terminality } from "./classifiers/preflight/result.js";
 
 // "Concrete" variants drop the escape-hatch values (`unable_to_determine`,
@@ -85,49 +98,10 @@ export interface ClassifierInput {
   target_message_hash: string;
 }
 
-// One result type per classifier. `reason` is a short diagnostic string the
-// model emits to explain its choice; useful for debugging and UI display.
-// `PreflightResult` moved to `src/classifiers/preflight/result.ts` (now
-// extends ClassifierResultBase with `confidence`); re-exported above.
-
-export interface RoutingResult {
-  execution_mode: DownstreamExecutionMode;
-  model_tier: DownstreamModelTier;
-  reason: string;
-}
-
-export interface ConversationHistoryResult {
-  is_standalone: boolean;
-  refers_to_history: boolean;
-  // Sliced from the input messages by the runner using the model's
-  // `prior_messages_needed` count. The classifier itself never echoes message
-  // text back — that would be a leakage and waste of tokens.
-  relevant_conversation_history: ConversationMessageInput[];
-  needs_unseen_history: boolean;
-  reason: string;
-}
-
-export interface MemoryRetrievalQueriesResult {
-  queries: string[];
-  reason: string;
-}
-
-export interface ToolsResult {
-  needed: boolean;
-  families: ToolFamily[];
-  reason: string;
-}
-
-export interface ModelSpecializationResult {
-  model_specialization: ModelSpecialization;
-  reason: string;
-}
-
-export interface SecurityResult {
-  risk_level: SecurityRiskLevel;
-  signals: SecuritySignal[];
-  reason: string;
-}
+// All per-classifier Result types now live in `src/classifiers/<name>/result.ts`
+// and are re-exported above for backwards compatibility with consumers that
+// haven't migrated their imports yet. Each one extends ClassifierResultBase
+// (reason + confidence).
 
 // Aggregate of every classifier's output. Keys must match `ClassifierName`.
 export interface OpenClassifyResult {
