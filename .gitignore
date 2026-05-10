@@ -9,6 +9,9 @@ open-classify.log
 # Training data is user-supplied; only guides and evals ship in the repo.
 training/training-data/*.jsonl
 
+# Draft evals require hand-labeling before they're ready to commit.
+training/evals/draft/
+
 # Trained adapter weights land here after fine-tuning. Files are large and
 # user-specific; keep the folder structure visible via *.md only.
 training/adapters/*

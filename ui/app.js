@@ -229,7 +229,7 @@ async function init() {
 
 async function loadSamples() {
   try {
-    const response = await fetch("/test-conversations.jsonl");
+    const response = await fetch("/scenarios.jsonl");
     if (!response.ok) return [];
     const text = await response.text();
     return text
