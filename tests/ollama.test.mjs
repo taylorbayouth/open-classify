@@ -3,8 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { CLASSIFIERS } from "../dist/src/classifiers.js";
-import { TOOL_FAMILY_NEED_SYSTEM_PROMPT } from "../dist/src/prompts.js";
+import { MODULES_BY_NAME } from "../dist/src/classifiers.js";
 import {
   classifyWithOllama,
   createOllamaClassifierRunner,
@@ -23,6 +22,7 @@ import {
 import {
   classifierInput,
   jsonResponse,
+  TEST_CATALOG,
   validClassifierOutputs as validOutputs,
 } from "./fixtures.mjs";
 
@@ -280,6 +280,7 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
     execution_mode: "tool_assisted",
     model_tier: "ultra_strong",
     reason: "Invalid model tier.",
+    confidence: 0.5,
   });
 
   await assert.rejects(
@@ -296,8 +297,9 @@ test("createOllamaClassifierRunner validates conversation_history prior message 
     is_standalone: false,
     refers_to_history: true,
     prior_messages_needed: 20,
-    needs_unseen_history: false,
+    requires_full_message_history: false,
     reason: "The latest message refers to visible history.",
+    confidence: 0.6,
   });
 
   await assert.rejects(
@@ -314,8 +316,9 @@ test("createOllamaClassifierRunner validates conversation_history exact keys", a
     is_standalone: true,
     refers_to_history: false,
     prior_messages_needed: 0,
-    needs_unseen_history: false,
+    requires_full_message_history: false,
     reason: "The latest message can be handled without prior messages.",
+    confidence: 0.9,
     extra: true,
   });
 
@@ -333,8 +336,9 @@ test("createOllamaClassifierRunner validates conversation_history standalone con
     is_standalone: true,
     refers_to_history: true,
     prior_messages_needed: 1,
-    needs_unseen_history: false,
+    requires_full_message_history: false,
     reason: "The latest message refers to visible history.",
+    confidence: 0.5,
   });
 
   await assert.rejects(
@@ -350,6 +354,7 @@ test("createOllamaClassifierRunner validates memory query word count", async () 
   const runner = runnerReturning({
     queries: ["too short"],
     reason: "The query is intentionally invalid.",
+    confidence: 0.5,
   });
 
   await assert.rejects(
@@ -366,6 +371,7 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
     needed: true,
     families: ["code", "code"],
     reason: "The families are intentionally duplicated.",
+    confidence: 0.5,
   });
 
   await assert.rejects(
@@ -377,10 +383,10 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
   );
 });
 
-test("tool family prompt keeps needed aligned with families", () => {
+test("tools system prompt keeps needed aligned with families", () => {
   assert.match(
-    TOOL_FAMILY_NEED_SYSTEM_PROMPT,
-    /Return ONLY valid JSON matching:\n\{"needed":false,"families":\[\],"reason":"<one sentence>"\}/,
+    MODULES_BY_NAME.tools.systemPrompt,
+    /Return ONLY valid JSON matching:\n\{"needed":false,"families":\[\],"reason":"<one sentence>","confidence":/,
   );
 });
 
@@ -388,6 +394,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
   const runner = runnerReturning({
     model_specialization: "spreadsheet_magic",
     reason: "Invalid specialization.",
+    confidence: 0.5,
   });
 
   await assert.rejects(
@@ -404,6 +411,7 @@ test("createOllamaClassifierRunner validates security risk-level / signals consi
     risk_level: "normal",
     signals: ["instruction_attack"],
     reason: "Conflicting output.",
+    confidence: 0.5,
   });
 
   await assert.rejects(
@@ -446,40 +454,28 @@ test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
 });
 
 test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
-  // conversation_history: the model still emits prior_messages_needed; the runner transforms it
-  const modelOutputs = {
-    ...validOutputs,
-    conversation_history: {
-      is_standalone: true,
-      refers_to_history: false,
-      prior_messages_needed: 0,
-      needs_unseen_history: false,
-      reason: "The latest message can be handled without prior messages.",
-    },
-  };
-
   const result = await classifyWithOllama(
     { messages: [{ role: "user", text: "review this" }] },
     {
       skipResourceCheck: true,
-      downstreamModels: {
-        "reasoning.local_strong": "selected-downstream-model",
-      },
+      catalog: TEST_CATALOG,
       fetch: async (_url, init) => {
         const body = JSON.parse(init.body);
         assert.equal(body.model, OLLAMA_BASE_MODEL);
         const systemPrompt = body.messages[0].content;
-        const name = Object.keys(CLASSIFIERS).find(
-          (classifierName) => CLASSIFIERS[classifierName].systemPrompt === systemPrompt,
-        );
-        assert.ok(name);
+        // Identify which classifier was invoked by matching system prompts
+        // back to the registered modules.
+        const entries = Object.entries(MODULES_BY_NAME);
+        const match = entries.find(([, module]) => module.systemPrompt === systemPrompt);
+        assert.ok(match, "system prompt should match a registered module");
+        const [name] = match;
 
         assert.match(body.messages[1].content, /text:\nreview this/);
         assert.doesNotMatch(body.messages[1].content, /"text"/);
         assert.doesNotMatch(body.messages[1].content, /"raw"/);
 
         return jsonResponse({
-          message: { content: JSON.stringify(modelOutputs[name]) },
+          message: { content: JSON.stringify(validOutputs[name]) },
         });
       },
     },
@@ -494,8 +490,9 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     }
     assert.equal(entry.status.ok, true);
   }
-  assert.equal(result.handoff.model, "selected-downstream-model");
-  assert.equal(result.handoff.model_resolution.resolved_from, "reasoning.local_strong");
+  // model_specialization "reasoning" + tier "local_strong" → gemma matches
+  // (qwen is coding-only). gemma > nothing else local_strong+reasoning.
+  assert.equal(result.model_recommendation.id, "gemma4:e4b-it-q4_K_M");
 });
 
 test("resource check can fail before fetch is called", async () => {
@@ -525,6 +522,7 @@ test("classifyWithOllama rejects resource failures instead of returning fallback
     classifyWithOllama(
       { messages: [{ role: "user", text: "review this" }] },
       {
+        catalog: TEST_CATALOG,
         minTotalMemoryBytes: Number.MAX_SAFE_INTEGER,
         minAvailableMemoryBytes: Number.MAX_SAFE_INTEGER,
         fetch: async () => {

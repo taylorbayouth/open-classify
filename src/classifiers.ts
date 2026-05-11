@@ -1,68 +1,65 @@
-// Central registry of every classifier. Adding a new classifier? You'll touch:
-//   1. enums.ts        — any new categorical output values
-//   2. types.ts        — the result interface, plus a key on `OpenClassifyResult`
-//   3. prompts.ts      — the system prompt
-//   4. ollama.ts       — a validator + a fallback shape (in pipeline.ts)
-//   5. this file       — wire the prompt into CLASSIFIERS
-//   6. pipeline.ts     — slot it into the route result and (if early-exit-worthy)
-//                        teach the staged decision flow about it
+// Central registry of every classifier module. The pipeline iterates this
+// tuple and has no name-specific knowledge of any classifier — short-circuit
+// behavior, downstream-envelope contributions, UI labels, and backend hints
+// all live on the module itself.
 //
-// `purpose` is human-readable docs only; nothing reads it at runtime. The
-// `name` field duplicates the key for ergonomic access via Object.values().
+// Adding a new classifier? Three steps:
+//   1. Create `src/classifiers/<name>/` with `prompt.ts`, `result.ts`,
+//      `module.ts` (mirror an existing module).
+//   2. Append the module to `REGISTRY` below.
+//   3. If the classifier's outputs are categorical, add the enum(s) to
+//      `enums.ts` so validators and the UI server can read them.
 
-import type { ClassifierName } from "./types.js";
 import { preflightModule } from "./classifiers/preflight/module.js";
-import {
-  CONVERSATION_HISTORY_SYSTEM_PROMPT,
-  MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
-  MODEL_SPECIALIZATION_SYSTEM_PROMPT,
-  ROUTING_SYSTEM_PROMPT,
-  SECURITY_SYSTEM_PROMPT,
-  TOOL_FAMILY_NEED_SYSTEM_PROMPT,
-} from "./prompts.js";
+import { routingModule } from "./classifiers/routing/module.js";
+import { conversationHistoryModule } from "./classifiers/conversation_history/module.js";
+import { memoryRetrievalQueriesModule } from "./classifiers/memory_retrieval_queries/module.js";
+import { toolsModule } from "./classifiers/tools/module.js";
+import { modelSpecializationModule } from "./classifiers/model_specialization/module.js";
+import { securityModule } from "./classifiers/security/module.js";
+import type {
+  AnyClassifierModule,
+  ClassifierNameOf,
+  ClassifierResultsMap,
+  Registry,
+} from "./manifest.js";
+import type { ClassifierInput } from "./types.js";
 
-export interface ClassifierDefinition {
-  name: ClassifierName;
-  purpose: string;
-  systemPrompt: string;
-}
+// Tuple order is the canonical classifier order surfaced to UIs and the SSE
+// stream. Short-circuit evaluation order is independent — it comes from each
+// module's `shortCircuit.priority`.
+export const REGISTRY = [
+  preflightModule,
+  routingModule,
+  conversationHistoryModule,
+  memoryRetrievalQueriesModule,
+  toolsModule,
+  modelSpecializationModule,
+  securityModule,
+] as const satisfies Registry;
 
-export const CLASSIFIERS = {
-  preflight: {
-    name: preflightModule.name,
-    purpose: preflightModule.purpose,
-    systemPrompt: preflightModule.systemPrompt,
-  },
-  routing: {
-    name: "routing",
-    purpose: "Recommend the downstream execution lane.",
-    systemPrompt: ROUTING_SYSTEM_PROMPT,
-  },
-  conversation_history: {
-    name: "conversation_history",
-    purpose: "Recommend how much visible conversation history the downstream assistant should include.",
-    systemPrompt: CONVERSATION_HISTORY_SYSTEM_PROMPT,
-  },
-  memory_retrieval_queries: {
-    name: "memory_retrieval_queries",
-    purpose: "Generate short saved-memory query hints for the downstream assistant.",
-    systemPrompt: MEMORY_RETRIEVAL_QUERIES_SYSTEM_PROMPT,
-  },
-  tools: {
-    name: "tools",
-    purpose: "Choose broad tool manifest families for downstream exposure.",
-    systemPrompt: TOOL_FAMILY_NEED_SYSTEM_PROMPT,
-  },
-  model_specialization: {
-    name: "model_specialization",
-    purpose: "Choose the model or prompt specialization best suited to the message.",
-    systemPrompt: MODEL_SPECIALIZATION_SYSTEM_PROMPT,
-  },
-  security: {
-    name: "security",
-    purpose: "Assess prompt injection, exfiltration, and permission boundary risk.",
-    systemPrompt: SECURITY_SYSTEM_PROMPT,
-  },
-} as const satisfies Record<ClassifierName, ClassifierDefinition>;
+export type RegistryType = typeof REGISTRY;
+export type ClassifierName = ClassifierNameOf<RegistryType>;
 
-export const CLASSIFIER_NAMES = Object.keys(CLASSIFIERS) as ClassifierName[];
+export const CLASSIFIER_NAMES = REGISTRY.map((m) => m.name) as ClassifierName[];
+
+// Convenience lookup: name → module. Useful for backends that need the
+// system prompt (Ollama), UI labels, validators, or fallbacks without
+// iterating the tuple at every call site.
+export const MODULES_BY_NAME = Object.fromEntries(
+  REGISTRY.map((m) => [m.name, m as AnyClassifierModule]),
+) as Record<ClassifierName, AnyClassifierModule>;
+
+// Concrete map: classifier name → that classifier's typed Result.
+export type ClassifierResults = ClassifierResultsMap<RegistryType>;
+
+// The function shape required to plug a custom backend into the pipeline.
+// The Ollama runner in `ollama.ts` is one implementation; you can write your
+// own (OpenAI, Anthropic, mocks for tests, etc.) as long as it satisfies this.
+// The return type is narrowed against the classifier name so callers don't
+// need to cast at the call site.
+export type RunClassifier = <Name extends ClassifierName>(
+  name: Name,
+  input: ClassifierInput,
+  signal: AbortSignal,
+) => Promise<ClassifierResults[Name]>;
