@@ -1,5 +1,7 @@
 # Open Classify
 
+<img src="open-classify-logo.png" alt="Open Classify logo" width="180">
+
 Open Classify is a manifest-driven classifier runtime for deciding what should happen before a user message reaches a downstream assistant model.
 
 The core idea is deliberately small:
