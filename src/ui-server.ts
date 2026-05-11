@@ -261,6 +261,7 @@ function serveStatic(pathname: string, response: ServerResponse): void {
 
   response.writeHead(200, {
     "content-type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream",
+    "cache-control": "no-store",
   });
   createReadStream(filePath).on("error", () => response.destroy()).pipe(response);
 }
