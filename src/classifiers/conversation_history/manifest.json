@@ -1,0 +1,25 @@
+{
+  "name": "conversation_history",
+  "version": "1.0.0",
+  "purpose": "Recommend how much visible conversation history the downstream assistant should include.",
+  "order": 40,
+  "emits": {
+    "context": true
+  },
+  "fallback": {
+    "reason": "",
+    "confidence": 0,
+    "context": {
+      "status": "unknown"
+    }
+  },
+  "backend": {
+    "ollama": {
+      "adapter_model": "open-classify-conversation-history:v0.1.0"
+    }
+  },
+  "ui": {
+    "label": "Conversation history",
+    "renderer": "object"
+  }
+}

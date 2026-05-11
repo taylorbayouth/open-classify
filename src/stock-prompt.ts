@@ -56,10 +56,6 @@ Purpose: ${manifest.purpose}`,
       "output:\n- Custom classifier-specific JSON. It must match the manifest output_schema when one is provided.",
     );
   }
-  if (manifest.prompt?.instructions) {
-    sections.push(`Classifier-specific instructions:\n${manifest.prompt.instructions}`);
-  }
-
   sections.push(`Declared optional fields: ${declaredFields(manifest).join(", ") || "none"}.`);
 
   return sections.join("\n\n");

@@ -1,30 +1,30 @@
-{"title":"Bare greeting","output":{"model_specialization":"chat","reason":"Simple social exchange needing a chat-style conversational response."}}
-{"title":"Tiny arithmetic","output":{"model_specialization":"chat","reason":"Simple factual question needing a direct numerical answer."}}
-{"title":"Standalone general explanation","output":{"model_specialization":"chat","reason":"Explanation of a technical concept is a Q&A response, not a structured writing task."}}
-{"title":"Missing referent","output":{"model_specialization":"unclear","reason":"Insufficient context to identify what task the user wants completed."}}
-{"title":"Instruction attack","output":{"model_specialization":"chat","reason":"Safety refusal is a conversational response with no specialized output structure."}}
-{"title":"Referential rewrite","output":{"model_specialization":"writing","reason":"Task is revising existing prose with style and length constraints."}}
-{"title":"Contextual yes to action","output":{"model_specialization":"instruction_following","reason":"Executing a precisely specified prior decision with fixed note text and no ambiguity."}}
-{"title":"Attached contract","output":{"model_specialization":"reasoning","reason":"Task is analyzing contract terms and identifying risks, requiring evaluation and judgment."}}
-{"title":"Spreadsheet plus current web","output":{"model_specialization":"reasoning","reason":"Comparative analysis between usage data and pricing plans requires structured evaluation."}}
-{"title":"PR comments and local branch","output":{"model_specialization":"coding","reason":"Task requires reading PR comments, editing code, and running tests."}}
-{"title":"Memory preference","output":{"model_specialization":"planning","reason":"Booking task requires retrieving defaults and coordinating logistics steps."}}
-{"title":"Current competitor research","output":{"model_specialization":"writing","reason":"Deliverable is a concise written summary of competitor pricing changes for the product team."}}
-{"title":"Recurring workflow","output":{"model_specialization":"planning","reason":"Task involves setting up a recurring scheduled workflow with specific parameters."}}
-{"title":"Calendar and email","output":{"model_specialization":"planning","reason":"Task involves finding constraints and suggesting meeting times."}}
-{"title":"Authorized security review","output":{"model_specialization":"coding","reason":"Primary task is analyzing auth middleware code for security vulnerabilities."}}
-{"title":"Untrusted remote instructions","output":{"model_specialization":"reasoning","reason":"Task requires evaluating whether external instructions should be followed and why."}}
-{"title":"Destructive production action","output":{"model_specialization":"reasoning","reason":"Request requires evaluating safety implications of an irreversible production deletion."}}
-{"title":"Long-context project reference","output":{"model_specialization":"planning","reason":"Deliverable is a partner launch specification synthesizing prior strategic decisions."}}
-{"title":"Resolved option","output":{"model_specialization":"writing","reason":"Task is drafting a customer-facing note based on established framing."}}
-{"title":"Long support thread","output":{"model_specialization":"writing","reason":"Task is revising existing prose with style and content constraints."}}
-{"title":"Pasted email reply","output":{"model_specialization":"writing","reason":"Task is revising an existing draft with specific style and content changes."}}
-{"title":"Image attachment inspection","output":{"model_specialization":"reasoning","reason":"Task requires visual analysis of a screenshot to evaluate whether a UI element is present."}}
-{"title":"Project management action","output":{"model_specialization":"instruction_following","reason":"Precisely executing a specified list of Linear actions with no content ambiguity."}}
-{"title":"Supplied preference no memory","output":{"model_specialization":"writing","reason":"Task is drafting a short customer communication with specified style constraints."}}
-{"title":"High stakes legal advice","output":{"model_specialization":"reasoning","reason":"Task requires evaluating legal terms for business risks and providing structured analysis."}}
-{"title":"Health triage boundary","output":{"model_specialization":"writing","reason":"Task is drafting a specific written script for a real-world emergency communication."}}
-{"title":"Local repo flaky test","output":{"model_specialization":"coding","reason":"Task requires debugging, running tests, and patching code in a local repository."}}
-{"title":"Audio attachment extraction","output":{"model_specialization":"reasoning","reason":"Task requires identifying and categorizing action items from unstructured audio content."}}
-{"title":"Obfuscated instruction review","output":{"model_specialization":"reasoning","reason":"Task requires decoding and evaluating whether content is an instruction-injection attempt."}}
-{"title":"Ambiguous voice note","output":{"model_specialization":"writing","reason":"Task is revising text to reduce perceived risk once the correct option is identified."}}
+{"title":"Bare greeting","output":{"reason":"Simple social exchange needing a chat-style conversational response.","confidence":0.9,"routing":{"specialization":"chat"}}}
+{"title":"Tiny arithmetic","output":{"reason":"Simple factual question needing a direct numerical answer.","confidence":0.9,"routing":{"specialization":"chat"}}}
+{"title":"Standalone general explanation","output":{"reason":"Explanation of a technical concept is a Q&A response, not a structured writing task.","confidence":0.9,"routing":{"specialization":"chat"}}}
+{"title":"Missing referent","output":{"reason":"Insufficient context to identify what task the user wants completed.","confidence":0.9}}
+{"title":"Instruction attack","output":{"reason":"Safety refusal is a conversational response with no specialized output structure.","confidence":0.9,"routing":{"specialization":"chat"}}}
+{"title":"Referential rewrite","output":{"reason":"Task is revising existing prose with style and length constraints.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"Contextual yes to action","output":{"reason":"Executing a precisely specified prior decision with fixed note text and no ambiguity.","confidence":0.9,"routing":{"specialization":"instruction_following"}}}
+{"title":"Attached contract","output":{"reason":"Task is analyzing contract terms and identifying risks, requiring evaluation and judgment.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Spreadsheet plus current web","output":{"reason":"Comparative analysis between usage data and pricing plans requires structured evaluation.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"PR comments and local branch","output":{"reason":"Task requires reading PR comments, editing code, and running tests.","confidence":0.9,"routing":{"specialization":"coding"}}}
+{"title":"Memory preference","output":{"reason":"Booking task requires retrieving defaults and coordinating logistics steps.","confidence":0.9,"routing":{"specialization":"planning"}}}
+{"title":"Current competitor research","output":{"reason":"Deliverable is a concise written summary of competitor pricing changes for the product team.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"Recurring workflow","output":{"reason":"Task involves setting up a recurring scheduled workflow with specific parameters.","confidence":0.9,"routing":{"specialization":"planning"}}}
+{"title":"Calendar and email","output":{"reason":"Task involves finding constraints and suggesting meeting times.","confidence":0.9,"routing":{"specialization":"planning"}}}
+{"title":"Authorized security review","output":{"reason":"Primary task is analyzing auth middleware code for security vulnerabilities.","confidence":0.9,"routing":{"specialization":"coding"}}}
+{"title":"Untrusted remote instructions","output":{"reason":"Task requires evaluating whether external instructions should be followed and why.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Destructive production action","output":{"reason":"Request requires evaluating safety implications of an irreversible production deletion.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Long-context project reference","output":{"reason":"Deliverable is a partner launch specification synthesizing prior strategic decisions.","confidence":0.9,"routing":{"specialization":"planning"}}}
+{"title":"Resolved option","output":{"reason":"Task is drafting a customer-facing note based on established framing.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"Long support thread","output":{"reason":"Task is revising existing prose with style and content constraints.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"Pasted email reply","output":{"reason":"Task is revising an existing draft with specific style and content changes.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"Image attachment inspection","output":{"reason":"Task requires visual analysis of a screenshot to evaluate whether a UI element is present.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Project management action","output":{"reason":"Precisely executing a specified list of Linear actions with no content ambiguity.","confidence":0.9,"routing":{"specialization":"instruction_following"}}}
+{"title":"Supplied preference no memory","output":{"reason":"Task is drafting a short customer communication with specified style constraints.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"High stakes legal advice","output":{"reason":"Task requires evaluating legal terms for business risks and providing structured analysis.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Health triage boundary","output":{"reason":"Task is drafting a specific written script for a real-world emergency communication.","confidence":0.9,"routing":{"specialization":"writing"}}}
+{"title":"Local repo flaky test","output":{"reason":"Task requires debugging, running tests, and patching code in a local repository.","confidence":0.9,"routing":{"specialization":"coding"}}}
+{"title":"Audio attachment extraction","output":{"reason":"Task requires identifying and categorizing action items from unstructured audio content.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Obfuscated instruction review","output":{"reason":"Task requires decoding and evaluating whether content is an instruction-injection attempt.","confidence":0.9,"routing":{"specialization":"reasoning"}}}
+{"title":"Ambiguous voice note","output":{"reason":"Task is revising text to reduce perceived risk once the correct option is identified.","confidence":0.9,"routing":{"specialization":"writing"}}}

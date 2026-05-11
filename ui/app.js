@@ -1,37 +1,8 @@
-const DEFAULT_CLASSIFIER_NAMES = [
-  "preflight",
-  "routing",
-  "conversation_history",
-  "memory_retrieval_queries",
-  "tools",
-  "model_specialization",
-  "security",
-];
-
-const labels = {
-  preflight: "Preflight",
-  routing: "Routing",
-  conversation_history: "Conversation history",
-  memory_retrieval_queries: "Memory queries",
-  tools: "Tools",
-  model_specialization: "Model specialization",
-  security: "Security",
-};
-
-const optionKeys = {
-  preflight: "terminality",
-  model_specialization: "model_specialization",
-  tools: "tool_family",
-  security: "security_risk_level",
-};
-
 // Populated on init from GET /api/enums — single source of truth is src/enums.ts.
 let ENUMS = {};
+let CLASSIFIER_METADATA = {};
 
 const enumValueLabels = {
-  // terminality
-  terminal: "Terminal",
-  continue: "Continue",
   // execution mode
   direct: "Direct",
   tool_assisted: "Tool assisted",
@@ -81,7 +52,7 @@ const state = {
   attachments: [],
   messages: [createMessage()],
   samples: [],
-  classifierNames: [...DEFAULT_CLASSIFIER_NAMES],
+  classifierNames: [],
   classifiers: {},
   events: [],
   eventCount: 0,
@@ -114,10 +85,16 @@ const phaseTrail = document.querySelector("#phaseTrail");
 init();
 
 async function init() {
-  [ENUMS, state.samples] = await Promise.all([
+  const [enums, classifierResponse, samples] = await Promise.all([
     fetch("/api/enums").then((r) => r.json()),
+    fetch("/api/classifiers").then((r) => r.json()),
     loadSamples(),
   ]);
+  ENUMS = enums;
+  const classifiers = classifierResponse.classifiers ?? [];
+  CLASSIFIER_METADATA = Object.fromEntries(classifiers.map((item) => [item.name, item]));
+  state.classifierNames = classifiers.map((item) => item.name);
+  state.samples = samples;
   resetClassifiers("idle");
   renderMessages();
   renderAttachments();
@@ -606,7 +583,7 @@ function renderClassifier(name) {
     <article class="classifier-card" data-status="${item.status}">
       <div class="classifier-head">
         <div class="title-block">
-          <h2 class="classifier-title">${labels[name] ?? name}</h2>
+          <h2 class="classifier-title">${classifierLabel(name)}</h2>
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">
@@ -649,49 +626,10 @@ function updateTickers() {
 }
 
 function renderOptions(name, result) {
-  if (name === "security") {
-    return `
-      <div class="option-row">${renderEnumOptions("security_risk_level", result?.risk_level)}</div>
-      <div class="option-row">${renderEnumOptions("security_signal", result?.signals ?? [])}</div>
-    `;
-  }
-
-  if (name === "routing") {
-    return `
-      ${renderLabeledEnumOptions("execution", "downstream_execution_mode", result?.execution_mode)}
-      ${renderLabeledEnumOptions("model tier", "downstream_model_tier", result?.model_tier)}
-    `;
-  }
-
-  const key = optionKeys[name];
-  if (!key) return "";
-
-  const selected =
-    name === "tools"
-      ? result?.families ?? []
-      : result?.model_specialization ?? result?.value ?? result?.terminality;
-  return `<div class="option-row">${renderEnumOptions(key, selected)}</div>`;
-}
-
-function renderLabeledEnumOptions(label, key, selected) {
-  return `
-    <div class="option-group">
-      <span class="option-label">${escapeHtml(label)}</span>
-      <div class="option-row">${renderEnumOptions(key, selected)}</div>
-    </div>
-  `;
-}
-
-function renderEnumOptions(key, selected) {
-  const selectedValues = new Set(
-    Array.isArray(selected) ? selected : selected ? [selected] : [],
-  );
-  return (ENUMS[key] ?? [])
-    .map((option) => {
-      const cls = selectedValues.has(option) ? " selected" : "";
-      return `<span class="option${cls}" title="${escapeHtml(option)}">${escapeHtml(enumValueLabels[option] ?? option)}</span>`;
-    })
-    .join("");
+  if (!result) return "";
+  const chips = stockChips(result);
+  if (chips.length === 0) return "";
+  return `<div class="option-row">${chips.map((chip) => `<span class="option selected">${escapeHtml(chip)}</span>`).join("")}</div>`;
 }
 
 function renderDetails(name, item) {
@@ -704,56 +642,27 @@ function renderDetails(name, item) {
     return `<div class="detail muted">${emptyStateText(item.status)}</div>`;
   }
 
-  if (name === "preflight") {
-    return result.reply ? `<div class="detail">${escapeHtml(result.reply)}</div>` : "";
-  }
+  const custom = result.output === undefined
+    ? ""
+    : `<pre class="detail-json">${escapeHtml(JSON.stringify(result.output, null, 2))}</pre>`;
+  return `${custom}${result.reason ? `<div class="detail muted">${escapeHtml(result.reason)}</div>` : ""}`;
+}
 
-  if (name === "memory_retrieval_queries") {
-    const queries = result.queries?.length ? result.queries : ["(no queries)"];
-    return `<div class="query-row">${queries
-      .map((q) => `<span class="query">${escapeHtml(q)}</span>`)
-      .join("")}</div>`;
-  }
+function classifierLabel(name) {
+  return escapeHtml(CLASSIFIER_METADATA[name]?.ui?.label ?? name);
+}
 
-  if (name === "conversation_history") {
-    const n = result.prior_messages_needed ?? 0;
-    const msgPill = n > 0
-      ? `<span class="option selected">${n} message${n === 1 ? "" : "s"}</span>`
-      : "";
-    const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
-    const refersClass = result.refers_to_history ? " selected" : "";
-    const fullHistoryClass = result.requires_full_message_history ? " selected" : "";
-    return `
-      <div class="option-row">${msgPill}${noHistoryPill}</div>
-      <div class="option-row">
-        <span class="option${refersClass}">Refers to History</span>
-        <span class="option${fullHistoryClass}">Requires Full History</span>
-      </div>
-      ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
-    `;
-  }
-
-  if (name === "model_specialization") {
-    return result.reason
-      ? `<div class="detail muted">${escapeHtml(result.reason)}</div>`
-      : "";
-  }
-
-  if (name === "tools") {
-    const families = result.families ?? [];
-    if (families.length === 0) {
-      return `<div class="detail muted">no tools needed</div>`;
-    }
-    return `<div class="query-row">${families
-      .map((f) => `<span class="query">${escapeHtml(f)}</span>`)
-      .join("")}</div>`;
-  }
-
-  if (name === "security") {
-    return `<div class="detail muted">${escapeHtml(result.reason)}</div>`;
-  }
-
-  return "";
+function stockChips(result) {
+  const chips = [];
+  if (result.handoff?.kind) chips.push(`handoff:${result.handoff.kind}`);
+  if (result.routing?.execution_mode) chips.push(result.routing.execution_mode);
+  if (result.routing?.model_tier) chips.push(result.routing.model_tier);
+  if (result.routing?.specialization) chips.push(result.routing.specialization);
+  if (result.context?.status) chips.push(`context:${result.context.status}`);
+  for (const family of result.tools?.families ?? []) chips.push(family);
+  if (result.safety?.risk_level) chips.push(`safety:${result.safety.risk_level}`);
+  if (result.output !== undefined) chips.push("custom output");
+  return chips;
 }
 
 function emptyStateText(status) {

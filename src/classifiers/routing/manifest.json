@@ -1,0 +1,22 @@
+{
+  "name": "routing",
+  "version": "1.0.0",
+  "purpose": "Recommend the downstream execution mode and model tier.",
+  "order": 20,
+  "emits": {
+    "routing": true
+  },
+  "fallback": {
+    "reason": "",
+    "confidence": 0
+  },
+  "backend": {
+    "ollama": {
+      "adapter_model": "open-classify-routing:v0.1.0"
+    }
+  },
+  "ui": {
+    "label": "Routing",
+    "renderer": "object"
+  }
+}

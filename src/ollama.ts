@@ -16,8 +16,8 @@ import { loadCatalog } from "./catalog.js";
 import {
   CLASSIFIER_NAMES,
   MODULES_BY_NAME,
+  validateClassifierOutput,
   type ClassifierName,
-  type ClassifierResults,
   type RunClassifier,
 } from "./classifiers.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
@@ -52,31 +52,16 @@ const ESTIMATED_CHARS_PER_TOKEN = 3;
 
 const execFileAsync = promisify(execFile);
 
-// Per-classifier model overrides. `null` means "use the base model with the
-// classifier's system prompt." Values are filled in either from this default
-// or from `adapter-models.json` via `discoverOllamaClassifierAdapterModels`.
-export const OLLAMA_CLASSIFIER_MODELS = {
-  preflight: null,
-  routing: null,
-  conversation_history: null,
-  memory_retrieval_queries: null,
-  tools: null,
-  model_specialization: null,
-  security: null,
-} as const satisfies Record<ClassifierName, string | null>;
+export const OLLAMA_CLASSIFIER_MODELS = Object.fromEntries(
+  CLASSIFIER_NAMES.map((name) => [name, null]),
+) as Record<ClassifierName, string | null>;
 
-// Reference adapter model names — these are the LoRA/fine-tunes published as
-// part of the Open Classify project. Useful as a starting point if you're
-// pre-publishing your own adapters and want a versioned naming scheme.
-export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = {
-  preflight: "open-classify-preflight:v0.1.0",
-  routing: "open-classify-routing:v0.1.0",
-  conversation_history: "open-classify-conversation-history:v0.1.0",
-  memory_retrieval_queries: "open-classify-memory-retrieval-queries:v0.1.0",
-  tools: "open-classify-tools:v0.1.0",
-  model_specialization: "open-classify-model-specialization:v0.1.0",
-  security: "open-classify-security:v0.1.0",
-} as const satisfies Record<ClassifierName, string>;
+export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = Object.fromEntries(
+  CLASSIFIER_NAMES.map((name) => [
+    name,
+    MODULES_BY_NAME[name].backend?.ollama?.adapter_model ?? null,
+  ]),
+) as Record<ClassifierName, string | null>;
 
 export interface OllamaOptions {
   temperature?: number;
@@ -166,11 +151,11 @@ export function createOllamaClassifierRunner(
   };
   let resourceCheck: Promise<void> | undefined;
 
-  return async <Name extends ClassifierName>(
-    name: Name,
+  return async (
+    name,
     input: ClassifierInput,
     signal: AbortSignal,
-  ): Promise<ClassifierResults[Name]> => {
+  ) => {
     if (!config.skipResourceCheck) {
       resourceCheck ??= assertOllamaResources({
         minTotalMemoryBytes:
@@ -193,7 +178,9 @@ export function createOllamaClassifierRunner(
 export function discoverOllamaClassifierAdapterModels(
   configPath = OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
 ): Record<ClassifierName, string | null> {
-  const models: Record<ClassifierName, string | null> = { ...OLLAMA_CLASSIFIER_MODELS };
+  const models: Record<ClassifierName, string | null> = {
+    ...OLLAMA_CLASSIFIER_ADAPTER_MODELS,
+  };
   if (!isFile(configPath)) {
     return models;
   }
@@ -268,17 +255,21 @@ export async function classifyWithOllama(
   });
 }
 
-async function runOllamaClassifier<Name extends ClassifierName>(
-  name: Name,
+async function runOllamaClassifier(
+  name: ClassifierName,
   input: ClassifierInput,
   signal: AbortSignal,
   fetchImpl: typeof fetch,
   host: string,
   model: string,
   options: OllamaOptions,
-): Promise<ClassifierResults[Name]> {
+){
   const module_ = MODULES_BY_NAME[name];
   const systemPrompt = module_.systemPrompt;
+  const configuredBaseModel = module_.backend?.ollama?.base_model;
+  if (model === OLLAMA_BASE_MODEL && configuredBaseModel) {
+    model = configuredBaseModel;
+  }
   const userPrompt = buildPackedClassifierPrompt(name, input, systemPrompt, model, options);
   const body = {
     model,
@@ -340,7 +331,7 @@ async function runOllamaClassifier<Name extends ClassifierName>(
 
   const parsed = parseJsonObject(content, name, model);
   try {
-    return module_.validate(parsed, { name, model, input }) as ClassifierResults[Name];
+    return validateClassifierOutput(name, parsed, model);
   } catch (error) {
     // Validation helpers throw the backend-neutral ClassifierValidationError.
     // The public Ollama API keeps OllamaClassifierError, so wrap at the

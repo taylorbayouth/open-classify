@@ -767,6 +767,18 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .detail.muted { color: var(--muted); }
 .detail.error { color: var(--err); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
 .detail strong { color: var(--accent); font-weight: 600; }
+.detail-json {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--ink-2);
+  font: 11px ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .context-summary { white-space: pre-wrap; }
 
 .history-preview {

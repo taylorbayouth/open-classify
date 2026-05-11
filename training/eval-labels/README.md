@@ -3,7 +3,7 @@
 Per-classifier expected outputs for the scenarios in `../scenarios.jsonl`. One JSONL file per classifier; each row is `{title, output}` where `title` matches a scenario title and `output` is the expected assistant JSON for that classifier.
 
 ```jsonl
-{"title":"Bare greeting","output":{"terminality":"terminal","reply":"Hey.","reason":"..."}}
+{"title":"Bare greeting","output":{"reason":"...","confidence":0.9,"handoff":{"kind":"final","reply":"Hey."}}}
 ```
 
 These files are the **source of truth for eval expected outputs**. The chat-format files in `../evals/` are built from these + scenarios by `npm run build-evals`.

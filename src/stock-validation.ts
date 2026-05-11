@@ -3,6 +3,7 @@ import {
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
 } from "./enums.js";
+import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
 import type { JsonClassifierManifest, StockClassifierOutput } from "./stock.js";
 import {
   HISTORY_OLDER_MESSAGES_VALUES,
@@ -31,7 +32,6 @@ export const STOCK_TOOL_FAMILY_DESCRIPTION_MAX_CHARS = 240;
 export const STOCK_MANIFEST_NAME_MAX_CHARS = 80;
 export const STOCK_MANIFEST_VERSION_MAX_CHARS = 40;
 export const STOCK_MANIFEST_PURPOSE_MAX_CHARS = 400;
-export const STOCK_MANIFEST_INSTRUCTIONS_MAX_CHARS = 2000;
 
 const STOCK_CONTEXT_STATUS_VALUES = [
   "standalone",
@@ -49,6 +49,8 @@ const STOCK_SAFETY_RISK_LEVEL_VALUES = [
 ] as const;
 const STOCK_UI_RENDERER_VALUES = ["enum", "list", "object", "boolean"] as const;
 
+const ajv = new Ajv({ allErrors: true, strict: false });
+
 export function validateJsonClassifierManifest(
   value: unknown,
   model = "manifest",
@@ -62,9 +64,10 @@ export function validateJsonClassifierManifest(
       "name",
       "version",
       "purpose",
+      "order",
       "emits",
       "fallback",
-      "prompt",
+      "short_circuit",
       "tool_families",
       "output_schema",
       "backend",
@@ -96,6 +99,7 @@ export function validateJsonClassifierManifest(
     "purpose",
     STOCK_MANIFEST_PURPOSE_MAX_CHARS,
   );
+  const order = requireNonNegativeSafeInteger(value.order, "manifest", model, "order");
 
   if (!isRecord(value.emits)) {
     throwInvalid("manifest", model, "emits is required and must be an object");
@@ -116,22 +120,33 @@ export function validateJsonClassifierManifest(
   const toolFamilies = value.tool_families === undefined
     ? undefined
     : validateToolFamilies(value.tool_families, model);
+  if (emits.output === true && value.output_schema === undefined) {
+    throwInvalid("manifest", model, "output_schema is required when emits.output is true");
+  }
+  const outputSchema = value.output_schema;
+  if (outputSchema !== undefined) {
+    compileOutputSchema(outputSchema, "manifest", model);
+  }
   const fallback = validateStockClassifierOutput(value.fallback, {
     classifier: name,
     model,
     emits,
     toolFamilies: toolFamilies?.map((family) => family.id),
+    outputSchema,
   });
 
   return {
     name,
     version,
     purpose,
+    order,
     emits,
     fallback,
-    ...(value.prompt === undefined ? {} : { prompt: validatePrompt(value.prompt, model) }),
+    ...(value.short_circuit === undefined
+      ? {}
+      : { short_circuit: validateShortCircuit(value.short_circuit, model) }),
     ...(toolFamilies === undefined ? {} : { tool_families: toolFamilies }),
-    ...(value.output_schema === undefined ? {} : { output_schema: value.output_schema }),
+    ...(outputSchema === undefined ? {} : { output_schema: outputSchema }),
     ...(value.backend === undefined ? {} : { backend: validateBackend(value.backend, model) }),
     ...(value.ui === undefined ? {} : { ui: validateUi(value.ui, model) }),
   };
@@ -142,6 +157,7 @@ interface ValidateOutputOptions {
   readonly model: string;
   readonly emits?: JsonClassifierManifest["emits"];
   readonly toolFamilies?: ReadonlyArray<string>;
+  readonly outputSchema?: unknown;
 }
 
 export function validateStockClassifierOutput(
@@ -174,7 +190,7 @@ export function validateStockClassifierOutput(
     confidence: requireConfidence(value.confidence, classifier, model),
   };
 
-  return {
+  const out: StockClassifierOutput = {
     ...output,
     ...(value.handoff === undefined ? {} : { handoff: validateHandoff(value.handoff, classifier, model) }),
     ...(value.routing === undefined ? {} : { routing: validateRouting(value.routing, classifier, model) }),
@@ -187,6 +203,10 @@ export function validateStockClassifierOutput(
     ...(value.summary === undefined ? {} : { summary: validateSummary(value.summary, classifier, model) }),
     ...(value.output === undefined ? {} : { output: value.output }),
   };
+  if (value.output !== undefined && options.outputSchema !== undefined) {
+    validateWithSchema(value.output, options.outputSchema, classifier, model, "output");
+  }
+  return out;
 }
 
 function validateHandoff(value: unknown, classifier: string, model: string) {
@@ -438,21 +458,32 @@ function validateToolFamilies(value: unknown, model: string) {
   return out;
 }
 
-function validatePrompt(value: unknown, model: string) {
-  if (!isRecord(value)) throwInvalid("manifest", model, "prompt must be an object");
-  ensureAllowedObjectKeys(value, ["instructions"], "manifest", model, "prompt");
+function validateShortCircuit(value: unknown, model: string) {
+  if (!isRecord(value)) {
+    throwInvalid("manifest", model, "short_circuit must be an object");
+  }
+  ensureAllowedObjectKeys(value, ["priority", "kinds"], "manifest", model, "short_circuit");
+  if (!Array.isArray(value.kinds)) {
+    throwInvalid("manifest", model, "short_circuit.kinds must be an array");
+  }
+  const kinds = value.kinds.map((kind, index) =>
+    requireEnum(
+      kind,
+      STOCK_HANDOFF_KIND_VALUES,
+      "manifest",
+      model,
+      `short_circuit.kinds[${index}]`,
+    ),
+  );
+  ensureNoDuplicates(kinds, "manifest", model, "short_circuit.kinds");
   return {
-    ...(value.instructions === undefined
-      ? {}
-      : {
-          instructions: requireStringMaxLength(
-            value.instructions,
-            "manifest",
-            model,
-            "prompt.instructions",
-            STOCK_MANIFEST_INSTRUCTIONS_MAX_CHARS,
-          ),
-        }),
+    priority: requireNonNegativeSafeInteger(
+      value.priority,
+      "manifest",
+      model,
+      "short_circuit.priority",
+    ),
+    kinds,
   };
 }
 
@@ -523,6 +554,32 @@ function ensureAllowedObjectKeys(
       throwInvalid(classifier, model, `${path}.${key} is not a supported field`);
     }
   }
+}
+
+function compileOutputSchema(schema: unknown, classifier: string, model: string): void {
+  try {
+    ajv.compile(schema as AnySchema);
+  } catch (error) {
+    throwInvalid(classifier, model, `output_schema is invalid JSON Schema: ${errorMessage(error)}`);
+  }
+}
+
+export function validateWithSchema(
+  value: unknown,
+  schema: unknown,
+  classifier: string,
+  model: string,
+  path: string,
+): void {
+  const validate = ajv.compile(schema as AnySchema);
+  if (!validate(value)) {
+    const message = ajv.errorsText(validate.errors, { dataVar: path });
+    throwInvalid(classifier, model, message);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function withoutEscapeHatch<const Values extends readonly string[], Escape extends Values[number]>(

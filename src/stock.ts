@@ -110,10 +110,12 @@ export interface JsonClassifierManifest {
   readonly name: string;
   readonly version: string;
   readonly purpose: string;
+  readonly order: number;
   readonly emits: StockSignalEmits;
   readonly fallback: StockClassifierOutput;
-  readonly prompt?: {
-    readonly instructions?: string;
+  readonly short_circuit?: {
+    readonly priority: number;
+    readonly kinds: ReadonlyArray<HandoffSignal["kind"]>;
   };
   readonly tool_families?: ReadonlyArray<ToolFamilyDefinition>;
   readonly output_schema?: unknown;
@@ -127,4 +129,15 @@ export interface JsonClassifierManifest {
     readonly label?: string;
     readonly renderer?: "enum" | "list" | "object" | "boolean";
   };
+}
+
+export interface RuntimeClassifierManifest extends JsonClassifierManifest {
+  readonly systemPrompt: string;
+}
+
+export interface CustomClassifierOutput {
+  readonly classifier: string;
+  readonly reason: string;
+  readonly confidence: number;
+  readonly output: unknown;
 }
