@@ -190,7 +190,7 @@ h1 {
 
 .field span,
 .section-head span,
-.event-log header span:first-child {
+.event-log summary span:first-child {
   color: var(--muted);
   font-size: 10.5px;
   font-weight: 700;
@@ -403,13 +403,21 @@ button:disabled { cursor: wait; opacity: 0.55; }
   overflow: hidden;
 }
 
-.event-log header {
+.event-log summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.event-log summary::-webkit-details-marker { display: none; }
+
+.event-log:not([open]) summary {
+  border-bottom: 0;
 }
 
 .event-log-count {
@@ -467,7 +475,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .aggregate-panel {
   display: grid;
-  gap: 10px;
+  gap: 0;
   margin-bottom: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -511,6 +519,54 @@ button:disabled { cursor: wait; opacity: 0.55; }
   background: var(--line);
 }
 
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.summary-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px 15px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.summary-item span,
+.field-row span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summary-item strong {
+  min-width: 0;
+  color: var(--ink-2);
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.field-row strong {
+  min-width: 0;
+  color: var(--ink-2);
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .object-row {
   display: grid;
   gap: 5px;
@@ -536,6 +592,64 @@ button:disabled { cursor: wait; opacity: 0.55; }
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.object-details {
+  min-width: 0;
+}
+
+.object-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 12px;
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  background: var(--panel-2);
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.object-details > summary::-webkit-details-marker { display: none; }
+
+.object-details > summary::after {
+  content: "Show";
+  flex-shrink: 0;
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.object-details[open] > summary::after {
+  content: "Hide";
+}
+
+.object-details > summary strong {
+  min-width: 0;
+  margin-left: auto;
+  color: var(--ink-2);
+  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.nested-details > summary {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.nested-details > summary::after {
+  content: "";
 }
 
 .object-grid {
@@ -583,7 +697,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .classifier-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
   gap: 12px;
 }
 
@@ -598,6 +712,10 @@ button:disabled { cursor: wait; opacity: 0.55; }
   background: var(--panel-2);
   padding: 13px 14px;
   transition: border-color 200ms ease, background 200ms ease;
+}
+
+.classifier-card[data-status="aborted"] {
+  opacity: 0.76;
 }
 
 .classifier-card[data-status="running"] {
@@ -704,74 +822,6 @@ button:disabled { cursor: wait; opacity: 0.55; }
   text-align: right;
 }
 
-.option-group {
-  display: grid;
-  gap: 5px;
-}
-
-.option-label {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.option-row, .query-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.option {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 8px;
-  line-height: 1;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-
-.option.selected {
-  border-color: transparent;
-  background: rgba(94, 234, 212, 0.16);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.query {
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  line-height: 1;
-  background: var(--panel-3);
-  color: var(--ink-2);
-  font-size: 11.5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  border: 1px solid var(--line);
-}
-
-.missing-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.missing-tag {
-  border-radius: 999px;
-  padding: 3px 8px;
-  line-height: 1;
-  background: var(--warn-soft);
-  color: var(--warn);
-  font-size: 11px;
-  font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.03em;
-}
-
 .detail {
   font-size: 12.5px;
   line-height: 1.5;
@@ -834,6 +884,42 @@ button:disabled { cursor: wait; opacity: 0.55; }
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.field-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.28fr) minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.field-row:last-child {
+  border-bottom: none;
+}
+
+.detail-stack {
+  display: grid;
+  gap: 7px;
+}
+
+.classifier-detail {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.classifier-detail > summary {
+  border-top: 0;
 }
 
 /* ======== Hashes / JSON ======== */

@@ -415,9 +415,13 @@ function renderAggregate(result) {
     <header class="aggregate-head">
       <span>Pipeline output</span>
     </header>
-    <div class="aggregate-grid">
-      ${rows.map(([key, value]) => objectRow(key, value)).join("")}
-    </div>
+    ${renderPipelineSummary(result)}
+    <details class="object-details">
+      <summary>Fields</summary>
+      <div class="aggregate-grid">
+        ${rows.map(([key, value]) => objectRow(key, value)).join("")}
+      </div>
+    </details>
   `;
 }
 
@@ -538,9 +542,7 @@ function renderDetails(name, item) {
     return `<div class="detail muted">${emptyStateText(item.status)}</div>`;
   }
 
-  return `<div class="object-grid classifier-output">${Object.entries(result)
-    .map(([key, value]) => objectRow(key, value))
-    .join("")}</div>`;
+  return renderClassifierResult(result);
 }
 
 function classifierLabel(name) {
@@ -560,12 +562,12 @@ function objectRow(key, value) {
   return `
     <div class="object-row">
       <span class="object-key">${escapeHtml(key)}</span>
-      ${renderValue(value)}
+      ${renderValue(value, key)}
     </div>
   `;
 }
 
-function renderValue(value) {
+function renderValue(value, key = "") {
   if (Array.isArray(value)) {
     if (value.length === 0) return `<code class="object-scalar">[]</code>`;
     return `
@@ -583,7 +585,16 @@ function renderValue(value) {
   if (isPlainObject(value)) {
     const entries = Object.entries(value);
     if (entries.length === 0) return `<code class="object-scalar">{}</code>`;
-    return `<div class="object-nested">${entries.map(([key, item]) => objectRow(key, item)).join("")}</div>`;
+    const content = `<div class="object-nested">${entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("")}</div>`;
+    if (key === "status" || entries.length > 2) {
+      return `
+        <details class="object-details nested-details">
+          <summary>${escapeHtml(objectSummary(value))}</summary>
+          ${content}
+        </details>
+      `;
+    }
+    return content;
   }
 
   return `<code class="object-scalar">${escapeHtml(formatScalar(value))}</code>`;
@@ -596,6 +607,84 @@ function formatScalar(value) {
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function renderPipelineSummary(result) {
+  const items = [
+    ["Decision", result.decision],
+    ["Kind", result.kind],
+    ["Fired by", result.fired_by],
+    ["Reply", result.reply],
+    ["Ack", result.handoff?.ack_reply],
+    ["Model", result.model_recommendation?.id],
+    ["Hash", result.target_message_hash],
+  ].filter(([, value]) => value !== undefined && value !== "");
+
+  if (items.length === 0) return "";
+
+  return `
+    <div class="summary-grid">
+      ${items.map(([label, value]) => `
+        <div class="summary-item">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(String(value))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderClassifierResult(result) {
+  const entries = Object.entries(result);
+  const primary = entries.filter(([, value]) => !isExpandableValue(value));
+  const nested = entries.filter(([, value]) => isExpandableValue(value));
+
+  return `
+    ${primary.length === 0 ? "" : `
+      <div class="field-list">
+        ${primary.map(([key, value]) => fieldRow(key, value)).join("")}
+      </div>
+    `}
+    ${nested.length === 0 ? "" : `
+      <div class="detail-stack">
+        ${nested.map(([key, value]) => `
+          <details class="object-details classifier-detail">
+            <summary><span>${escapeHtml(key)}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
+            <div class="object-grid classifier-output">${objectRow(key, value)}</div>
+          </details>
+        `).join("")}
+      </div>
+    `}
+  `;
+}
+
+function fieldRow(key, value) {
+  return `
+    <div class="field-row">
+      <span>${escapeHtml(key)}</span>
+      <strong>${escapeHtml(formatScalar(value))}</strong>
+    </div>
+  `;
+}
+
+function isExpandableValue(value) {
+  return Array.isArray(value) || isPlainObject(value);
+}
+
+function objectSummary(value) {
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  if (!isPlainObject(value)) return formatScalar(value);
+  if ("ok" in value && "source" in value) {
+    return `${value.ok ? "ok" : "not ok"} · ${value.source}`;
+  }
+  if ("kind" in value) return String(value.kind);
+  if ("status" in value) return String(value.status);
+  if ("risk_level" in value) return String(value.risk_level);
+  if ("required" in value && "families" in value && Array.isArray(value.families)) {
+    if (!value.required) return "not required";
+    return value.families.length > 0 ? value.families.join(", ") : "required";
+  }
+  return `${Object.keys(value).length} field${Object.keys(value).length === 1 ? "" : "s"}`;
 }
 
 function renderAttachments() {
