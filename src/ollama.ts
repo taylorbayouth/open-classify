@@ -516,8 +516,9 @@ function parseJsonObject(
   classifier: ClassifierName,
   model: string,
 ): Record<string, unknown> {
+  const json = unwrapJsonFence(content);
   try {
-    const parsed = JSON.parse(content) as unknown;
+    const parsed = JSON.parse(json) as unknown;
     if (isRecord(parsed)) {
       return parsed;
     }
@@ -535,6 +536,12 @@ function parseJsonObject(
     model,
     `${classifier} classifier returned JSON that is not an object`,
   );
+}
+
+function unwrapJsonFence(content: string): string {
+  const trimmed = content.trim();
+  const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return match?.[1]?.trim() ?? trimmed;
 }
 
 function isFile(path: string): boolean {

@@ -420,6 +420,25 @@ test("createOllamaClassifierRunner surfaces non-JSON model output", async () => 
   );
 });
 
+test("createOllamaClassifierRunner accepts fenced JSON model output", async () => {
+  const runner = createOllamaClassifierRunner({
+    skipResourceCheck: true,
+    fetch: async () =>
+      jsonResponse({
+        message: {
+          content: `\`\`\`json
+${JSON.stringify(validOutputs.preflight, null, 2)}
+\`\`\``,
+        },
+      }),
+  });
+
+  assert.deepEqual(
+    await runner("preflight", classifierInput(), new AbortController().signal),
+    validOutputs.preflight,
+  );
+});
+
 test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
   const runner = createOllamaClassifierRunner({
     skipResourceCheck: true,
