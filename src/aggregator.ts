@@ -23,6 +23,8 @@ import type {
   ClassifierResultBase,
   ClassifierResultsMap,
   ConcreteDownstreamExecutionMode,
+  ConcreteDownstreamModelTier,
+  ConcreteModelSpecialization,
   Contribution,
   ContributionContext,
   ContributionRef,
@@ -33,11 +35,7 @@ import type {
   ModelRecommendationResolution,
   Registry,
 } from "./manifest.js";
-import type {
-  ClassifierInput,
-  ConcreteDownstreamModelTier,
-  ConcreteModelSpecialization,
-} from "./types.js";
+import type { ClassifierInput } from "./types.js";
 import type { SecurityRiskLevel } from "./enums.js";
 
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;

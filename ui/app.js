@@ -458,19 +458,24 @@ function showReply(value) {
 
 function renderPipeline(result) {
   let finalState = "complete";
-  if (result.decision === "terminal") {
-    finalState = "terminal";
-  } else if (result.decision === "block") {
-    finalState = "block";
+  if (result.decision === "short_circuit") {
+    finalState = result.kind === "block" ? "block" : "terminal";
   }
   setRunState(finalState);
-  showReply(result.reply);
+
+  // Route results put the assistant-facing line under envelope.quick_reply;
+  // short-circuit "final" and "clarify" surface it at the top level.
+  const replyText =
+    result.decision === "short_circuit"
+      ? result.reply ?? ""
+      : result.quick_reply?.text ?? "";
+  showReply(replyText);
 
   if (result.meta?.classifiers) {
     for (const name of Object.keys(result.meta.classifiers)) {
       const entry = result.meta.classifiers[name];
       const status = entry.status;
-      const { status: _ignored, ...verdict } = entry;
+      const { status: _ignored, version: _v, ...verdict } = entry;
       updateClassifier(name, {
         status: status?.ok === false ? "fallback" : "done",
         result: verdict,
@@ -480,10 +485,8 @@ function renderPipeline(result) {
     }
   }
 
-  if (result.decision === "terminal") {
-    cancelClassifiersExcept(["preflight"]);
-  } else if (result.decision === "block") {
-    cancelClassifiersExcept(["preflight", "security"]);
+  if (result.decision === "short_circuit") {
+    cancelClassifiersExcept([result.fired_by]);
   }
 
   hashes.hidden = false;
@@ -664,19 +667,18 @@ function renderDetails(name, item) {
   }
 
   if (name === "conversation_history") {
-    const history = result.relevant_conversation_history ?? [];
-    const n = history.length;
+    const n = result.prior_messages_needed ?? 0;
     const msgPill = n > 0
       ? `<span class="option selected">${n} message${n === 1 ? "" : "s"}</span>`
       : "";
     const noHistoryPill = `<span class="option${n === 0 ? " selected" : ""}">No History Needed</span>`;
     const refersClass = result.refers_to_history ? " selected" : "";
-    const unseenClass = result.needs_unseen_history ? " selected" : "";
+    const fullHistoryClass = result.requires_full_message_history ? " selected" : "";
     return `
       <div class="option-row">${msgPill}${noHistoryPill}</div>
       <div class="option-row">
         <span class="option${refersClass}">Refers to History</span>
-        <span class="option${unseenClass}">Needs Unseen History</span>
+        <span class="option${fullHistoryClass}">Requires Full History</span>
       </div>
       ${result.reason ? `<div class="detail context-summary">${escapeHtml(result.reason)}</div>` : ""}
     `;

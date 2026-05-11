@@ -11,17 +11,27 @@
 // follow-up steps of the refactor plan.
 
 import type {
-  ConcreteDownstreamModelTier,
-  ConcreteModelSpecialization,
   ClassifierInput,
   ClassifierRunStatus,
   ConversationMessageInput,
 } from "./types.js";
 import type {
   DownstreamExecutionMode,
+  DownstreamModelTier,
+  ModelSpecialization,
   SecurityRiskLevel,
   SecuritySignal,
 } from "./enums.js";
+
+// "Concrete" variants drop the escape-hatch values (`unable_to_determine`,
+// `unclear`). They exist because those fallbacks can't be valid catalog
+// constraints — you can't have a model that advertises "unclear" as a
+// specialization fit.
+export type ConcreteDownstreamModelTier = Exclude<
+  DownstreamModelTier,
+  "unable_to_determine"
+>;
+export type ConcreteModelSpecialization = Exclude<ModelSpecialization, "unclear">;
 
 // ─── Base contract every classifier output satisfies ────────────────────────
 
@@ -265,8 +275,17 @@ export interface ClassifierModule<
 // ─── Registry + derived types ───────────────────────────────────────────────
 
 // Loosely-typed alias for cases where the specific Name/Result are erased
-// (e.g. iterating the registry without narrowing).
-export type AnyClassifierModule = ClassifierModule<string, ClassifierResultBase>;
+// (e.g. iterating the registry without narrowing). We use `any` for the
+// `Result` parameter so the variance dance doesn't reject specific modules:
+// `Result` appears in input position (`validate`, `shortCircuit.evaluate`,
+// `contributions[*].build`), which makes `ClassifierModule` invariant in
+// `Result` — `ClassifierModule<string, PreflightResult>` is not assignable
+// to `ClassifierModule<string, ClassifierResultBase>` even though every
+// PreflightResult IS a ClassifierResultBase. `any` is bivariant, which
+// papers over the variance issue cleanly. Runtime safety is unaffected
+// because the per-module validators still enforce the precise result shape.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyClassifierModule = ClassifierModule<string, any>;
 
 // Registry is a hand-maintained tuple. Hand-maintained because TypeScript
 // needs literal references for the mapped types below to work — filesystem

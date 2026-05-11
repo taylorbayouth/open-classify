@@ -1,41 +1,9 @@
-// Shared type surface for Open Classify. Most types here are part of the
-// public API — they describe inputs callers send, outputs they receive, and
-// the contract a custom `RunClassifier` must satisfy.
-
-import type {
-  DownstreamExecutionMode,
-  DownstreamModelTier,
-  ModelSpecialization,
-  SecurityRiskLevel,
-  SecuritySignal,
-  ToolFamily,
-} from "./enums.js";
-import type { PreflightResult } from "./classifiers/preflight/result.js";
-export type { PreflightResult } from "./classifiers/preflight/result.js";
-export { TERMINALITY_VALUES, type Terminality } from "./classifiers/preflight/result.js";
-
-// "Concrete" variants drop the escape-hatch values (`unable_to_determine`,
-// `unclear`). They exist because those fallbacks shouldn't be valid lookup
-// keys when resolving a downstream model — you can't have a model named
-// `unclear.unable_to_determine`.
-export type ConcreteDownstreamModelTier = Exclude<
-  DownstreamModelTier,
-  "unable_to_determine"
->;
-export type ConcreteModelSpecialization = Exclude<ModelSpecialization, "unclear">;
-
-// Lookup keys for `DownstreamModelConfig`. The pipeline tries them in this
-// order: most-specific (`coding.local_strong`) → tier alone → specialization
-// alone → `default`. See `resolveDownstreamModel` in pipeline.ts.
-export type DownstreamModelConfigKey =
-  | `${ConcreteModelSpecialization}.${ConcreteDownstreamModelTier}`
-  | ConcreteDownstreamModelTier
-  | ConcreteModelSpecialization
-  | "default";
-
-// Caller-supplied mapping from lookup key → model identifier string. Sparse
-// is fine; missing keys just fall through to less-specific entries.
-export type DownstreamModelConfig = Partial<Record<DownstreamModelConfigKey, string>>;
+// Shared input + run-status types. Classifier result types now live next to
+// their modules in `src/classifiers/<name>/result.ts`; pipeline result types
+// live in `src/manifest.ts` (generic) and are bound to the concrete registry
+// from `src/classifiers.ts`. This file is intentionally small: it should only
+// hold the contract for what callers send in and the operational metadata
+// every classifier carries alongside its verdict.
 
 export type ConversationMessageRole = "user" | "assistant";
 
@@ -85,203 +53,15 @@ export interface ClassifierInput {
   target_message_hash: string;
 }
 
-// One result type per classifier. `reason` is a short diagnostic string the
-// model emits to explain its choice; useful for debugging and UI display.
-// `PreflightResult` moved to `src/classifiers/preflight/result.ts` (now
-// extends ClassifierResultBase with `confidence`); re-exported above.
-
-export interface RoutingResult {
-  execution_mode: DownstreamExecutionMode;
-  model_tier: DownstreamModelTier;
-  reason: string;
-}
-
-export interface ConversationHistoryResult {
-  is_standalone: boolean;
-  refers_to_history: boolean;
-  // Sliced from the input messages by the runner using the model's
-  // `prior_messages_needed` count. The classifier itself never echoes message
-  // text back — that would be a leakage and waste of tokens.
-  relevant_conversation_history: ConversationMessageInput[];
-  needs_unseen_history: boolean;
-  reason: string;
-}
-
-export interface MemoryRetrievalQueriesResult {
-  queries: string[];
-  reason: string;
-}
-
-export interface ToolsResult {
-  needed: boolean;
-  families: ToolFamily[];
-  reason: string;
-}
-
-export interface ModelSpecializationResult {
-  model_specialization: ModelSpecialization;
-  reason: string;
-}
-
-export interface SecurityResult {
-  risk_level: SecurityRiskLevel;
-  signals: SecuritySignal[];
-  reason: string;
-}
-
-// Aggregate of every classifier's output. Keys must match `ClassifierName`.
-export interface OpenClassifyResult {
-  preflight: PreflightResult;
-  routing: RoutingResult;
-  conversation_history: ConversationHistoryResult;
-  memory_retrieval_queries: MemoryRetrievalQueriesResult;
-  tools: ToolsResult;
-  model_specialization: ModelSpecializationResult;
-  security: SecurityResult;
-}
-
-// How the pipeline arrived at the chosen downstream model. `key` is the most-
-// specific candidate that was tried (always set); `resolved_from` is the key
-// that actually had a value in the caller's `downstreamModels` config (may
-// equal `key`, or be a less specific fallback, or be null if nothing matched).
-// The resolved model identifier itself lives at `OpenClassifyHandoff.model`.
-export interface ModelResolution {
-  key: DownstreamModelConfigKey;
-  resolved_from: DownstreamModelConfigKey | null;
-  tier: DownstreamModelTier;
-  specialization: ModelSpecialization;
-}
-
-// Whether the rolled-up memory queries are trustworthy. "ok" means the
-// memory_retrieval_queries classifier ran and produced a verdict (possibly
-// empty); "unavailable" means it fell back, so an empty `queries` array is
-// the absence of a verdict, not a real "no memory needed" signal.
-export type MemoryStatus = "ok" | "unavailable";
-
-// The shape downstream code actually consumes — a flattened, opinionated view
-// of the seven classifier outputs. If you only care about "what should the
-// assistant do next?", this is the type to lean on.
-export interface OpenClassifyHandoff {
-  execution_mode: DownstreamExecutionMode;
-  // The resolved downstream model identifier, or null when the caller's
-  // `downstreamModels` config has no matching entry. This is the irreducible
-  // routing answer; `model_resolution` is the breakdown of how it was picked.
-  model: string | null;
-  model_resolution: ModelResolution;
-  context: {
-    conversation: {
-      // Length of this array IS the prior-messages count — the runner sliced
-      // the right suffix for you. There's no separate count field.
-      messages: ConversationMessageInput[];
-      needs_unseen_history: boolean;
-    };
-    memory: {
-      queries: string[];
-      status: MemoryStatus;
-    };
-    tools: {
-      // Kept distinct from `families.length > 0`: the model can flag "yes
-      // tools needed" without picking a specific family.
-      needed: boolean;
-      families: ToolFamily[];
-    };
-  };
-  safety: {
-    risk_level: SecurityRiskLevel;
-    signals: SecuritySignal[];
-  };
-}
-
-export type ClassifierName = keyof OpenClassifyResult;
-
-export type ClassifierOutput<Name extends ClassifierName> = OpenClassifyResult[Name];
-
-// The function shape required to plug a custom backend into the pipeline. The
-// Ollama runner in `ollama.ts` is one implementation; you can write your own
-// (OpenAI, Anthropic, mocks for tests, etc.) as long as it satisfies this.
-export type RunClassifier = <Name extends ClassifierName>(
-  name: Name,
-  input: ClassifierInput,
-  signal: AbortSignal,
-) => Promise<ClassifierOutput<Name>>;
-
 // Why a classifier fell back to its default output instead of a model answer.
 export type ClassifierFallbackReason = "error" | "timeout";
 
 // Per-classifier execution metadata. Lives inside the merged classifier entry
-// so callers see the verdict and the operational state in one place.
+// (`meta.classifiers[name]`) so callers see the verdict and the operational
+// state in one place.
 export interface ClassifierRunStatus {
   ok: boolean;
   source: "model" | "fallback";
   reason?: ClassifierFallbackReason;
   error?: string;
 }
-
-// One per classifier: the verdict fields plus an embedded `status`. When
-// `status.ok` is false, the verdict fields are the conservative fallback
-// defaults and verdict-level `reason` is empty — read `status.error` for the
-// operational explanation.
-export type ClassifierEntry<Name extends ClassifierName> = ClassifierOutput<Name> & {
-  status: ClassifierRunStatus;
-};
-
-// All seven classifiers ran (or fell back) and produced an entry. Used on the
-// route path.
-export type FullClassifierEntries = {
-  [Name in ClassifierName]: ClassifierEntry<Name>;
-};
-
-// Subset of classifiers ran. Used on terminal (preflight only) and block
-// (preflight + security) paths — the other classifiers were aborted before
-// they could finish, so they don't appear at all.
-export type PartialClassifierEntries = Partial<{
-  [Name in ClassifierName]: ClassifierEntry<Name>;
-}>;
-
-// Observability surface. Lives under `meta` on every pipeline result so the
-// top-level (decision, reply, target_message_hash, handoff?) can stay lean.
-export interface OpenClassifyMeta<Entries extends PartialClassifierEntries = PartialClassifierEntries> {
-  classifiers: Entries;
-}
-
-// Pipeline returns one of three shapes, discriminated by `decision`. Narrow
-// on `decision` before reaching for shape-specific fields (e.g. `handoff` is
-// only present on the route variant).
-
-// Preflight said the assistant can stop now and reply with `reply` directly.
-// No other classifiers ran (they were aborted to save compute), so
-// `meta.classifiers` contains only `preflight`.
-export interface OpenClassifyTerminalPipelineResult {
-  decision: "terminal";
-  target_message_hash: string;
-  reply: string;
-  meta: OpenClassifyMeta<{ preflight: ClassifierEntry<"preflight"> }>;
-}
-
-// Security flagged the message as high-risk. Pipeline aborts the rest and
-// returns no reply — callers who want a refusal should detect
-// `decision === "block"` and craft their own copy. `meta.classifiers`
-// contains only `security` (the classifier whose verdict drove the block).
-export interface OpenClassifyBlockPipelineResult {
-  decision: "block";
-  target_message_hash: string;
-  meta: OpenClassifyMeta<{
-    security: ClassifierEntry<"security">;
-  }>;
-}
-
-// Normal path: route the message to the downstream assistant. All seven
-// classifiers ran (or fell back), and `handoff` summarizes their decisions
-// for downstream consumption.
-export interface OpenClassifyRoutePipelineResult {
-  decision: "route";
-  target_message_hash: string;
-  reply: string;
-  handoff: OpenClassifyHandoff;
-  meta: OpenClassifyMeta<FullClassifierEntries>;
-}
-
-export type OpenClassifyPipelineResult =
-  | OpenClassifyTerminalPipelineResult
-  | OpenClassifyBlockPipelineResult
-  | OpenClassifyRoutePipelineResult;

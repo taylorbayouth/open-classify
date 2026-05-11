@@ -9,10 +9,9 @@
 //   classifier_started      — a specific classifier is now running
 //   classifier_completed    — that classifier returned a model result
 //   classifier_failed       — that classifier threw without being aborted
-//   classifier_aborted      — early-exit (preflight terminal or security block)
-//                             cancelled this classifier mid-flight
+//   classifier_aborted      — early-exit short-circuit cancelled this classifier
 //   classifier_timed_out    — the per-classifier timeout fired
-//   pipeline_completed      — final OpenClassifyPipelineResult payload
+//   pipeline_completed      — final PipelineResult payload
 //   pipeline_failed         — pipeline-level error (normalization, etc.)
 //
 // This server is intentionally minimal — no auth, no rate limiting, binds to
@@ -21,28 +20,27 @@
 import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
-import { CLASSIFIER_NAMES } from "./classifiers.js";
+import { loadCatalog } from "./catalog.js";
+import { CLASSIFIER_NAMES, type RunClassifier } from "./classifiers.js";
+import { TERMINALITY_VALUES } from "./classifiers/preflight/result.js";
 import {
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
-  TERMINALITY_VALUES,
   TOOL_FAMILY_VALUES,
 } from "./enums.js";
 import {
   createOllamaClassifierRunner,
   OLLAMA_CONTEXT_LENGTH,
+  OLLAMA_DEFAULT_CATALOG_PATH,
   OLLAMA_MIN_AVAILABLE_MEMORY_BYTES,
   OLLAMA_MIN_TOTAL_MEMORY_BYTES,
   OLLAMA_REQUIRED_PARALLELISM,
 } from "./ollama.js";
-import {
-  classifyOpenClassifyInput,
-  EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
-} from "./pipeline.js";
-import type { OpenClassifyInput, RunClassifier } from "./types.js";
+import { classifyOpenClassifyInput } from "./pipeline.js";
+import type { OpenClassifyInput } from "./types.js";
 
 // Served at GET /api/enums so the UI never needs to duplicate these values.
 const CLASSIFIER_ENUMS = {
@@ -59,6 +57,7 @@ const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
 const UI_DIR = join(process.cwd(), "ui");
 const SCENARIOS_PATH = join(process.cwd(), "training/scenarios.jsonl");
+const CATALOG_PATH = process.env.OPEN_CLASSIFY_CATALOG_PATH ?? OLLAMA_DEFAULT_CATALOG_PATH;
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -201,7 +200,7 @@ async function classifyStream(
     send("pipeline_phase", { phase: "running" });
     const result = await classifyOpenClassifyInput(input, {
       runClassifier,
-      downstreamModels: EXAMPLE_DOWNSTREAM_MODEL_CONFIG,
+      catalog: loadCatalog(CATALOG_PATH),
       signal: clientAbortController.signal,
     });
     send("pipeline_completed", result);

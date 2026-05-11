@@ -2,11 +2,10 @@
 //
 // tests/ollama.test.mjs mocks model output to verify runner/schema logic.
 // This file calls the real local model with hand-built conversations and
-// asserts the returned window is wide enough to preserve named entities
-// introduced earlier in the thread. The intent is to guard against the
-// silent under-inclusion failure where the model confidently returns a
-// small `prior_messages_needed` count and drops the entity that the
-// downstream model needs to produce a correct response.
+// asserts that `prior_messages_needed` is wide enough to preserve named
+// entities introduced earlier in the thread. The intent is to guard against
+// the silent under-inclusion failure where the model confidently returns a
+// small count and drops the entity that the downstream model needs.
 //
 // Skips gracefully when Ollama is unreachable or the resolved model is
 // not installed, so it is safe to leave in the default `npm test` flow.
@@ -67,8 +66,8 @@ const FIXTURES = [
       assert.equal(result.is_standalone, false, "expected non-standalone");
       assert.equal(result.refers_to_history, true, "expected refers_to_history");
       assert.ok(
-        result.relevant_conversation_history.length >= 6,
-        `expected window >= 6 (Acme entity at msg -7); got ${result.relevant_conversation_history.length}`,
+        result.prior_messages_needed >= 6,
+        `expected window >= 6 (Acme entity at msg -7); got ${result.prior_messages_needed}`,
       );
     },
   },
@@ -84,7 +83,7 @@ const FIXTURES = [
       assert.equal(result.is_standalone, true, "expected standalone");
       assert.equal(result.refers_to_history, false, "expected refers_to_history false");
       assert.equal(
-        result.relevant_conversation_history.length,
+        result.prior_messages_needed,
         0,
         "standalone questions should not be padded",
       );
@@ -103,8 +102,8 @@ const FIXTURES = [
       assert.equal(result.is_standalone, false);
       assert.equal(result.refers_to_history, true);
       assert.ok(
-        result.relevant_conversation_history.length >= 1,
-        `expected window >= 1; got ${result.relevant_conversation_history.length}`,
+        result.prior_messages_needed >= 1,
+        `expected window >= 1; got ${result.prior_messages_needed}`,
       );
     },
   },
@@ -135,8 +134,8 @@ const FIXTURES = [
       assert.equal(result.is_standalone, false);
       assert.equal(result.refers_to_history, true);
       assert.ok(
-        result.relevant_conversation_history.length > 2,
-        `regression: expected window > 2 (old prompt returned 2 here); got ${result.relevant_conversation_history.length}`,
+        result.prior_messages_needed > 2,
+        `regression: expected window > 2 (old prompt returned 2 here); got ${result.prior_messages_needed}`,
       );
     },
   },
@@ -156,8 +155,8 @@ const FIXTURES = [
     expect(result) {
       assert.equal(result.is_standalone, false);
       assert.ok(
-        result.relevant_conversation_history.length >= 8,
-        `expected window >= 8 (Postgres preference at msg -9); got ${result.relevant_conversation_history.length}`,
+        result.prior_messages_needed >= 8,
+        `expected window >= 8 (Postgres preference at msg -9); got ${result.prior_messages_needed}`,
       );
     },
   },

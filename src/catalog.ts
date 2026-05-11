@@ -18,11 +18,9 @@ import type {
   Catalog,
   CatalogEntry,
   ConcreteDownstreamExecutionMode,
-} from "./manifest.js";
-import type {
   ConcreteDownstreamModelTier,
   ConcreteModelSpecialization,
-} from "./types.js";
+} from "./manifest.js";
 
 export class CatalogError extends Error {
   readonly path?: string;

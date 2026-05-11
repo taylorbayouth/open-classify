@@ -3,58 +3,32 @@
 //   1. Resource sanity check — refuse to run on undersized hardware.
 //   2. Prompt packing — render the system+user prompts and drop older context
 //      messages until the rendered prompt fits the configured num_ctx budget.
-//   3. Validation — every classifier has a strict schema validator that
-//      rejects malformed model output (raises `OllamaClassifierError`).
+//   3. Backend wiring — call Ollama, parse JSON, and delegate validation to
+//      each classifier module's `validate` function.
 //
 // Custom backend? Implement `RunClassifier` directly and pass it to
 // `classifyOpenClassifyInput` — you don't have to use this module at all.
 
-import { CLASSIFIERS, CLASSIFIER_NAMES } from "./classifiers.js";
 import { execFile } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
+import { loadCatalog } from "./catalog.js";
 import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
-  DOWNSTREAM_MODEL_TIER_VALUES,
-  MODEL_SPECIALIZATION_VALUES,
-  SECURITY_RISK_LEVEL_VALUES,
-  SECURITY_SIGNAL_VALUES,
-  TOOL_FAMILY_VALUES,
-} from "./enums.js";
-import { validatePreflight as preflightValidator } from "./classifiers/preflight/result.js";
+  CLASSIFIER_NAMES,
+  MODULES_BY_NAME,
+  type ClassifierName,
+  type ClassifierResults,
+  type RunClassifier,
+} from "./classifiers.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
+import type { Catalog } from "./manifest.js";
 import type {
   ClassifierInput,
-  ClassifierName,
-  ClassifierOutput,
-  ConversationHistoryResult,
-  ConversationMessageInput,
-  DownstreamModelConfig,
-  DownstreamModelConfigKey,
-  RoutingResult,
-  MemoryRetrievalQueriesResult,
-  ModelSpecializationResult,
   OpenClassifyInput,
-  OpenClassifyPipelineResult,
-  OpenClassifyResult,
-  PreflightResult,
-  RunClassifier,
-  SecurityResult,
-  ToolsResult,
 } from "./types.js";
 import {
   ClassifierValidationError,
-  ensureExactKeys,
-  ensureNoDuplicates,
   isRecord,
-  requireBoolean,
-  requireEnum,
-  requireNonEmptyStringMaxLength,
-  requireNonNegativeSafeInteger,
-  requireString,
-  requireStringArray,
-  requireStringMaxLength,
-  throwInvalid,
 } from "./validation.js";
 
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
@@ -62,7 +36,7 @@ export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
 export const OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG = "adapter-models.json";
-export const OLLAMA_DEFAULT_DOWNSTREAM_MODEL_CONFIG = "downstream-models.json";
+export const OLLAMA_DEFAULT_CATALOG_PATH = "downstream-models.json";
 
 /*
  * Gemma 4 E4B's native context is 131,072 tokens (128K). The reference local
@@ -75,12 +49,6 @@ export const OLLAMA_MIN_TOTAL_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 export const OLLAMA_MIN_AVAILABLE_MEMORY_BYTES = 16 * 1024 * 1024 * 1024;
 
 const ESTIMATED_CHARS_PER_TOKEN = 3;
-const CLASSIFIER_REASON_MAX_CHARS = 200;
-const CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT = 19;
-const CONVERSATION_HISTORY_REASON_MAX_CHARS = 200;
-const MEMORY_QUERY_MAX_COUNT = 3;
-const MEMORY_QUERY_MIN_WORDS = 3;
-const MEMORY_QUERY_MAX_WORDS = 10;
 
 const execFileAsync = promisify(execFile);
 
@@ -128,9 +96,12 @@ export interface OllamaClassifierRunnerConfig {
   minTotalMemoryBytes?: number;
 }
 
+// Top-level helper that combines the runner + the catalog. Callers who only
+// want to run a single classification end-to-end can use this; callers who
+// need finer control should build the pieces themselves.
 export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
-  downstreamModels?: DownstreamModelConfig;
-  downstreamModelConfig?: string;
+  catalog?: Catalog;
+  catalogPath?: string;
 }
 
 interface OllamaChatResponse {
@@ -199,7 +170,7 @@ export function createOllamaClassifierRunner(
     name: Name,
     input: ClassifierInput,
     signal: AbortSignal,
-  ): Promise<ClassifierOutput<Name>> => {
+  ): Promise<ClassifierResults[Name]> => {
     if (!config.skipResourceCheck) {
       resourceCheck ??= assertOllamaResources({
         minTotalMemoryBytes:
@@ -248,27 +219,6 @@ export function discoverOllamaClassifierAdapterModels(
   return models;
 }
 
-// Best-effort load of `downstream-models.json` (or the path the caller picks).
-// Missing/malformed files are not fatal — returns {} so model resolves to null.
-export function discoverDownstreamModels(
-  configPath = OLLAMA_DEFAULT_DOWNSTREAM_MODEL_CONFIG,
-): DownstreamModelConfig {
-  if (!isFile(configPath)) return {};
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
-    if (!isRecord(parsed)) return {};
-    const result: DownstreamModelConfig = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string" && value.trim().length > 0) {
-        result[key as DownstreamModelConfigKey] = value.trim();
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
 export async function assertOllamaResources(
   options: {
     minTotalMemoryBytes?: number;
@@ -297,7 +247,7 @@ export async function assertOllamaResources(
 export async function classifyWithOllama(
   input: OpenClassifyInput,
   config: ClassifyWithOllamaConfig = {},
-): Promise<OpenClassifyPipelineResult> {
+): ReturnType<typeof classifyOpenClassifyInput> {
   let runnerConfig = config;
   if (!config.skipResourceCheck) {
     await assertOllamaResources({
@@ -310,10 +260,11 @@ export async function classifyWithOllama(
     };
   }
 
+  const catalog = config.catalog ?? loadCatalog(config.catalogPath ?? OLLAMA_DEFAULT_CATALOG_PATH);
+
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(runnerConfig),
-    downstreamModels:
-      config.downstreamModels ?? discoverDownstreamModels(config.downstreamModelConfig),
+    catalog,
   });
 }
 
@@ -325,8 +276,9 @@ async function runOllamaClassifier<Name extends ClassifierName>(
   host: string,
   model: string,
   options: OllamaOptions,
-): Promise<ClassifierOutput<Name>> {
-  const systemPrompt = CLASSIFIERS[name].systemPrompt;
+): Promise<ClassifierResults[Name]> {
+  const module_ = MODULES_BY_NAME[name];
+  const systemPrompt = module_.systemPrompt;
   const userPrompt = buildPackedClassifierPrompt(name, input, systemPrompt, model, options);
   const body = {
     model,
@@ -335,14 +287,8 @@ async function runOllamaClassifier<Name extends ClassifierName>(
     think: false,
     options,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: userPrompt,
-      },
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
     ],
   };
 
@@ -394,7 +340,7 @@ async function runOllamaClassifier<Name extends ClassifierName>(
 
   const parsed = parseJsonObject(content, name, model);
   try {
-    return validateClassifierOutput(name, parsed, model, input) as ClassifierOutput<Name>;
+    return module_.validate(parsed, { name, model, input }) as ClassifierResults[Name];
   } catch (error) {
     // Validation helpers throw the backend-neutral ClassifierValidationError.
     // The public Ollama API keeps OllamaClassifierError, so wrap at the
@@ -551,9 +497,7 @@ function buildClassifierPrompt(input: ClassifierInput): string {
     lines.push("");
   }
 
-  lines.push(
-    "Attachments:",
-  );
+  lines.push("Attachments:");
 
   if (input.attachments.length === 0) {
     lines.push("none");
@@ -600,290 +544,6 @@ function parseJsonObject(
     model,
     `${classifier} classifier returned JSON that is not an object`,
   );
-}
-
-// Per-classifier validators below. They run on the model's parsed JSON and
-// either return a typed result or throw `OllamaClassifierError`. Validation
-// is strict on purpose: we'd rather surface a malformed response than ship
-// downstream code a half-valid object that quietly misbehaves.
-function validateClassifierOutput(
-  name: ClassifierName,
-  value: Record<string, unknown>,
-  model: string,
-  input?: ClassifierInput,
-): OpenClassifyResult[ClassifierName] {
-  switch (name) {
-    case "preflight":
-      return validatePreflight(value, name, model, input ?? ({} as ClassifierInput));
-    case "routing":
-      return validateRouting(value, name, model);
-    case "conversation_history":
-      return validateConversationHistory(value, name, model, input?.messages ?? []);
-    case "memory_retrieval_queries":
-      return validateMemoryRetrievalQueries(value, name, model);
-    case "tools":
-      return validateTools(value, name, model);
-    case "model_specialization":
-      return validateModelSpecialization(value, name, model);
-    case "security":
-      return validateSecurity(value, name, model);
-  }
-}
-
-function validatePreflight(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-  input: ClassifierInput,
-): PreflightResult {
-  // Delegate to the preflight module's validator. The module owns the
-  // result-shape contract end-to-end (prompt + Zod-like validator + fallback
-  // all live next to each other).
-  return preflightValidator(value, { name, model, input });
-}
-
-function validateRouting(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-): RoutingResult {
-  ensureExactKeys(value, ["execution_mode", "model_tier", "reason"], name, model);
-  return {
-    execution_mode: requireEnum(
-      value.execution_mode,
-      DOWNSTREAM_EXECUTION_MODE_VALUES,
-      name,
-      model,
-      "execution_mode",
-    ),
-    model_tier: requireEnum(
-      value.model_tier,
-      DOWNSTREAM_MODEL_TIER_VALUES,
-      name,
-      model,
-      "model_tier",
-    ),
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
-}
-
-function validateConversationHistory(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-  inputMessages: ConversationMessageInput[],
-): ConversationHistoryResult {
-  ensureExactKeys(
-    value,
-    [
-      "is_standalone",
-      "refers_to_history",
-      "prior_messages_needed",
-      "needs_unseen_history",
-      "reason",
-    ],
-    name,
-    model,
-  );
-
-  const priorMessagesNeeded = requireNonNegativeSafeInteger(
-    value.prior_messages_needed,
-    name,
-    model,
-    "prior_messages_needed",
-  );
-  if (priorMessagesNeeded > CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT) {
-    throwInvalid(
-      name,
-      model,
-      `prior_messages_needed must be ${CONVERSATION_HISTORY_PRIOR_MESSAGE_MAX_COUNT} or fewer`,
-    );
-  }
-
-  const isStandalone = requireBoolean(value.is_standalone, name, model, "is_standalone");
-  const refersToHistory = requireBoolean(
-    value.refers_to_history,
-    name,
-    model,
-    "refers_to_history",
-  );
-  const needsUnseenHistory = requireBoolean(
-    value.needs_unseen_history,
-    name,
-    model,
-    "needs_unseen_history",
-  );
-
-  if (
-    isStandalone &&
-    (refersToHistory || priorMessagesNeeded !== 0 || needsUnseenHistory)
-  ) {
-    throwInvalid(
-      name,
-      model,
-      "standalone conversation_history must not require history",
-    );
-  }
-
-  const relevantConversationHistory =
-    priorMessagesNeeded > 0 && inputMessages.length > 1
-      ? inputMessages.slice(-1 - priorMessagesNeeded, -1)
-      : [];
-
-  return {
-    is_standalone: isStandalone,
-    refers_to_history: refersToHistory,
-    relevant_conversation_history: relevantConversationHistory,
-    needs_unseen_history: needsUnseenHistory,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CONVERSATION_HISTORY_REASON_MAX_CHARS,
-    ),
-  };
-}
-
-function validateMemoryRetrievalQueries(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-): MemoryRetrievalQueriesResult {
-  ensureExactKeys(value, ["queries", "reason"], name, model);
-  const queries = requireStringArray(value.queries, name, model, "queries").map((query, index) => {
-    const trimmed = query.trim();
-    const wordCount = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
-    if (wordCount < MEMORY_QUERY_MIN_WORDS || wordCount > MEMORY_QUERY_MAX_WORDS) {
-      throwInvalid(
-        name,
-        model,
-        `queries[${index}] must be ${MEMORY_QUERY_MIN_WORDS} to ${MEMORY_QUERY_MAX_WORDS} words`,
-      );
-    }
-    return trimmed;
-  });
-
-  if (queries.length > MEMORY_QUERY_MAX_COUNT) {
-    throwInvalid(name, model, `queries must contain ${MEMORY_QUERY_MAX_COUNT} items or fewer`);
-  }
-  ensureNoDuplicates(queries, name, model, "queries");
-
-  return {
-    queries,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
-}
-
-function validateTools(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-): ToolsResult {
-  ensureExactKeys(value, ["needed", "families", "reason"], name, model);
-  if (typeof value.needed !== "boolean") {
-    throwInvalid(name, model, "needed must be a boolean");
-  }
-  if (!Array.isArray(value.families)) {
-    throwInvalid(name, model, "families must be an array");
-  }
-  const families = value.families.map((item, index) =>
-    requireEnum(item, TOOL_FAMILY_VALUES, name, model, `families[${index}]`),
-  );
-  ensureNoDuplicates(families, name, model, "families");
-  if (value.needed !== (families.length > 0)) {
-    throwInvalid(name, model, "needed must match whether families is non-empty");
-  }
-
-  return {
-    needed: value.needed,
-    families,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
-}
-
-function validateModelSpecialization(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-): ModelSpecializationResult {
-  ensureExactKeys(value, ["model_specialization", "reason"], name, model);
-  return {
-    model_specialization: requireEnum(
-      value.model_specialization,
-      MODEL_SPECIALIZATION_VALUES,
-      name,
-      model,
-      "model_specialization",
-    ),
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
-}
-
-function validateSecurity(
-  value: Record<string, unknown>,
-  name: ClassifierName,
-  model: string,
-): SecurityResult {
-  ensureExactKeys(value, ["risk_level", "signals", "reason"], name, model);
-  if (!Array.isArray(value.signals)) {
-    throwInvalid(name, model, "signals must be an array");
-  }
-
-  const riskLevel = requireEnum(
-    value.risk_level,
-    SECURITY_RISK_LEVEL_VALUES,
-    name,
-    model,
-    "risk_level",
-  );
-  const signals = value.signals.map((item, index) =>
-    requireEnum(item, SECURITY_SIGNAL_VALUES, name, model, `signals[${index}]`),
-  );
-  ensureNoDuplicates(signals, name, model, "signals");
-
-  if ((riskLevel === "normal" || riskLevel === "unable_to_determine") && signals.length > 0) {
-    throwInvalid(name, model, `${riskLevel} risk_level must not include signals`);
-  }
-  if (riskLevel !== "normal" && riskLevel !== "unable_to_determine" && signals.length === 0) {
-    throwInvalid(name, model, "elevated risk_level must include at least one signal");
-  }
-
-  return {
-    risk_level: riskLevel,
-    signals,
-    reason: requireStringMaxLength(
-      value.reason,
-      name,
-      model,
-      "reason",
-      CLASSIFIER_REASON_MAX_CHARS,
-    ),
-  };
 }
 
 function isFile(path: string): boolean {

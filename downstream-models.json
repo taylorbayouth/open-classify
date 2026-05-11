@@ -1,15 +1,45 @@
 {
-  "chat.local_fast": "gemma4:e4b-it-q4_K_M",
-  "writing.frontier_fast": "gpt-5.4-mini",
-  "reasoning.local_strong": "gemma4:e4b-it-q4_K_M",
-  "reasoning.frontier_strong": "gpt-5.5",
-  "planning.local_strong": "gemma4:e4b-it-q4_K_M",
-  "coding.local_strong": "qwen2.5-coder:14b",
-  "coding.frontier_fast": "gpt-5.3-codex",
-  "instruction_following.local_fast": "gemma4:e4b-it-q4_K_M",
-  "local_fast": "gemma4:e4b-it-q4_K_M",
-  "local_strong": "gemma4:e4b-it-q4_K_M",
-  "frontier_fast": "gpt-5.4-mini",
-  "frontier_strong": "gpt-5.5",
+  "models": [
+    {
+      "id": "gpt-5.5",
+      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "instruction_following"],
+      "execution_modes": ["direct", "tool_assisted", "workflow"],
+      "tiers": ["frontier_strong"],
+      "params_in_millions": 800000,
+      "context_window": 1000000
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "specializations": ["chat", "writing", "reasoning", "planning", "instruction_following"],
+      "execution_modes": ["direct", "tool_assisted", "workflow"],
+      "tiers": ["frontier_fast"],
+      "params_in_millions": 15000,
+      "context_window": 200000
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "specializations": ["coding"],
+      "execution_modes": ["direct", "tool_assisted"],
+      "tiers": ["frontier_fast"],
+      "params_in_millions": 30000,
+      "context_window": 500000
+    },
+    {
+      "id": "qwen2.5-coder:14b",
+      "specializations": ["coding"],
+      "execution_modes": ["direct", "tool_assisted"],
+      "tiers": ["local_strong"],
+      "params_in_millions": 14000,
+      "context_window": 128000
+    },
+    {
+      "id": "gemma4:e4b-it-q4_K_M",
+      "specializations": ["chat", "writing", "reasoning", "planning", "instruction_following"],
+      "execution_modes": ["direct", "tool_assisted", "workflow"],
+      "tiers": ["local_fast", "local_strong"],
+      "params_in_millions": 4000,
+      "context_window": 131072
+    }
+  ],
   "default": "gpt-5.4-mini"
 }
