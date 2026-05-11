@@ -53,20 +53,27 @@ test("starts all classifiers concurrently and returns route result", async () =>
 
   // Envelope slots: contributed by the modules and flattened onto the route
   // result alongside `meta`. The preflight `continue` reply becomes the
-  // quick_reply ack; tool_families surface as the tools classifier emitted.
-  assert.deepEqual(result.quick_reply, { text: "Let me check.", kind: "ack" });
+  // stock handoff acknowledgement.
+  assert.deepEqual(result.handoff, { kind: "route", ack_reply: "Let me check." });
+  assert.deepEqual(result.routing, {
+    execution_mode: "tool_assisted",
+    model_tier: "local_strong",
+    specialization: "reasoning",
+  });
+  assert.deepEqual(result.context, { status: "standalone" });
+  assert.deepEqual(result.tools, { required: true, families: ["code"] });
+  assert.deepEqual(result.safety, { risk_level: "normal", signals: [] });
   assert.deepEqual(result.memory_queries, ["user review preferences"]);
   assert.deepEqual(result.tool_families, ["code"]);
   assert.deepEqual(result.safety_signals, { risk_level: "normal", signals: [] });
 
-  // resolveModel should pick qwen2.5-coder:14b... wait, model_specialization
-  // is "reasoning", not "coding". The matching model is gemma4 (local_strong
-  // + reasoning) or qwen (local_strong + coding-only). Only gemma matches.
+  // resolveModel should pick gemma4: it matches reasoning + tool_assisted +
+  // local_strong, while qwen is coding-only.
   assert.equal(result.model_recommendation.id, "gemma4:e4b-it-q4_K_M");
-  assert.equal(result.model_recommendation.params_in_millions, 4000);
+  assert.equal(result.model_recommendation.params_in_billions, 4);
 });
 
-test("route picks the biggest matching model from the catalog", async () => {
+test("route picks the cheapest adequate matching model from the catalog", async () => {
   const result = await classifyOpenClassifyInput(
     { messages: [userMessage("review this")] },
     baseOptions({
@@ -121,6 +128,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.equal(result.decision, "short_circuit");
   assert.equal(result.kind, "final");
   assert.equal(result.reply, "Anytime.");
+  assert.deepEqual(result.handoff, { kind: "final", reply: "Anytime." });
   assert.equal(result.fired_by, "preflight");
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.meta.classifiers.preflight, {
@@ -214,6 +222,11 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   assert.equal(result.decision, "short_circuit");
   assert.equal(result.kind, "block");
   assert.equal(result.fired_by, "security");
+  assert.deepEqual(result.handoff, { kind: "block" });
+  assert.deepEqual(result.safety, {
+    risk_level: "high_risk",
+    signals: ["instruction_attack"],
+  });
   assert.equal("reply" in result, false);
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.meta.classifiers.security, {
@@ -371,8 +384,8 @@ test("preflight failure falls back to unable_to_determine and still routes", asy
   assert.equal(preflight.status.ok, false);
   assert.equal(preflight.status.source, "fallback");
   // No preflight ack contribution: the fallback's empty reply means the
-  // quick_reply slot doesn't get a contributor.
-  assert.equal(result.quick_reply, undefined);
+  // handoff slot doesn't get a contributor.
+  assert.equal(result.handoff, undefined);
 });
 
 test("memory_retrieval_queries fallback yields an empty memory_queries slot", async () => {

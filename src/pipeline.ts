@@ -41,6 +41,7 @@ import type {
   PipelineResult,
   ShortCircuitVerdict,
 } from "./manifest.js";
+import type { HandoffSignal, SafetySignal } from "./stock.js";
 import type {
   ClassifierFallbackReason,
   ClassifierRunStatus,
@@ -195,8 +196,43 @@ function buildShortCircuitResult(
     decision: "short_circuit",
     target_message_hash,
     fired_by: name,
+    ...shortCircuitStockSignals(name, verdict, value),
     meta,
     ...verdict,
+  };
+}
+
+function shortCircuitStockSignals(
+  name: ClassifierName,
+  verdict: ShortCircuitVerdict,
+  value: ClassifierResultBase,
+): { handoff?: HandoffSignal; safety?: SafetySignal } {
+  const handoff =
+    verdict.kind === "final"
+      ? ({ kind: "final", reply: verdict.reply } satisfies HandoffSignal)
+      : verdict.kind === "block"
+        ? ({ kind: "block" } satisfies HandoffSignal)
+        : undefined;
+
+  const safety = name === "security" ? safetyFromClassifierResult(value) : undefined;
+
+  return {
+    ...(handoff === undefined ? {} : { handoff }),
+    ...(safety === undefined ? {} : { safety }),
+  };
+}
+
+function safetyFromClassifierResult(value: ClassifierResultBase): SafetySignal | undefined {
+  const risk = (value as { risk_level?: unknown }).risk_level;
+  if (risk !== "normal" && risk !== "suspicious" && risk !== "high_risk") {
+    if (risk !== "unable_to_determine") return undefined;
+  }
+  const rawSignals = (value as { signals?: unknown }).signals;
+  return {
+    risk_level: risk === "unable_to_determine" ? "unknown" : risk,
+    signals: Array.isArray(rawSignals)
+      ? rawSignals.filter((signal): signal is string => typeof signal === "string")
+      : [],
   };
 }
 

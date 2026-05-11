@@ -1,7 +1,8 @@
 // Strict loader and validator for `downstream-models.json` — the authoritative
 // source for every downstream model's metadata (id, axis fit, parameter
-// count, context window). Classifiers never emit any of these fields; the
-// aggregator's model resolver reads them directly from a loaded `Catalog`.
+// count, context window, and optional pricing). Classifiers never emit any
+// of these fields; the aggregator's model resolver reads them directly from a
+// loaded `Catalog`.
 //
 // "Strict" means: missing file, unparseable JSON, malformed entry, or any
 // required field missing/of the wrong type throws a `CatalogError`. Pipelines
@@ -107,16 +108,16 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
       `${where}.execution_modes`,
       path,
     );
-    const tiers = requireConcreteArray(
-      entry.tiers,
+    const tier = requireConcreteValue(
+      entry.tier,
       CONCRETE_TIERS,
-      `${where}.tiers`,
+      `${where}.tier`,
       path,
     );
 
-    const params_in_millions = requirePositiveInteger(
-      entry.params_in_millions,
-      `${where}.params_in_millions`,
+    const params_in_billions = requirePositiveNumber(
+      entry.params_in_billions,
+      `${where}.params_in_billions`,
       path,
     );
     const context_window = requirePositiveInteger(
@@ -124,10 +125,21 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
       `${where}.context_window`,
       path,
     );
+    const pricing = requirePricing(entry, where, path);
 
-    ensureExactKeysCatalog(
+    ensureAllowedKeysCatalog(
       entry,
-      ["id", "specializations", "execution_modes", "tiers", "params_in_millions", "context_window"],
+      [
+        "id",
+        "specializations",
+        "execution_modes",
+        "tier",
+        "params_in_billions",
+        "context_window",
+        "input_tokens_cpm",
+        "cached_tokens_cpm",
+        "output_tokens_cpm",
+      ],
       where,
       path,
     );
@@ -136,9 +148,10 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
       id,
       specializations,
       execution_modes,
-      tiers,
-      params_in_millions,
+      tier,
+      params_in_billions,
       context_window,
+      ...pricing,
     };
   });
 
@@ -187,6 +200,32 @@ function requirePositiveInteger(value: unknown, where: string, path?: string): n
   return value;
 }
 
+function requirePositiveNumber(value: unknown, where: string, path?: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new CatalogError(`${where} must be a positive number`, path);
+  }
+  return value;
+}
+
+function requireNonNegativeNumber(value: unknown, where: string, path?: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new CatalogError(`${where} must be a non-negative number`, path);
+  }
+  return value;
+}
+
+function requireConcreteValue<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  where: string,
+  path?: string,
+): T {
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new CatalogError(`${where} must be one of: ${allowed.join(", ")}`, path);
+  }
+  return value as T;
+}
+
 function requireConcreteArray<T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -215,6 +254,39 @@ function requireConcreteArray<T extends string>(
   return result;
 }
 
+function requirePricing(
+  entry: Record<string, unknown>,
+  where: string,
+  path?: string,
+): Pick<CatalogEntry, "input_tokens_cpm" | "cached_tokens_cpm" | "output_tokens_cpm"> {
+  const pricingKeys = ["input_tokens_cpm", "cached_tokens_cpm", "output_tokens_cpm"] as const;
+  const present = pricingKeys.filter((key) => key in entry);
+  if (present.length === 0) return {};
+  if (present.length !== pricingKeys.length) {
+    throw new CatalogError(
+      `${where} pricing fields must be provided all together or omitted all together`,
+      path,
+    );
+  }
+  return {
+    input_tokens_cpm: requireNonNegativeNumber(
+      entry.input_tokens_cpm,
+      `${where}.input_tokens_cpm`,
+      path,
+    ),
+    cached_tokens_cpm: requireNonNegativeNumber(
+      entry.cached_tokens_cpm,
+      `${where}.cached_tokens_cpm`,
+      path,
+    ),
+    output_tokens_cpm: requireNonNegativeNumber(
+      entry.output_tokens_cpm,
+      `${where}.output_tokens_cpm`,
+      path,
+    ),
+  };
+}
+
 function ensureExactKeysCatalog(
   value: Record<string, unknown>,
   keys: readonly string[],
@@ -230,6 +302,20 @@ function ensureExactKeysCatalog(
   for (const key of keys) {
     if (!(key in value)) {
       throw new CatalogError(`${where} is missing required field "${key}"`, path);
+    }
+  }
+}
+
+function ensureAllowedKeysCatalog(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  where: string,
+  path?: string,
+): void {
+  const expected = new Set(keys);
+  for (const key of Object.keys(value)) {
+    if (!expected.has(key)) {
+      throw new CatalogError(`${where} has unsupported field "${key}"`, path);
     }
   }
 }

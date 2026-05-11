@@ -9,8 +9,8 @@ const VALID_MODEL = {
   id: "gpt-5.5",
   specializations: ["reasoning", "coding"],
   execution_modes: ["direct", "tool_assisted"],
-  tiers: ["frontier_strong"],
-  params_in_millions: 800_000,
+  tier: "frontier_strong",
+  params_in_billions: 800,
   context_window: 1_000_000,
 };
 
@@ -66,12 +66,12 @@ test("validateCatalog rejects empty models array", () => {
 });
 
 test("validateCatalog rejects missing required field on an entry", () => {
-  const bad = { models: [{ ...VALID_MODEL, params_in_millions: undefined }], default: VALID_MODEL.id };
+  const bad = { models: [{ ...VALID_MODEL, params_in_billions: undefined }], default: VALID_MODEL.id };
   assert.throws(
     () => validateCatalog(bad),
     (error) =>
       error instanceof CatalogError &&
-      /params_in_millions/.test(error.message),
+      /params_in_billions/.test(error.message),
   );
 });
 
@@ -90,14 +90,14 @@ test("validateCatalog rejects unsupported specialization value", () => {
 
 test("validateCatalog rejects escape-hatch values in axes", () => {
   const bad = {
-    models: [{ ...VALID_MODEL, tiers: ["unable_to_determine"] }],
+    models: [{ ...VALID_MODEL, tier: "unable_to_determine" }],
     default: VALID_MODEL.id,
   };
   assert.throws(
     () => validateCatalog(bad),
     (error) =>
       error instanceof CatalogError &&
-      /tiers\[0\] must be one of/.test(error.message) &&
+      /tier must be one of/.test(error.message) &&
       !/unable_to_determine/.test(error.message.split(":")[0]),
   );
 });
@@ -142,15 +142,58 @@ test("validateCatalog rejects unsupported field on an entry", () => {
   );
 });
 
-test("validateCatalog rejects non-positive params_in_millions", () => {
+test("validateCatalog rejects old tiers array", () => {
   const bad = {
-    models: [{ ...VALID_MODEL, params_in_millions: 0 }],
+    models: [{ ...VALID_MODEL, tiers: ["frontier_strong"] }],
     default: VALID_MODEL.id,
   };
   assert.throws(
     () => validateCatalog(bad),
     (error) =>
       error instanceof CatalogError &&
-      /params_in_millions must be a positive integer/.test(error.message),
+      /unsupported field "tiers"/.test(error.message),
+  );
+});
+
+test("validateCatalog rejects non-positive params_in_billions", () => {
+  const bad = {
+    models: [{ ...VALID_MODEL, params_in_billions: 0 }],
+    default: VALID_MODEL.id,
+  };
+  assert.throws(
+    () => validateCatalog(bad),
+    (error) =>
+      error instanceof CatalogError &&
+      /params_in_billions must be a positive number/.test(error.message),
+  );
+});
+
+test("validateCatalog accepts all pricing fields together", () => {
+  const catalog = validateCatalog({
+    models: [
+      {
+        ...VALID_MODEL,
+        input_tokens_cpm: 5,
+        cached_tokens_cpm: 0.5,
+        output_tokens_cpm: 25,
+      },
+    ],
+    default: VALID_MODEL.id,
+  });
+  assert.equal(catalog.models[0].input_tokens_cpm, 5);
+  assert.equal(catalog.models[0].cached_tokens_cpm, 0.5);
+  assert.equal(catalog.models[0].output_tokens_cpm, 25);
+});
+
+test("validateCatalog rejects partial pricing fields", () => {
+  const bad = {
+    models: [{ ...VALID_MODEL, input_tokens_cpm: 5 }],
+    default: VALID_MODEL.id,
+  };
+  assert.throws(
+    () => validateCatalog(bad),
+    (error) =>
+      error instanceof CatalogError &&
+      /pricing fields must be provided all together/.test(error.message),
   );
 });

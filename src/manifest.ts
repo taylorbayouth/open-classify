@@ -11,6 +11,15 @@
 // follow-up steps of the refactor plan.
 
 import type {
+  ContextSignal,
+  HandoffSignal,
+  ResponseSignal,
+  RoutingSignal,
+  SafetySignal,
+  SummarySignal,
+  ToolsSignal,
+} from "./stock.js";
+import type {
   ClassifierInput,
   ClassifierRunStatus,
   ConversationMessageInput,
@@ -78,6 +87,11 @@ export type ConcreteDownstreamExecutionMode = Exclude<
 // The aggregator merges all contributions per slot using a declared merge
 // rule (overridable per slot by the caller).
 export interface EnvelopeSlots {
+  // Assistant-facing handoff signal. `route` can carry an acknowledgement
+  // shown while downstream work continues; `final` and `block` are mainly
+  // used on short-circuit paths. Highest-priority contributor wins; tiebreak
+  // on confidence.
+  handoff: HandoffSignal;
   // The trimmed message tail downstream should see. Aggregator unions across
   // contributors (superset wins).
   relevant_conversation_history: ConversationMessageInput[];
@@ -92,14 +106,6 @@ export interface EnvelopeSlots {
   // Safety verdict surfaced for downstream UX. Highest risk_level wins;
   // signals union.
   safety_signals: { risk_level: SecurityRiskLevel; signals: SecuritySignal[] };
-  // Reply text. `final` = downstream isn't called; `ack` = interim placeholder
-  // shown while downstream works; `clarify` = ambiguous request needing user
-  // input first. Highest-priority contributor wins; tiebreak on confidence.
-  quick_reply: {
-    text: string;
-    kind: "final" | "ack" | "clarify";
-    show_after_ms?: number;
-  };
   // Drives downstream `max_tokens`. Highest-priority contributor wins.
   expected_response_length: "short" | "medium" | "long";
   // Lets the UI/downstream render correctly. Highest-priority wins.
@@ -137,16 +143,19 @@ export interface ContributionContext {
 // ─── Model recommendation (always present on route) ─────────────────────────
 
 // Caller-provided model catalog (`downstream-models.json`). Each entry
-// advertises set membership on three axes (a model can fit multiple
-// specializations / execution modes / tiers). `params_in_millions` and
-// `context_window` are hand-authored — classifiers never emit either.
+// advertises specialization set membership, execution-mode capability, one
+// catalog tier, and optional pricing. Classifiers never emit concrete model
+// ids or model metadata — the resolver reads those directly from the catalog.
 export interface CatalogEntry {
   readonly id: string;
   readonly specializations: ReadonlyArray<ConcreteModelSpecialization>;
   readonly execution_modes: ReadonlyArray<ConcreteDownstreamExecutionMode>;
-  readonly tiers: ReadonlyArray<ConcreteDownstreamModelTier>;
-  readonly params_in_millions: number;
+  readonly tier: ConcreteDownstreamModelTier;
+  readonly params_in_billions: number;
   readonly context_window: number;
+  readonly input_tokens_cpm?: number;
+  readonly cached_tokens_cpm?: number;
+  readonly output_tokens_cpm?: number;
 }
 
 export interface Catalog {
@@ -166,7 +175,11 @@ export interface ModelRecommendationResolution {
   }>;
   readonly constraints_dropped: ReadonlyArray<{
     readonly axis: "specialization" | "execution_mode" | "tier";
-    readonly reason: "low_confidence" | "escape_hatch";
+    readonly reason:
+      | "low_confidence"
+      | "escape_hatch"
+      | "no_match_relaxed"
+      | "default_fallback";
   }>;
   readonly confidences: Partial<{
     model_specialization: number;
@@ -177,8 +190,11 @@ export interface ModelRecommendationResolution {
 
 export interface ModelRecommendation {
   readonly id: string;
-  readonly params_in_millions: number;
+  readonly params_in_billions: number;
   readonly context_window: number;
+  readonly input_tokens_cpm?: number;
+  readonly cached_tokens_cpm?: number;
+  readonly output_tokens_cpm?: number;
   readonly resolution: ModelRecommendationResolution;
 }
 
@@ -189,6 +205,12 @@ export interface ModelRecommendation {
 // `default` guarantees it's always populated on a route.
 export interface Envelope extends Partial<EnvelopeSlots> {
   readonly model_recommendation: ModelRecommendation;
+  readonly routing?: RoutingSignal;
+  readonly context?: ContextSignal;
+  readonly tools?: ToolsSignal;
+  readonly response?: ResponseSignal;
+  readonly safety?: SafetySignal;
+  readonly summary?: SummarySignal;
 }
 
 // ─── Aggregator merge overrides ─────────────────────────────────────────────
@@ -344,6 +366,8 @@ export type ShortCircuitPipelineResult<R extends Registry> = {
   readonly decision: "short_circuit";
   readonly target_message_hash: string;
   readonly fired_by: ClassifierNameOf<R>;
+  readonly handoff?: HandoffSignal;
+  readonly safety?: SafetySignal;
   readonly meta: PipelineMeta<R>;
 } & (
   | { readonly kind: "final"; readonly reply: string }

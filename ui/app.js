@@ -96,6 +96,7 @@ const sampleButton = document.querySelector("#sampleButton");
 const attachmentInput = document.querySelector("#attachmentInput");
 const attachmentList = document.querySelector("#attachmentList");
 const classifierGrid = document.querySelector("#classifierGrid");
+const aggregatePanel = document.querySelector("#aggregatePanel");
 const runState = document.querySelector("#runState");
 const liveDot = document.querySelector("#liveDot");
 const replyDisplay = document.querySelector("#replyDisplay");
@@ -270,6 +271,8 @@ function resetRunOutput() {
   resetClassifiers("idle");
   setRunState("idle");
   replyDisplay.hidden = true;
+  aggregatePanel.hidden = true;
+  aggregatePanel.innerHTML = "";
   hashes.hidden = true;
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
@@ -282,6 +285,8 @@ async function classify() {
   renderEventLog();
   setRunState("running");
   replyDisplay.hidden = true;
+  aggregatePanel.hidden = true;
+  aggregatePanel.innerHTML = "";
   hashes.hidden = true;
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
@@ -463,13 +468,9 @@ function renderPipeline(result) {
   }
   setRunState(finalState);
 
-  // Route results put the assistant-facing line under envelope.quick_reply;
-  // short-circuit "final" and "clarify" surface it at the top level.
-  const replyText =
-    result.decision === "short_circuit"
-      ? result.reply ?? ""
-      : result.quick_reply?.text ?? "";
+  const replyText = assistantFacingReply(result);
   showReply(replyText);
+  renderAggregate(result);
 
   if (result.meta?.classifiers) {
     for (const name of Object.keys(result.meta.classifiers)) {
@@ -496,6 +497,54 @@ function renderPipeline(result) {
 
   jsonToggle.hidden = false;
   jsonPanel.textContent = JSON.stringify(result, null, 2);
+}
+
+function assistantFacingReply(result) {
+  const handoff = result.handoff;
+  if (handoff?.kind === "route") return handoff.ack_reply ?? "";
+  if (handoff?.kind === "final") return handoff.reply;
+  return result.reply ?? "";
+}
+
+function renderAggregate(result) {
+  const model = result.model_recommendation;
+  const rows = [
+    ["decision", result.decision],
+    ["model_id", model?.id],
+    ["handoff", result.handoff],
+    ["routing", result.routing],
+    ["context", result.context],
+    ["tools", result.tools],
+    ["response", result.response],
+    ["safety", result.safety],
+    ["summary", result.summary],
+  ].filter(([, value]) => value !== undefined);
+
+  aggregatePanel.hidden = false;
+  aggregatePanel.innerHTML = `
+    <header class="aggregate-head">
+      <span>Aggregator output</span>
+      ${model ? `<strong>${escapeHtml(model.id)}</strong>` : ""}
+    </header>
+    <div class="aggregate-grid">
+      ${rows.map(([label, value]) => aggregateRow(label, value)).join("")}
+    </div>
+  `;
+}
+
+function aggregateRow(label, value) {
+  return `
+    <div class="aggregate-row">
+      <span>${escapeHtml(label)}</span>
+      <code>${escapeHtml(formatAggregateValue(value))}</code>
+    </div>
+  `;
+}
+
+function formatAggregateValue(value) {
+  if (value === null) return "null";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 function cancelClassifiersExcept(keptNames) {

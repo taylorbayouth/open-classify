@@ -6,7 +6,7 @@ Its primary job is not to reply — it classifies. But when a message is self-co
 
 **Why use it:**
 
-- **Cost** — Terminal messages never reach a frontier model. Every "thanks" or "sounds good" that resolves at classification saves a full LLM call. The model recommendation picks the smallest model that satisfies the request.
+- **Cost** — Terminal messages never reach a frontier model. Every "thanks" or "sounds good" that resolves at classification saves a full LLM call. The model recommendation picks the cheapest adequate model that satisfies the request.
 - **Speed** — Every message gets an instant acknowledgment. Preflight decides ack vs. route immediately, so users are never waiting in silence while routing decisions are made.
 - **Quality** — When the pipeline routes forward, Open Classify tells your downstream model exactly what it needs: how much conversation history is relevant, which memory queries to run before constructing the prompt, which tool families to expose (not the full manifest on every call), and which configured model fits the request.
 
@@ -150,8 +150,11 @@ When the pipeline routes, classifier-derived fields are flattened onto the resul
   "target_message_hash": "b11d5268",
   "model_recommendation": {
     "id": "gpt-5.3-codex",
-    "params_in_millions": 30000,
+    "params_in_billions": 30,
     "context_window": 500000,
+    "input_tokens_cpm": 0.4,
+    "cached_tokens_cpm": 0.05,
+    "output_tokens_cpm": 2,
     "resolution": {
       "constraints_used": { "specialization": "coding", "execution_mode": "tool_assisted", "tier": "frontier_fast" },
       "constraints_dropped": [],
@@ -159,7 +162,11 @@ When the pipeline routes, classifier-derived fields are flattened onto the resul
       "fell_back_to_default": false
     }
   },
-  "quick_reply": { "text": "I'll investigate.", "kind": "ack" },
+  "handoff": { "kind": "route", "ack_reply": "I'll investigate." },
+  "routing": { "specialization": "coding", "execution_mode": "tool_assisted", "model_tier": "frontier_fast" },
+  "context": { "status": "standalone" },
+  "tools": { "required": true, "families": ["code"] },
+  "safety": { "risk_level": "normal", "signals": [] },
   "relevant_conversation_history": [],
   "requires_full_message_history": false,
   "memory_queries": ["user code review preferences"],
@@ -169,8 +176,9 @@ When the pipeline routes, classifier-derived fields are flattened onto the resul
 }
 ```
 
-- **`model_recommendation`** — always present on route. The aggregator filters the catalog by the constraints surviving the confidence threshold (default 0.6), then picks the entry with the most `params_in_millions` (tiebreak: larger `context_window`). If no entry matches, it falls back to `catalog.default` and sets `resolution.fell_back_to_default: true`.
-- **`quick_reply`** — `kind: "ack"` is preflight's interim line shown while the downstream model works (set `show_after_ms` to defer it for fast responses). Absent when preflight fell back.
+- **`model_recommendation`** — always present on route. The aggregator filters the catalog by confident constraints (default threshold 0.6), relaxes soft `tier` / `specialization` constraints if needed, then picks the cheapest adequate model. Ties go to larger `params_in_billions`, then larger `context_window`. If no hard-capability match exists, it falls back to `catalog.default` and sets `resolution.fell_back_to_default: true`.
+- **`handoff`** — `kind: "route"` can carry `ack_reply`, preflight's interim line shown while the downstream model works. Short-circuit paths use `kind: "final"` or `kind: "block"`.
+- **`routing` / `context` / `tools` / `safety`** — stock classifier signals normalized into the names the aggregator and UI use. These are the stable fields to build caller logic around.
 - **`relevant_conversation_history`** — the slice of input messages that the conversation_history classifier said the downstream model needs. Absent when no prior messages are needed.
 - **`requires_full_message_history`** — `true` when any classifier flagged that context beyond the supplied window is likely needed.
 - **`memory_queries`** — deduped queries from the memory_retrieval_queries classifier.
@@ -194,16 +202,19 @@ const catalog = loadCatalog("downstream-models.json");
       "id": "gpt-5.3-codex",
       "specializations": ["coding"],
       "execution_modes": ["direct", "tool_assisted"],
-      "tiers": ["frontier_fast"],
-      "params_in_millions": 30000,
-      "context_window": 500000
+      "tier": "frontier_fast",
+      "params_in_billions": 30,
+      "context_window": 500000,
+      "input_tokens_cpm": 0.4,
+      "cached_tokens_cpm": 0.05,
+      "output_tokens_cpm": 2
     }
   ],
   "default": "gpt-5.3-codex"
 }
 ```
 
-Each entry advertises set membership on three axes (a model can fit multiple specializations / execution modes / tiers). Classifiers never emit `params_in_millions` or `context_window` — those live on the catalog. The resolver intersects the classifier verdicts with these sets and picks the biggest matching model.
+Each entry advertises specialization set membership, execution-mode capability, one catalog tier, size, context window, and optional all-or-none CPM pricing. Classifiers never emit concrete model ids, `params_in_billions`, pricing, or `context_window` — those live on the catalog. The resolver derives the model id from classifier outputs and catalog metadata.
 
 Fine-tuned adapters per classifier can be registered as Ollama models and mapped in `adapter-models.json`. Any classifier without an adapter falls back to the base model.
 

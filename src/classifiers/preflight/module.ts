@@ -19,16 +19,16 @@ import {
 const PREFLIGHT_PRIORITY = 0;
 
 // On the route path (when preflight did not short-circuit), still surface the
-// brief acknowledgement reply as an interim UX hint via the `quick_reply`
-// slot with kind="ack". Highest contributor priority (0) — preflight is
-// always the right source of an "I'll check" line on this path.
+// brief acknowledgement reply as an interim UX hint via `handoff.ack_reply`.
+// Highest contributor priority (0) — preflight is always the right source of
+// an "I'll check" line on this path.
 const preflightAckContribution: Contribution<PreflightResult> = {
-  slot: "quick_reply",
+  slot: "handoff",
   priority: 0,
   build: (result) => {
     if (result.terminality !== "continue") return undefined;
     if (result.reply.trim().length === 0) return undefined;
-    return { text: result.reply, kind: "ack" };
+    return { kind: "route", ack_reply: result.reply };
   },
 };
 

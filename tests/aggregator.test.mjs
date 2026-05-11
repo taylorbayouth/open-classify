@@ -13,32 +13,41 @@ const CATALOG = {
       id: "gpt-5.5",
       specializations: ["reasoning", "coding", "writing"],
       execution_modes: ["direct", "tool_assisted", "workflow"],
-      tiers: ["frontier_strong"],
-      params_in_millions: 800_000,
+      tier: "frontier_strong",
+      params_in_billions: 800,
       context_window: 1_000_000,
+      input_tokens_cpm: 5,
+      cached_tokens_cpm: 0.5,
+      output_tokens_cpm: 25,
     },
     {
       id: "gpt-5.3-codex",
       specializations: ["coding"],
       execution_modes: ["direct", "tool_assisted"],
-      tiers: ["frontier_fast"],
-      params_in_millions: 30_000,
+      tier: "frontier_fast",
+      params_in_billions: 30,
       context_window: 500_000,
+      input_tokens_cpm: 0.4,
+      cached_tokens_cpm: 0.05,
+      output_tokens_cpm: 2,
     },
     {
       id: "gpt-5.4-mini",
-      specializations: ["writing", "chat"],
-      execution_modes: ["direct"],
-      tiers: ["frontier_fast"],
-      params_in_millions: 15_000,
+      specializations: ["writing", "chat", "reasoning"],
+      execution_modes: ["direct", "tool_assisted", "workflow"],
+      tier: "frontier_fast",
+      params_in_billions: 15,
       context_window: 200_000,
+      input_tokens_cpm: 0.25,
+      cached_tokens_cpm: 0.03,
+      output_tokens_cpm: 1.25,
     },
     {
       id: "qwen2.5-coder",
       specializations: ["coding"],
       execution_modes: ["direct", "tool_assisted"],
-      tiers: ["local_strong"],
-      params_in_millions: 14_000,
+      tier: "local_strong",
+      params_in_billions: 14,
       context_window: 128_000,
     },
   ],
@@ -76,6 +85,10 @@ test("resolveModel picks the single matching entry when all constraints confiden
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
   assert.equal(rec.id, "gpt-5.3-codex");
+  assert.equal(rec.params_in_billions, 30);
+  assert.equal(rec.input_tokens_cpm, 0.4);
+  assert.equal(rec.cached_tokens_cpm, 0.05);
+  assert.equal(rec.output_tokens_cpm, 2);
   assert.equal(rec.resolution.fell_back_to_default, false);
   assert.deepEqual(rec.resolution.constraints_used, {
     specialization: "coding",
@@ -84,10 +97,7 @@ test("resolveModel picks the single matching entry when all constraints confiden
   });
 });
 
-test("resolveModel picks the model with most params when multiple match", () => {
-  // Drop the tier constraint by being low-confidence about routing → both
-  // frontier_strong gpt-5.5 and frontier_fast gpt-5.3-codex match.
-  // Biggest wins.
+test("resolveModel picks cheapest adequate when multiple models match", () => {
   const rec = resolveModel(
     {
       model_specialization: specResult("coding", HIGH),
@@ -96,7 +106,7 @@ test("resolveModel picks the model with most params when multiple match", () => 
     CATALOG,
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
-  assert.equal(rec.id, "gpt-5.5"); // 800_000 > 30_000
+  assert.equal(rec.id, "qwen2.5-coder"); // missing pricing ranks as zero external cost
 });
 
 test("resolveModel drops low-confidence signals and records them", () => {
@@ -108,8 +118,8 @@ test("resolveModel drops low-confidence signals and records them", () => {
     CATALOG,
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
-  // Zero confident constraints → biggest model in entire catalog wins
-  assert.equal(rec.id, "gpt-5.5");
+  // Zero confident constraints → cheapest adequate model wins, then larger size
+  assert.equal(rec.id, "qwen2.5-coder");
   const dropped = rec.resolution.constraints_dropped.map((d) => d.axis).sort();
   assert.deepEqual(dropped, ["execution_mode", "specialization", "tier"]);
   assert.equal(
@@ -127,7 +137,7 @@ test("resolveModel drops escape-hatch values", () => {
     CATALOG,
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
-  assert.equal(rec.id, "gpt-5.5");
+  assert.equal(rec.id, "qwen2.5-coder");
   const dropped = rec.resolution.constraints_dropped.map((d) => `${d.axis}:${d.reason}`).sort();
   assert.deepEqual(dropped, [
     "execution_mode:escape_hatch",
@@ -136,8 +146,7 @@ test("resolveModel drops escape-hatch values", () => {
   ]);
 });
 
-test("resolveModel falls back to catalog.default when no entry matches", () => {
-  // No catalog entry has reasoning + workflow + local_fast — over-constrained.
+test("resolveModel relaxes tier before specialization when exact tier has no match", () => {
   const rec = resolveModel(
     {
       model_specialization: specResult("reasoning", HIGH),
@@ -147,7 +156,14 @@ test("resolveModel falls back to catalog.default when no entry matches", () => {
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
   assert.equal(rec.id, "gpt-5.4-mini");
-  assert.equal(rec.resolution.fell_back_to_default, true);
+  assert.equal(rec.resolution.fell_back_to_default, false);
+  assert.deepEqual(rec.resolution.constraints_used, {
+    specialization: "reasoning",
+    execution_mode: "workflow",
+  });
+  assert.deepEqual(rec.resolution.constraints_dropped, [
+    { axis: "tier", reason: "no_match_relaxed" },
+  ]);
 });
 
 test("resolveModel surfaces confidences for both contributing classifiers", () => {
@@ -161,6 +177,146 @@ test("resolveModel surfaces confidences for both contributing classifiers", () =
   );
   assert.equal(rec.resolution.confidences.model_specialization, 0.7);
   assert.equal(rec.resolution.confidences.routing, 0.81);
+});
+
+test("resolveModel ties on price by picking the larger model", () => {
+  const catalog = {
+    default: "small",
+    models: [
+      {
+        id: "small",
+        specializations: ["chat"],
+        execution_modes: ["direct"],
+        tier: "local_strong",
+        params_in_billions: 4,
+        context_window: 200_000,
+      },
+      {
+        id: "large",
+        specializations: ["chat"],
+        execution_modes: ["direct"],
+        tier: "local_strong",
+        params_in_billions: 14,
+        context_window: 128_000,
+      },
+    ],
+  };
+  const rec = resolveModel(
+    {
+      model_specialization: specResult("chat", HIGH),
+      routing: routingResult("direct", "local_strong", HIGH),
+    },
+    catalog,
+    DEFAULT_CONFIDENCE_THRESHOLD,
+  );
+  assert.equal(rec.id, "large");
+});
+
+test("resolveModel ties on price and size by picking larger context", () => {
+  const catalog = {
+    default: "short",
+    models: [
+      {
+        id: "short",
+        specializations: ["chat"],
+        execution_modes: ["direct"],
+        tier: "local_strong",
+        params_in_billions: 4,
+        context_window: 128_000,
+      },
+      {
+        id: "long",
+        specializations: ["chat"],
+        execution_modes: ["direct"],
+        tier: "local_strong",
+        params_in_billions: 4,
+        context_window: 200_000,
+      },
+    ],
+  };
+  const rec = resolveModel(
+    {
+      model_specialization: specResult("chat", HIGH),
+      routing: routingResult("direct", "local_strong", HIGH),
+    },
+    catalog,
+    DEFAULT_CONFIDENCE_THRESHOLD,
+  );
+  assert.equal(rec.id, "long");
+});
+
+test("resolveModel keeps execution_mode as a hard constraint through relaxation", () => {
+  const rec = resolveModel(
+    {
+      model_specialization: specResult("coding", HIGH),
+      routing: routingResult("workflow", "local_strong", HIGH),
+    },
+    {
+      default: "direct-coder",
+      models: [
+        {
+          id: "direct-coder",
+          specializations: ["coding"],
+          execution_modes: ["direct"],
+          tier: "local_strong",
+          params_in_billions: 14,
+          context_window: 128_000,
+        },
+        {
+          id: "workflow-generalist",
+          specializations: ["chat"],
+          execution_modes: ["workflow"],
+          tier: "frontier_fast",
+          params_in_billions: 15,
+          context_window: 200_000,
+          input_tokens_cpm: 0.25,
+          cached_tokens_cpm: 0.03,
+          output_tokens_cpm: 1.25,
+        },
+      ],
+    },
+    DEFAULT_CONFIDENCE_THRESHOLD,
+  );
+  assert.equal(rec.id, "workflow-generalist");
+  assert.equal(rec.resolution.fell_back_to_default, false);
+  assert.deepEqual(rec.resolution.constraints_used, { execution_mode: "workflow" });
+  assert.deepEqual(rec.resolution.constraints_dropped, [
+    { axis: "specialization", reason: "no_match_relaxed" },
+    { axis: "tier", reason: "no_match_relaxed" },
+  ]);
+});
+
+test("resolveModel falls back to catalog.default when no hard-capability entry matches", () => {
+  const rec = resolveModel(
+    {
+      model_specialization: specResult("coding", HIGH),
+      routing: routingResult("workflow", "local_strong", HIGH),
+    },
+    {
+      default: "fallback",
+      models: [
+        {
+          id: "fallback",
+          specializations: ["chat"],
+          execution_modes: ["direct"],
+          tier: "frontier_fast",
+          params_in_billions: 15,
+          context_window: 200_000,
+          input_tokens_cpm: 0.25,
+          cached_tokens_cpm: 0.03,
+          output_tokens_cpm: 1.25,
+        },
+      ],
+    },
+    DEFAULT_CONFIDENCE_THRESHOLD,
+  );
+  assert.equal(rec.id, "fallback");
+  assert.equal(rec.resolution.fell_back_to_default, true);
+  assert.deepEqual(rec.resolution.constraints_dropped, [
+    { axis: "specialization", reason: "default_fallback" },
+    { axis: "execution_mode", reason: "default_fallback" },
+    { axis: "tier", reason: "default_fallback" },
+  ]);
 });
 
 // ─── composeEnvelope ────────────────────────────────────────────────────────
@@ -185,7 +341,7 @@ test("composeEnvelope returns model_recommendation even with no classifiers", ()
     catalog: CATALOG,
     input: { text: "hi", messages: [], attachments: [], target_message_hash: "deadbeef" },
   });
-  assert.equal(envelope.model_recommendation.id, "gpt-5.5");
+  assert.equal(envelope.model_recommendation.id, "qwen2.5-coder");
   assert.equal(envelope.model_recommendation.resolution.fell_back_to_default, false);
 });
 
@@ -217,19 +373,19 @@ test("composeEnvelope unions memory_queries from multiple contributors", () => {
   assert.deepEqual(envelope.memory_queries, ["alpha", "beta", "gamma"]);
 });
 
-test("composeEnvelope picks highest-priority quick_reply contributor", () => {
+test("composeEnvelope picks highest-priority handoff contributor", () => {
   const moduleA = fakeModule("a", [
     {
-      slot: "quick_reply",
+      slot: "handoff",
       priority: 10,
-      build: () => ({ text: "low priority", kind: "ack" }),
+      build: () => ({ kind: "route", ack_reply: "low priority" }),
     },
   ]);
   const moduleB = fakeModule("b", [
     {
-      slot: "quick_reply",
+      slot: "handoff",
       priority: 0,
-      build: () => ({ text: "high priority", kind: "ack" }),
+      build: () => ({ kind: "route", ack_reply: "high priority" }),
     },
   ]);
   const results = {
@@ -242,7 +398,7 @@ test("composeEnvelope picks highest-priority quick_reply contributor", () => {
     catalog: CATALOG,
     input: { text: "x", messages: [], attachments: [], target_message_hash: "abc12345" },
   });
-  assert.deepEqual(envelope.quick_reply, { text: "high priority", kind: "ack" });
+  assert.deepEqual(envelope.handoff, { kind: "route", ack_reply: "high priority" });
 });
 
 test("composeEnvelope is pure: same inputs produce structurally equal outputs", () => {

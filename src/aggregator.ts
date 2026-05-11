@@ -35,6 +35,12 @@ import type {
   ModelRecommendationResolution,
   Registry,
 } from "./manifest.js";
+import type {
+  ContextSignal,
+  RoutingSignal as StockRoutingSignal,
+  SafetySignal,
+  ToolsSignal,
+} from "./stock.js";
 import type { ClassifierInput } from "./types.js";
 import type { SecurityRiskLevel } from "./enums.js";
 
@@ -43,8 +49,8 @@ export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
 // Convention: classifiers feeding the model resolver are named
 // `model_specialization` and `routing`. The aggregator looks for these names
 // in the results map and reads their typed fields. If either isn't in the
-// registry, the resolver falls back gracefully (fewer constraints → biggest
-// model in the catalog, or `default` if no match).
+// registry, the resolver falls back gracefully (fewer constraints → cheapest
+// adequate model in the catalog, or `default` if no hard-capability match).
 const MODEL_SPECIALIZATION_NAME = "model_specialization";
 const ROUTING_NAME = "routing";
 
@@ -58,6 +64,23 @@ interface ModelSpecializationSignal extends ClassifierResultBase {
 interface RoutingSignal extends ClassifierResultBase {
   execution_mode: ConcreteDownstreamExecutionMode | "unable_to_determine";
   model_tier: ConcreteDownstreamModelTier | "unable_to_determine";
+}
+
+interface ConversationHistorySignal extends ClassifierResultBase {
+  is_standalone: boolean;
+  refers_to_history: boolean;
+  prior_messages_needed: number;
+  requires_full_message_history: boolean;
+}
+
+interface ToolsClassifierSignal extends ClassifierResultBase {
+  needed: boolean;
+  families: string[];
+}
+
+interface SecurityClassifierSignal extends ClassifierResultBase {
+  risk_level: "normal" | "suspicious" | "high_risk" | "unable_to_determine";
+  signals: string[];
 }
 
 // ─── Public entry point ─────────────────────────────────────────────────────
@@ -85,8 +108,9 @@ export function composeEnvelope<R extends Registry>(
   const slotValues = applyMerges(buckets, config?.mergeOverrides);
 
   const model_recommendation = resolveModel(resultsRecord, catalog, threshold);
+  const stockSignals = composeStockSignals(resultsRecord, threshold);
 
-  return { ...slotValues, model_recommendation };
+  return { ...slotValues, ...stockSignals, model_recommendation };
 }
 
 // ─── Collection: walk every module's contributions and bucketize ────────────
@@ -196,7 +220,7 @@ const DEFAULT_MERGES: { [S in keyof EnvelopeSlots]: MergeFn<S> } = {
       signals: dedupeStrings(refs.flatMap((r) => r.value.signals)),
     };
   },
-  quick_reply: pickHighest,
+  handoff: pickHighest,
   expected_response_length: pickHighest,
   output_format_hint: pickHighest,
   language: pickHighest,
@@ -265,6 +289,96 @@ function dedupeStrings<T extends string>(values: ReadonlyArray<T>): T[] {
   return out;
 }
 
+function composeStockSignals(
+  results: Readonly<Record<string, ClassifierResultBase>>,
+  threshold: number,
+): Pick<Envelope, "routing" | "context" | "tools" | "safety"> {
+  return {
+    ...stockRouting(results, threshold),
+    ...stockContext(results),
+    ...stockTools(results),
+    ...stockSafety(results),
+  };
+}
+
+function stockRouting(
+  results: Readonly<Record<string, ClassifierResultBase>>,
+  threshold: number,
+): { routing?: StockRoutingSignal } {
+  const routing = results[ROUTING_NAME] as RoutingSignal | undefined;
+  const specialization = results[MODEL_SPECIALIZATION_NAME] as
+    | ModelSpecializationSignal
+    | undefined;
+  const out: {
+    execution_mode?: StockRoutingSignal["execution_mode"];
+    model_tier?: StockRoutingSignal["model_tier"];
+    specialization?: StockRoutingSignal["specialization"];
+  } = {};
+
+  if (routing && routing.confidence >= threshold) {
+    if (routing.execution_mode !== "unable_to_determine") {
+      out.execution_mode = routing.execution_mode;
+    }
+    if (routing.model_tier !== "unable_to_determine") {
+      out.model_tier = routing.model_tier;
+    }
+  }
+  if (
+    specialization &&
+    specialization.confidence >= threshold &&
+    specialization.model_specialization !== "unclear"
+  ) {
+    out.specialization = specialization.model_specialization;
+  }
+
+  return Object.keys(out).length === 0 ? {} : { routing: out };
+}
+
+function stockContext(
+  results: Readonly<Record<string, ClassifierResultBase>>,
+): { context?: ContextSignal } {
+  const history = results.conversation_history as ConversationHistorySignal | undefined;
+  if (!history || history.confidence <= 0) return {};
+  if (history.requires_full_message_history) {
+    return { context: { status: "insufficient" } };
+  }
+  if (history.is_standalone) {
+    return { context: { status: "standalone" } };
+  }
+  if (history.prior_messages_needed > 0) {
+    return {
+      context: {
+        status: "sufficient",
+        include_prior_messages: history.prior_messages_needed,
+      },
+    };
+  }
+  return { context: { status: "unknown" } };
+}
+
+function stockTools(
+  results: Readonly<Record<string, ClassifierResultBase>>,
+): { tools?: ToolsSignal } {
+  const tools = results.tools as ToolsClassifierSignal | undefined;
+  if (!tools || tools.confidence <= 0) return {};
+  const families = dedupeStrings(tools.families ?? []);
+  return { tools: { required: families.length > 0, families } };
+}
+
+function stockSafety(
+  results: Readonly<Record<string, ClassifierResultBase>>,
+): { safety?: SafetySignal } {
+  const security = results.security as SecurityClassifierSignal | undefined;
+  if (!security || security.confidence <= 0) return {};
+  return {
+    safety: {
+      risk_level:
+        security.risk_level === "unable_to_determine" ? "unknown" : security.risk_level,
+      signals: dedupeStrings(security.signals ?? []),
+    },
+  };
+}
+
 // ─── Model resolver ─────────────────────────────────────────────────────────
 
 export function resolveModel(
@@ -272,7 +386,7 @@ export function resolveModel(
   catalog: Catalog,
   threshold: number,
 ): ModelRecommendation {
-  const constraints_used: ModelRecommendationResolution["constraints_used"] = {};
+  const requested: ModelRecommendationResolution["constraints_used"] = {};
   const constraints_dropped: Array<
     ModelRecommendationResolution["constraints_dropped"][number]
   > = [];
@@ -288,7 +402,7 @@ export function resolveModel(
     } else if (spec.model_specialization === "unclear") {
       constraints_dropped.push({ axis: "specialization", reason: "escape_hatch" });
     } else {
-      constraints_used.specialization = spec.model_specialization;
+      requested.specialization = spec.model_specialization;
     }
   }
 
@@ -302,63 +416,182 @@ export function resolveModel(
       if (routing.execution_mode === "unable_to_determine") {
         constraints_dropped.push({ axis: "execution_mode", reason: "escape_hatch" });
       } else {
-        constraints_used.execution_mode = routing.execution_mode;
+        requested.execution_mode = routing.execution_mode;
       }
       if (routing.model_tier === "unable_to_determine") {
         constraints_dropped.push({ axis: "tier", reason: "escape_hatch" });
       } else {
-        constraints_used.tier = routing.model_tier;
+        requested.tier = routing.model_tier;
       }
     }
   }
 
-  const matching = catalog.models.filter(
-    (m) =>
-      (constraints_used.specialization === undefined ||
-        m.specializations.includes(constraints_used.specialization)) &&
-      (constraints_used.execution_mode === undefined ||
-        m.execution_modes.includes(constraints_used.execution_mode)) &&
-      (constraints_used.tier === undefined ||
-        m.tiers.includes(constraints_used.tier)),
-  );
+  const passes: ReadonlyArray<{
+    readonly useSpecialization: boolean;
+    readonly useTier: boolean;
+  }> = [
+    { useSpecialization: true, useTier: true },
+    { useSpecialization: true, useTier: false },
+    { useSpecialization: false, useTier: true },
+    { useSpecialization: false, useTier: false },
+  ];
 
-  let winnerPool: ReadonlyArray<CatalogEntry> = matching;
-  let fell_back_to_default = false;
-  if (winnerPool.length === 0) {
-    const def = catalog.models.find((m) => m.id === catalog.default);
-    // validateCatalog guarantees the default exists; if we got here without
-    // it, the catalog was bypassed and the developer wants to know.
-    if (!def) {
-      throw new Error(
-        `catalog default "${catalog.default}" not found in models — catalog skipped validation`,
-      );
-    }
-    winnerPool = [def];
-    fell_back_to_default = true;
+  for (const pass of passes) {
+    const constraints_used = constraintsForPass(requested, pass);
+    const matching = catalog.models.filter((model) => matchesConstraints(model, constraints_used));
+    if (matching.length === 0) continue;
+
+    const winner = pickBestModel(matching, catalog.models);
+    return {
+      ...modelRecommendationFields(winner),
+      resolution: {
+        constraints_used,
+        constraints_dropped: [
+          ...constraints_dropped,
+          ...relaxedConstraints(requested, constraints_used),
+        ],
+        confidences,
+        fell_back_to_default: false,
+      },
+    };
   }
 
-  let winner = winnerPool[0];
-  for (let i = 1; i < winnerPool.length; i++) {
-    const candidate = winnerPool[i];
-    if (candidate.params_in_millions > winner.params_in_millions) {
-      winner = candidate;
-    } else if (
-      candidate.params_in_millions === winner.params_in_millions &&
-      candidate.context_window > winner.context_window
-    ) {
-      winner = candidate;
-    }
+  const fallback = catalog.models.find((model) => model.id === catalog.default);
+  // validateCatalog guarantees the default exists; if we got here without it,
+  // the catalog was bypassed and the developer wants to know.
+  if (!fallback) {
+    throw new Error(
+      `catalog default "${catalog.default}" not found in models — catalog skipped validation`,
+    );
   }
 
   return {
-    id: winner.id,
-    params_in_millions: winner.params_in_millions,
-    context_window: winner.context_window,
+    ...modelRecommendationFields(fallback),
     resolution: {
-      constraints_used,
-      constraints_dropped,
+      constraints_used: {},
+      constraints_dropped: [
+        ...constraints_dropped,
+        ...defaultFallbackConstraints(requested),
+      ],
       confidences,
-      fell_back_to_default,
+      fell_back_to_default: true,
     },
+  };
+}
+
+function constraintsForPass(
+  requested: ModelRecommendationResolution["constraints_used"],
+  pass: { readonly useSpecialization: boolean; readonly useTier: boolean },
+): ModelRecommendationResolution["constraints_used"] {
+  return {
+    ...(requested.execution_mode === undefined
+      ? {}
+      : { execution_mode: requested.execution_mode }),
+    ...(pass.useSpecialization && requested.specialization !== undefined
+      ? { specialization: requested.specialization }
+      : {}),
+    ...(pass.useTier && requested.tier !== undefined ? { tier: requested.tier } : {}),
+  };
+}
+
+function matchesConstraints(
+  model: CatalogEntry,
+  constraints: ModelRecommendationResolution["constraints_used"],
+): boolean {
+  return (
+    (constraints.execution_mode === undefined ||
+      model.execution_modes.includes(constraints.execution_mode)) &&
+    (constraints.specialization === undefined ||
+      model.specializations.includes(constraints.specialization)) &&
+    (constraints.tier === undefined || model.tier === constraints.tier)
+  );
+}
+
+function relaxedConstraints(
+  requested: ModelRecommendationResolution["constraints_used"],
+  used: ModelRecommendationResolution["constraints_used"],
+): ModelRecommendationResolution["constraints_dropped"] {
+  const dropped: Array<ModelRecommendationResolution["constraints_dropped"][number]> = [];
+  if (requested.specialization !== undefined && used.specialization === undefined) {
+    dropped.push({ axis: "specialization", reason: "no_match_relaxed" });
+  }
+  if (requested.tier !== undefined && used.tier === undefined) {
+    dropped.push({ axis: "tier", reason: "no_match_relaxed" });
+  }
+  return dropped;
+}
+
+function defaultFallbackConstraints(
+  requested: ModelRecommendationResolution["constraints_used"],
+): ModelRecommendationResolution["constraints_dropped"] {
+  const dropped: Array<ModelRecommendationResolution["constraints_dropped"][number]> = [];
+  if (requested.specialization !== undefined) {
+    dropped.push({ axis: "specialization", reason: "default_fallback" });
+  }
+  if (requested.execution_mode !== undefined) {
+    dropped.push({ axis: "execution_mode", reason: "default_fallback" });
+  }
+  if (requested.tier !== undefined) {
+    dropped.push({ axis: "tier", reason: "default_fallback" });
+  }
+  return dropped;
+}
+
+function pickBestModel(
+  candidates: ReadonlyArray<CatalogEntry>,
+  catalogOrder: ReadonlyArray<CatalogEntry>,
+): CatalogEntry {
+  let winner = candidates[0];
+  for (let i = 1; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    if (compareModels(candidate, winner, catalogOrder) < 0) {
+      winner = candidate;
+    }
+  }
+  return winner;
+}
+
+function compareModels(
+  a: CatalogEntry,
+  b: CatalogEntry,
+  catalogOrder: ReadonlyArray<CatalogEntry>,
+): number {
+  const costDiff = priceIndex(a) - priceIndex(b);
+  if (Math.abs(costDiff) > Number.EPSILON) {
+    return costDiff;
+  }
+  if (a.params_in_billions !== b.params_in_billions) {
+    return b.params_in_billions - a.params_in_billions;
+  }
+  if (a.context_window !== b.context_window) {
+    return b.context_window - a.context_window;
+  }
+  return catalogOrder.indexOf(a) - catalogOrder.indexOf(b);
+}
+
+function priceIndex(model: CatalogEntry): number {
+  if (
+    model.input_tokens_cpm === undefined ||
+    model.output_tokens_cpm === undefined
+  ) {
+    return 0;
+  }
+  return model.input_tokens_cpm + model.output_tokens_cpm;
+}
+
+function modelRecommendationFields(
+  winner: CatalogEntry,
+): Omit<ModelRecommendation, "resolution"> {
+  return {
+    id: winner.id,
+    params_in_billions: winner.params_in_billions,
+    context_window: winner.context_window,
+    ...(winner.input_tokens_cpm === undefined ? {} : { input_tokens_cpm: winner.input_tokens_cpm }),
+    ...(winner.cached_tokens_cpm === undefined
+      ? {}
+      : { cached_tokens_cpm: winner.cached_tokens_cpm }),
+    ...(winner.output_tokens_cpm === undefined
+      ? {}
+      : { output_tokens_cpm: winner.output_tokens_cpm }),
   };
 }
