@@ -1,8 +1,7 @@
-// Shared input + run-status types. Classifier result types now live next to
-// their modules in `src/classifiers/<name>/result.ts`; pipeline result types
-// live in `src/manifest.ts` (generic) and are bound to the concrete registry
-// from `src/classifiers.ts`. This file is intentionally small: it should only
-// hold the contract for what callers send in and the operational metadata
+// Shared input + run-status types. Classifier manifests and stock output
+// validation define classifier-specific runtime contracts; pipeline result
+// types live in `src/manifest.ts`. This file is intentionally small: it should
+// only hold the contract for what callers send in and the operational metadata
 // every classifier carries alongside its verdict.
 
 export type ConversationMessageRole = "user" | "assistant";

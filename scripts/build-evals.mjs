@@ -2,6 +2,7 @@
 // Build training/evals/<classifier>.jsonl by joining:
 //   - training/scenarios.jsonl     (canonical scenarios: title, messages, attachments)
 //   - training/eval-labels/<classifier>.jsonl  (per-classifier labels keyed by title)
+//   - src/classifiers/<classifier>/manifest.json (output contract)
 //
 // Each classifier's eval set = the subset of scenarios that has labels for it.
 // Adding a new classifier means dropping a new eval-labels/<name>.jsonl file
@@ -14,11 +15,13 @@
 import { readFileSync, writeFileSync, readdirSync } from "fs";
 import { join, dirname, basename } from "path";
 import { fileURLToPath } from "url";
+import Ajv from "ajv";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 
 const SYSTEM = "Return only valid JSON for this classifier. Do not answer the user.";
+const ajv = new Ajv({ allErrors: true, strict: false });
 
 function readJsonl(path) {
   return readFileSync(path, "utf8")
@@ -59,6 +62,7 @@ const scenarios = readJsonl(join(ROOT, "training/scenarios.jsonl"));
 const scenarioByTitle = new Map(scenarios.map((s) => [s.title, s]));
 
 const labelsDir = join(ROOT, "training/eval-labels");
+const classifiersDir = join(ROOT, "src/classifiers");
 const requested = process.argv.slice(2);
 const allClassifiers = readdirSync(labelsDir)
   .filter((f) => f.endsWith(".jsonl"))
@@ -71,6 +75,9 @@ const errors = [];
 for (const classifier of classifiers) {
   const labelsPath = join(labelsDir, `${classifier}.jsonl`);
   const outPath = join(ROOT, `training/evals/${classifier}.jsonl`);
+  const manifest = JSON.parse(
+    readFileSync(join(classifiersDir, classifier, "manifest.json"), "utf8"),
+  );
   const labels = readJsonl(labelsPath);
 
   const rows = [];
@@ -78,6 +85,11 @@ for (const classifier of classifiers) {
     const scenario = scenarioByTitle.get(title);
     if (!scenario) {
       errors.push(`${classifier}: no scenario found for title ${JSON.stringify(title)}`);
+      continue;
+    }
+    const validationError = validateOutput(manifest, output);
+    if (validationError) {
+      errors.push(`${classifier}: ${JSON.stringify(title)} invalid output: ${validationError}`);
       continue;
     }
     rows.push({
@@ -102,4 +114,25 @@ if (errors.length > 0) {
   console.error("\nERRORS:");
   for (const e of errors) console.error(`  ${e}`);
   process.exit(1);
+}
+
+function validateOutput(manifest, output) {
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    return "output must be an object";
+  }
+  for (const key of Object.keys(output)) {
+    if (key !== "reason" && key !== "confidence" && !manifest.emits?.[key]) {
+      return `${key} is not declared in emits`;
+    }
+  }
+  if (typeof output.reason !== "string") return "reason must be a string";
+  if (typeof output.confidence !== "number" || output.confidence < 0 || output.confidence > 1) {
+    return "confidence must be a number from 0 to 1";
+  }
+  if (manifest.emits?.output) {
+    if (!manifest.output_schema) return "output_schema is required when output is emitted";
+    const validate = ajv.compile(manifest.output_schema);
+    if (!validate(output.output)) return ajv.errorsText(validate.errors, { dataVar: "output" });
+  }
+  return null;
 }

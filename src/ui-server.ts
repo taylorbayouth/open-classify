@@ -21,8 +21,7 @@ import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { loadCatalog } from "./catalog.js";
-import { CLASSIFIER_NAMES, type RunClassifier } from "./classifiers.js";
-import { TERMINALITY_VALUES } from "./classifiers/preflight/result.js";
+import { CLASSIFIER_NAMES, REGISTRY, type RunClassifier } from "./classifiers.js";
 import {
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
@@ -42,9 +41,8 @@ import {
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type { OpenClassifyInput } from "./types.js";
 
-// Served at GET /api/enums so the UI never needs to duplicate these values.
+// Served at GET /api/enums so the UI never needs to duplicate shared enum values.
 const CLASSIFIER_ENUMS = {
-  terminality: [...TERMINALITY_VALUES],
   downstream_execution_mode: [...DOWNSTREAM_EXECUTION_MODE_VALUES],
   downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
   model_specialization: [...MODEL_SPECIALIZATION_VALUES],
@@ -52,6 +50,16 @@ const CLASSIFIER_ENUMS = {
   security_risk_level: [...SECURITY_RISK_LEVEL_VALUES],
   security_signal: [...SECURITY_SIGNAL_VALUES],
 };
+
+const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
+  name: classifier.name,
+  version: classifier.version,
+  purpose: classifier.purpose,
+  order: classifier.order,
+  emits: classifier.emits,
+  ui: classifier.ui,
+  tool_families: classifier.tool_families ?? [],
+}));
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
@@ -89,6 +97,11 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === "GET" && url.pathname === "/api/enums") {
       sendJson(response, CLASSIFIER_ENUMS);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/classifiers") {
+      sendJson(response, { classifiers: CLASSIFIER_METADATA });
       return;
     }
 

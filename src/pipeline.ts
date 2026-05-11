@@ -1,50 +1,22 @@
-// Pipeline orchestration. Generic over the registry: nothing in this file
-// knows the identity of any specific classifier. The flow is:
-//
-//   1. Normalize input.
-//   2. Kick off every registered classifier in parallel with timeout + retry.
-//   3. Walk short-circuit-capable modules in priority order. As each one
-//      settles, evaluate its `shortCircuit.evaluate` — if it returns a
-//      verdict from a real (non-fallback) result, abort the rest and emit
-//      a `short_circuit` pipeline result.
-//   4. Otherwise wait for everything to settle and emit a `route` pipeline
-//      result with the envelope assembled by `composeEnvelope`.
-//
-// Design notes worth flagging:
-// - All classifiers start at the same time. Sequential gates would be cheaper
-//   on the happy path but slower in the common case. We pay for everything
-//   upfront and throw away work on early exit.
-// - Any classifier that errors or times out falls back to its module's
-//   conservative default (with `confidence: 0`). The pipeline never throws
-//   from a single classifier failure — only normalization throws.
-
 import { composeEnvelope } from "./aggregator.js";
 import {
   CLASSIFIER_NAMES,
   MODULES_BY_NAME,
   REGISTRY,
-  type ClassifierName,
-  type ClassifierResults,
-  type RegistryType,
   type RunClassifier,
 } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
   AggregatorConfig,
-  AnyClassifierModule,
   Catalog,
-  ClassifierResultBase,
-  ClassifierResultsMap,
-  Envelope,
-  FullClassifierEntriesOf,
-  PartialClassifierEntriesOf,
+  ClassifierEntry,
+  ClassifierResults,
+  PipelineMeta,
   PipelineResult,
-  ShortCircuitVerdict,
 } from "./manifest.js";
-import type { HandoffSignal, SafetySignal } from "./stock.js";
+import type { HandoffSignal, SafetySignal, StockClassifierOutput } from "./stock.js";
 import type {
   ClassifierFallbackReason,
-  ClassifierRunStatus,
   NormalizedOpenClassifyInput,
   OpenClassifyInput,
 } from "./types.js";
@@ -52,9 +24,6 @@ import type {
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
 
-// Thrown when the input is structurally invalid (bad shape, oversized
-// message, etc.). This is the only error `classifyOpenClassifyInput` will
-// throw — classifier failures are absorbed into fallback outputs.
 export class OpenClassifyNormalizationError extends Error {
   constructor(cause: unknown) {
     super(errorMessage(cause), { cause });
@@ -64,10 +33,6 @@ export class OpenClassifyNormalizationError extends Error {
 
 export interface ClassifyOptions {
   runClassifier: RunClassifier;
-  // Required: callers must supply a validated `Catalog` (load with
-  // `loadCatalog` or hand-build). The aggregator's resolver always emits a
-  // `model_recommendation` on the route path, even when no constraints
-  // match — it falls back to `catalog.default`.
   catalog: Catalog;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
@@ -75,25 +40,14 @@ export interface ClassifyOptions {
   signal?: AbortSignal;
 }
 
-type SettledClassifierResult<Name extends ClassifierName> =
-  | {
-      ok: true;
-      name: Name;
-      value: ClassifierResults[Name];
-    }
-  | {
-      ok: false;
-      name: Name;
-      error: unknown;
-      reason: ClassifierFallbackReason;
-    };
-
-type AnySettled = SettledClassifierResult<ClassifierName>;
+type SettledClassifierResult =
+  | { ok: true; name: string; value: StockClassifierOutput }
+  | { ok: false; name: string; error: unknown; reason: ClassifierFallbackReason };
 
 export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
   options: ClassifyOptions,
-): Promise<PipelineResult<RegistryType>> {
+): Promise<PipelineResult> {
   let request: NormalizedOpenClassifyInput;
   try {
     request = normalizeOpenClassifyInput(input);
@@ -101,8 +55,6 @@ export async function classifyOpenClassifyInput(
     throw new OpenClassifyNormalizationError(error);
   }
 
-  // Single shared abort signal: when any short-circuit fires, we abort the
-  // remaining in-flight runs so we don't pay for work nobody will read.
   const controller = new AbortController();
   const abortFromOptions = (): void => {
     controller.abort(options.signal?.reason ?? new Error("classification aborted"));
@@ -114,12 +66,10 @@ export async function classifyOpenClassifyInput(
   }
 
   const classifierInput = toClassifierInput(request);
-  const classifierTimeoutMs =
-    options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
-  const classifierRetryCount =
-    options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
+  const classifierTimeoutMs = options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
+  const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
 
-  const runs = new Map<ClassifierName, Promise<AnySettled>>(
+  const runs = new Map<string, Promise<SettledClassifierResult>>(
     CLASSIFIER_NAMES.map((name) => [
       name,
       runClassifierWithRetry(
@@ -134,25 +84,21 @@ export async function classifyOpenClassifyInput(
   );
 
   try {
-    // Walk short-circuit-capable modules in priority order. A real verdict
-    // wins; a fallback never fires the gate (defensive: a model crash
-    // shouldn't terminate the conversation or block the user).
-    const gates: AnyClassifierModule[] = (REGISTRY as ReadonlyArray<AnyClassifierModule>)
-      .filter((m) => m.shortCircuit !== undefined)
+    const gates = REGISTRY
+      .filter((m) => m.short_circuit !== undefined)
       .slice()
-      .sort((a, b) => a.shortCircuit!.priority - b.shortCircuit!.priority);
+      .sort((a, b) => a.short_circuit!.priority - b.short_circuit!.priority);
 
-    for (const module_ of gates) {
-      const settled = await runs.get(module_.name as ClassifierName)!;
+    for (const manifest of gates) {
+      const settled = await runs.get(manifest.name)!;
       if (!settled.ok) continue;
-      const verdict = module_.shortCircuit!.evaluate(settled.value);
+      const verdict = shortCircuitVerdict(manifest, settled.value, options.aggregator);
       if (!verdict) continue;
 
       controller.abort();
-      await settleClassifierRunsExcept(runs, [module_.name as ClassifierName]);
-
+      await settleClassifierRunsExcept(runs, [manifest.name]);
       return buildShortCircuitResult(
-        module_.name as ClassifierName,
+        manifest.name,
         verdict,
         settled,
         request.target_message_hash,
@@ -160,8 +106,7 @@ export async function classifyOpenClassifyInput(
     }
 
     const settled = await Promise.all([...runs.values()]);
-    const { results, entries } = collectFullEntries(settled);
-
+    const { results, meta } = collectFullEntries(settled);
     const envelope = composeEnvelope({
       registry: REGISTRY,
       results,
@@ -170,131 +115,97 @@ export async function classifyOpenClassifyInput(
       config: options.aggregator,
     });
 
-    return buildRouteResult(request.target_message_hash, entries, envelope);
+    return {
+      decision: "route",
+      target_message_hash: request.target_message_hash,
+      meta,
+      ...envelope,
+    };
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
   }
 }
 
+function shortCircuitVerdict(
+  manifest: (typeof REGISTRY)[number],
+  result: StockClassifierOutput,
+  config: AggregatorConfig | undefined,
+): ({ kind: "final"; reply: string } | { kind: "block" }) | null {
+  const threshold = config?.confidenceThreshold ?? 0.6;
+  const handoff = result.handoff;
+  if (!manifest.short_circuit || !handoff || result.confidence < threshold) return null;
+  if (!manifest.short_circuit.kinds.includes(handoff.kind)) return null;
+  if (handoff.kind === "final") return { kind: "final", reply: handoff.reply };
+  if (handoff.kind === "block") return { kind: "block" };
+  return null;
+}
+
 function buildShortCircuitResult(
-  name: ClassifierName,
-  verdict: ShortCircuitVerdict,
-  settled: AnySettled,
+  name: string,
+  verdict: { kind: "final"; reply: string } | { kind: "block" },
+  settled: SettledClassifierResult,
   target_message_hash: string,
-): PipelineResult<RegistryType> {
-  const module_ = MODULES_BY_NAME[name];
-  const value = settled.ok ? (settled.value as ClassifierResultBase) : module_.fallback;
-  const entry = {
+): PipelineResult {
+  const manifest = MODULES_BY_NAME[name];
+  const value = settled.ok ? settled.value : manifest.fallback;
+  const entry: ClassifierEntry = {
     ...value,
     status: classifierRunStatus(settled),
-    version: module_.version,
-  };
-  const meta = {
-    classifiers: { [name]: entry } as PartialClassifierEntriesOf<RegistryType>,
+    version: manifest.version,
   };
   return {
     decision: "short_circuit",
     target_message_hash,
     fired_by: name,
-    ...shortCircuitStockSignals(name, verdict, value),
-    meta,
+    ...shortCircuitStockSignals(value),
+    meta: { classifiers: { [name]: entry } },
     ...verdict,
   };
 }
 
 function shortCircuitStockSignals(
-  name: ClassifierName,
-  verdict: ShortCircuitVerdict,
-  value: ClassifierResultBase,
+  value: StockClassifierOutput,
 ): { handoff?: HandoffSignal; safety?: SafetySignal } {
-  const handoff =
-    verdict.kind === "final"
-      ? ({ kind: "final", reply: verdict.reply } satisfies HandoffSignal)
-      : verdict.kind === "block"
-        ? ({ kind: "block" } satisfies HandoffSignal)
-        : undefined;
-
-  const safety = name === "security" ? safetyFromClassifierResult(value) : undefined;
-
   return {
-    ...(handoff === undefined ? {} : { handoff }),
-    ...(safety === undefined ? {} : { safety }),
+    ...(value.handoff === undefined ? {} : { handoff: value.handoff }),
+    ...(value.safety === undefined ? {} : { safety: value.safety }),
   };
 }
 
-function safetyFromClassifierResult(value: ClassifierResultBase): SafetySignal | undefined {
-  const risk = (value as { risk_level?: unknown }).risk_level;
-  if (risk !== "normal" && risk !== "suspicious" && risk !== "high_risk") {
-    if (risk !== "unable_to_determine") return undefined;
-  }
-  const rawSignals = (value as { signals?: unknown }).signals;
-  return {
-    risk_level: risk === "unable_to_determine" ? "unknown" : risk,
-    signals: Array.isArray(rawSignals)
-      ? rawSignals.filter((signal): signal is string => typeof signal === "string")
-      : [],
-  };
-}
-
-function buildRouteResult(
-  target_message_hash: string,
-  entries: FullClassifierEntriesOf<RegistryType>,
-  envelope: Envelope,
-): PipelineResult<RegistryType> {
-  return {
-    decision: "route",
-    target_message_hash,
-    meta: { classifiers: entries },
-    ...envelope,
-  };
-}
-
-// Build the full classifier-results map and the meta-entries map from the
-// settled runs. Each entry is the verdict value (or fallback) merged with
-// `status` and `version`.
-function collectFullEntries(settled: AnySettled[]): {
+function collectFullEntries(settled: SettledClassifierResult[]): {
   results: ClassifierResults;
-  entries: FullClassifierEntriesOf<RegistryType>;
+  meta: PipelineMeta;
 } {
-  const results = {} as ClassifierResults;
-  const entries = {} as FullClassifierEntriesOf<RegistryType>;
+  const results: ClassifierResults = {};
+  const classifiers: Record<string, ClassifierEntry> = {};
   for (const s of settled) {
-    const module_ = MODULES_BY_NAME[s.name];
-    const value = s.ok ? s.value : (module_.fallback as ClassifierResults[ClassifierName]);
-    (results as Record<string, ClassifierResultBase>)[s.name] = value;
-    (entries as Record<string, unknown>)[s.name] = {
+    const manifest = MODULES_BY_NAME[s.name];
+    const value = s.ok ? s.value : manifest.fallback;
+    results[s.name] = value;
+    classifiers[s.name] = {
       ...value,
       status: classifierRunStatus(s),
-      version: module_.version,
+      version: manifest.version,
     };
   }
-  return { results, entries };
+  return { results, meta: { classifiers } };
 }
 
-// One classifier, with bounded retries. Stops early if the root signal has
-// already been aborted — no point retrying once the pipeline has decided.
-async function runClassifierWithRetry<Name extends ClassifierName>(
-  name: Name,
+async function runClassifierWithRetry(
+  name: string,
   input: Parameters<RunClassifier>[1],
   runClassifier: RunClassifier,
   rootSignal: AbortSignal,
   timeoutMs: number,
   retryCount: number,
-): Promise<SettledClassifierResult<Name>> {
+): Promise<SettledClassifierResult> {
   let lastError: unknown = new Error(`${name} classifier did not run`);
   let lastReason: ClassifierFallbackReason = "error";
 
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
-    if (rootSignal.aborted) {
-      break;
-    }
-
+    if (rootSignal.aborted) break;
     const result = await runClassifierAttempt(name, input, runClassifier, rootSignal, timeoutMs);
-
-    if (result.ok) {
-      return { ok: true, name, value: result.value };
-    }
-
+    if (result.ok) return { ok: true, name, value: result.value };
     lastError = result.error;
     lastReason = result.reason;
   }
@@ -302,18 +213,14 @@ async function runClassifierWithRetry<Name extends ClassifierName>(
   return { ok: false, name, error: lastError, reason: lastReason };
 }
 
-// A single attempt: races the classifier against a timeout AND the root
-// abort signal. Whichever resolves first wins. The local AbortController
-// lets us cancel the underlying fetch when timeout/abort wins so we don't
-// keep the HTTP request alive for nothing.
-async function runClassifierAttempt<Name extends ClassifierName>(
-  name: Name,
+async function runClassifierAttempt(
+  name: string,
   input: Parameters<RunClassifier>[1],
   runClassifier: RunClassifier,
   rootSignal: AbortSignal,
   timeoutMs: number,
 ): Promise<
-  | { ok: true; value: ClassifierResults[Name] }
+  | { ok: true; value: StockClassifierOutput }
   | { ok: false; error: unknown; reason: ClassifierFallbackReason }
 > {
   const controller = new AbortController();
@@ -324,11 +231,7 @@ async function runClassifierAttempt<Name extends ClassifierName>(
   try {
     const run = runClassifier(name, input, controller.signal).then(
       (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({
-        ok: false as const,
-        error,
-        reason: "error" as const,
-      }),
+      (error: unknown) => ({ ok: false as const, error, reason: "error" as const }),
     );
     const timedOut = new Promise<{ ok: false; error: unknown; reason: "timeout" }>((resolve) => {
       timeout = setTimeout(() => {
@@ -347,47 +250,29 @@ async function runClassifierAttempt<Name extends ClassifierName>(
 
     return await Promise.race([run, timedOut, aborted]);
   } finally {
-    if (timeout !== undefined) {
-      clearTimeout(timeout);
-    }
-    if (abortAttempt !== undefined) {
-      rootSignal.removeEventListener("abort", abortAttempt);
-    }
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (abortAttempt !== undefined) rootSignal.removeEventListener("abort", abortAttempt);
   }
 }
 
 async function settleClassifierRunsExcept(
-  runs: ReadonlyMap<ClassifierName, Promise<AnySettled>>,
-  excludedNames: ClassifierName[],
+  runs: ReadonlyMap<string, Promise<SettledClassifierResult>>,
+  keep: ReadonlyArray<string>,
 ): Promise<void> {
-  const excluded = new Set(excludedNames);
-  await Promise.all(
-    [...runs]
-      .filter(([name]) => !excluded.has(name))
-      .map(([, run]) => run),
-  );
+  const keepSet = new Set(keep);
+  await Promise.all([...runs].filter(([name]) => !keepSet.has(name)).map(([, run]) => run.catch(() => undefined)));
 }
 
-function classifierRunStatus(settled: AnySettled): ClassifierRunStatus {
-  if (settled.ok) {
-    return { ok: true, source: "model" };
-  }
+function classifierRunStatus(settled: SettledClassifierResult) {
+  if (settled.ok) return { ok: true, source: "model" as const };
   return {
     ok: false,
-    source: "fallback",
+    source: "fallback" as const,
     reason: settled.reason,
     error: errorMessage(settled.error),
   };
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+  return error instanceof Error ? error.message : String(error);
 }
-
-// Re-export the generic `ClassifierResultsMap` indirection some consumers
-// (e.g. custom backends) may want. The concrete `ClassifierResults` lives
-// in `classifiers.ts`.
-export type { ClassifierResultsMap };

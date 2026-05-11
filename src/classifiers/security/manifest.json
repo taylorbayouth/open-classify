@@ -1,0 +1,31 @@
+{
+  "name": "security",
+  "version": "1.0.0",
+  "purpose": "Assess prompt injection, exfiltration, and permission boundary risk.",
+  "order": 70,
+  "emits": {
+    "safety": true,
+    "handoff": true
+  },
+  "fallback": {
+    "reason": "",
+    "confidence": 0,
+    "safety": {
+      "risk_level": "unknown",
+      "signals": []
+    }
+  },
+  "short_circuit": {
+    "priority": 10,
+    "kinds": ["block"]
+  },
+  "backend": {
+    "ollama": {
+      "adapter_model": "open-classify-security:v0.1.0"
+    }
+  },
+  "ui": {
+    "label": "Security",
+    "renderer": "object"
+  }
+}

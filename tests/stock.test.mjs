@@ -11,6 +11,7 @@ test("validates a config-driven manifest with stock fields", () => {
     name: "conversation_context",
     version: "1.0.0",
     purpose: "Decide how much visible conversation history the downstream model needs.",
+    order: 10,
     emits: {
       context: true,
       summary: true,
@@ -20,9 +21,6 @@ test("validates a config-driven manifest with stock fields", () => {
       reason: "",
       confidence: 0,
       context: { status: "unknown" },
-    },
-    prompt: {
-      instructions: "Only classify the final message in the visible window.",
     },
   });
 
@@ -124,6 +122,7 @@ test("builds stock prompt fragments from manifest emits", () => {
     name: "tool_router",
     version: "1.0.0",
     purpose: "Pick tool access for the downstream model.",
+    order: 10,
     emits: { tools: true, handoff: true },
     tool_families: [
       { id: "repo", description: "Read and edit source repositories." },
@@ -141,4 +140,60 @@ test("builds stock prompt fragments from manifest emits", () => {
   assert.match(prompt, /tools:/);
   assert.match(prompt, /repo: Read and edit source repositories/);
   assert.doesNotMatch(prompt, /context:/);
+});
+
+test("requires output_schema when emitting custom output", () => {
+  assert.throws(
+    () =>
+      validateJsonClassifierManifest({
+        name: "memory",
+        version: "1.0.0",
+        purpose: "Emit memory queries.",
+        order: 20,
+        emits: { output: true },
+        fallback: { reason: "", confidence: 0, output: { queries: [] } },
+      }),
+    /output_schema is required/,
+  );
+});
+
+test("validates custom output with JSON Schema", () => {
+  const options = {
+    classifier: "memory",
+    model: "test",
+    emits: { output: true },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["queries"],
+      properties: {
+        queries: { type: "array", items: { type: "string", minLength: 1 } },
+      },
+    },
+  };
+
+  assert.deepEqual(
+    validateStockClassifierOutput(
+      {
+        reason: "Memory may help.",
+        confidence: 0.8,
+        output: { queries: ["review preferences"] },
+      },
+      options,
+    ).output,
+    { queries: ["review preferences"] },
+  );
+
+  assert.throws(
+    () =>
+      validateStockClassifierOutput(
+        {
+          reason: "bad",
+          confidence: 0.8,
+          output: { queries: [""] },
+        },
+        options,
+      ),
+    /must NOT have fewer than 1 characters/,
+  );
 });

@@ -1,49 +1,44 @@
 // Shared fixtures and helpers for the test suite.
 
-// Sample valid outputs for each classifier module. The shape matches the
-// per-module Result types in `src/classifiers/<name>/result.ts`.
+// Sample valid outputs for each built-in classifier manifest.
 export const validClassifierOutputs = {
   preflight: {
-    terminality: "continue",
-    reply: "Let me check.",
     reason: "The latest message requires downstream work.",
     confidence: 0.85,
+    handoff: { kind: "route", ack_reply: "Let me check." },
   },
   routing: {
-    execution_mode: "tool_assisted",
-    model_tier: "local_strong",
     reason: "The request needs tools and moderate reasoning.",
     confidence: 0.85,
+    routing: {
+      execution_mode: "tool_assisted",
+      model_tier: "local_strong",
+    },
   },
   conversation_history: {
-    is_standalone: true,
-    refers_to_history: false,
-    prior_messages_needed: 0,
-    requires_full_message_history: false,
     reason: "The latest message can be handled without prior messages.",
     confidence: 0.9,
+    context: { status: "standalone" },
   },
   memory_retrieval_queries: {
-    queries: ["user review preferences"],
     reason: "Saved user review preferences could improve the response.",
     confidence: 0.85,
+    output: { queries: ["user review preferences"] },
   },
   tools: {
-    needed: true,
-    families: ["code"],
     reason: "The request requires code access.",
     confidence: 0.9,
+    tools: { required: true, families: ["workspace"] },
   },
   model_specialization: {
-    model_specialization: "reasoning",
     reason: "The request asks for evaluative review.",
     confidence: 0.85,
+    routing: { specialization: "reasoning" },
   },
   security: {
-    risk_level: "normal",
-    signals: [],
     reason: "No notable risk.",
     confidence: 0.95,
+    safety: { risk_level: "normal", signals: [] },
   },
 };
 
