@@ -23,11 +23,6 @@
       "families": []
     }
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-tools:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Tools",
     "renderer": "object"

@@ -25,5 +25,5 @@ After running fine-tuning against the corresponding `training-data/<classifier>.
    ADAPTER ./adapter.gguf
    ```
 3. `ollama create open-classify-<classifier> -f Modelfile`
-4. Update `adapter-models.json` at the project root to point this classifier at the new model name.
+4. Copy `adapter-models.example.json` to `adapter-models.json` if needed, then point this classifier at the new local model name.
 5. Run `training/evals/<classifier>.jsonl` through the pipeline to confirm quality moved in the right direction.

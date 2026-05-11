@@ -10,11 +10,6 @@
     "reason": "",
     "confidence": 0
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-routing:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Routing",
     "renderer": "object"

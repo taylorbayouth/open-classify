@@ -30,11 +30,6 @@
       }
     }
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-memory-retrieval-queries:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Memory queries",
     "renderer": "object"

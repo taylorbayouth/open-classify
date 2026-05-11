@@ -10,11 +10,6 @@
     "reason": "",
     "confidence": 0
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-model-specialization:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Model specialization",
     "renderer": "object"

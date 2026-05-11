@@ -144,8 +144,8 @@ When using the LLM-as-generator path:
 2. Pass this README, the corresponding spec (e.g., `training/labeling-specs/security.md`), and the classifier manifest to a frontier LLM as the user prompt.
 3. The LLM emits ready-to-append JSONL according to the spec and manifest.
 4. Append the rows to `training/training-data/<classifier>.jsonl` (gitignored — it stays local to your machine).
-5. Re-train the adapter, drop the resulting weights into `training/adapters/<classifier>/`, point `adapter-models.json` at the new Ollama model name, and run `training/evals/<classifier>.jsonl` through the new adapter to confirm the change moved the metric in the right direction.
+5. Re-train the adapter, drop the resulting weights into `training/adapters/<classifier>/`, point your local `adapter-models.json` at the new Ollama model name, and run `training/evals/<classifier>.jsonl` through the new adapter to confirm the change moved the metric in the right direction.
 
 Evals are the shared baseline that lets everyone measure quality across changes. They live in `training/evals/<classifier>.jsonl` (committed) and contain 20–50 hand-curated rows per classifier covering boundary cases. New training data should never duplicate eval rows — anti-leakage matters more than usual here because the eval set is small.
 
-Runtime model selection is configured separately in `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.
+Classifier runtime model overrides are configured separately in local `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.

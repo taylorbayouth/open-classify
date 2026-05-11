@@ -34,14 +34,11 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
   assert.equal(OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG, "adapter-models.json");
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
-  assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, "open-classify-preflight:v0.1.0");
-  assert.equal(
-    OLLAMA_CLASSIFIER_ADAPTER_MODELS.model_specialization,
-    "open-classify-model-specialization:v0.1.0",
-  );
+  assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, null);
+  assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.model_specialization, null);
 });
 
-test("discovers classifier adapters from JSON config incrementally", async () => {
+test("discovers classifier model overrides from JSON config incrementally", async () => {
   const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
   const configPath = join(root, "adapter-models.json");
   try {
@@ -54,13 +51,13 @@ test("discovers classifier adapters from JSON config incrementally", async () =>
 
     assert.equal(models.preflight, "open-classify-preflight:v0.1.0");
     assert.equal(models.security, null);
-    assert.equal(models.routing, "open-classify-routing:v0.1.0");
+    assert.equal(models.routing, null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("createOllamaClassifierRunner uses manifest adapters for missing adapter config entries", async () => {
+test("createOllamaClassifierRunner uses base model for missing adapter config entries", async () => {
   const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
   const configPath = join(root, "adapter-models.json");
   try {
@@ -92,7 +89,7 @@ test("createOllamaClassifierRunner uses manifest adapters for missing adapter co
     await runner("routing", classifierInput(), new AbortController().signal);
 
     assert.equal(calls[0].model, "open-classify-preflight:v0.1.0");
-    assert.equal(calls[1].model, "open-classify-routing:v0.1.0");
+    assert.equal(calls[1].model, OLLAMA_BASE_MODEL);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

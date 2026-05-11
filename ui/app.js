@@ -1,52 +1,4 @@
-// Populated on init from GET /api/enums — single source of truth is src/enums.ts.
-let ENUMS = {};
 let CLASSIFIER_METADATA = {};
-
-const enumValueLabels = {
-  // execution mode
-  direct: "Direct",
-  tool_assisted: "Tool assisted",
-  workflow: "Workflow",
-  // model tier
-  local_fast: "Local fast",
-  local_strong: "Local strong",
-  frontier_fast: "Frontier fast",
-  frontier_strong: "Frontier strong",
-  // model specialization
-  chat: "Chat",
-  writing: "Writing",
-  reasoning: "Reasoning",
-  planning: "Planning",
-  coding: "Coding",
-  instruction_following: "Instruction following",
-  unclear: "Unclear",
-  // tool families
-  workspace: "Workspace",
-  web: "Web",
-  communications: "Communications",
-  documents: "Documents",
-  spreadsheets: "Spreadsheets",
-  project_management: "Project management",
-  developer_platforms: "Dev platforms",
-  // security risk
-  normal: "Normal",
-  suspicious: "Suspicious",
-  high_risk: "High risk",
-  // security signals
-  instruction_attack: "Instruction attack",
-  secret_or_private_data_risk: "Private data risk",
-  unsafe_tool_or_action: "Unsafe tool/action",
-  untrusted_content_or_code: "Untrusted content",
-  injection_or_obfuscation: "Injection/obfuscation",
-  // common
-  unable_to_determine: "Unable to determine",
-};
-
-const PHASE_LABELS = {
-  normalizing: "Normalizing input",
-  resource_check: "Checking Ollama resources",
-  running: "Running classifiers",
-};
 
 const state = {
   attachments: [],
@@ -70,8 +22,6 @@ const classifierGrid = document.querySelector("#classifierGrid");
 const aggregatePanel = document.querySelector("#aggregatePanel");
 const runState = document.querySelector("#runState");
 const liveDot = document.querySelector("#liveDot");
-const replyDisplay = document.querySelector("#replyDisplay");
-const replyValue = document.querySelector("#replyValue");
 const hashes = document.querySelector("#hashes");
 const jsonPanel = document.querySelector("#jsonPanel");
 const jsonToggle = document.querySelector("#jsonToggle");
@@ -85,12 +35,10 @@ const phaseTrail = document.querySelector("#phaseTrail");
 init();
 
 async function init() {
-  const [enums, classifierResponse, samples] = await Promise.all([
-    fetch("/api/enums").then((r) => r.json()),
+  const [classifierResponse, samples] = await Promise.all([
     fetch("/api/classifiers").then((r) => r.json()),
     loadSamples(),
   ]);
-  ENUMS = enums;
   const classifiers = classifierResponse.classifiers ?? [];
   CLASSIFIER_METADATA = Object.fromEntries(classifiers.map((item) => [item.name, item]));
   state.classifierNames = classifiers.map((item) => item.name);
@@ -247,7 +195,6 @@ function resetRunOutput() {
   renderEventLog();
   resetClassifiers("idle");
   setRunState("idle");
-  replyDisplay.hidden = true;
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   hashes.hidden = true;
@@ -261,7 +208,6 @@ async function classify() {
   state.eventCount = 0;
   renderEventLog();
   setRunState("running");
-  replyDisplay.hidden = true;
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   hashes.hidden = true;
@@ -395,9 +341,6 @@ function handleStreamEvent(event, data) {
         result: data.result,
         finishedAt: performance.now(),
       });
-      if (data.name === "preflight" && data.result?.reply) {
-        showReply(data.result.reply);
-      }
       break;
     case "classifier_timed_out":
       updateClassifier(data.name, {
@@ -428,16 +371,6 @@ function handleStreamEvent(event, data) {
   }
 }
 
-function showReply(value) {
-  if (!value) {
-    replyDisplay.hidden = true;
-    replyValue.textContent = "";
-    return;
-  }
-  replyDisplay.hidden = false;
-  replyValue.textContent = value;
-}
-
 function renderPipeline(result) {
   let finalState = "complete";
   if (result.decision === "short_circuit") {
@@ -445,18 +378,15 @@ function renderPipeline(result) {
   }
   setRunState(finalState);
 
-  const replyText = assistantFacingReply(result);
-  showReply(replyText);
   renderAggregate(result);
 
   if (result.meta?.classifiers) {
     for (const name of Object.keys(result.meta.classifiers)) {
       const entry = result.meta.classifiers[name];
       const status = entry.status;
-      const { status: _ignored, version: _v, ...verdict } = entry;
       updateClassifier(name, {
         status: status?.ok === false ? "fallback" : "done",
-        result: verdict,
+        result: entry,
         error: status?.ok === false ? status.error : null,
         finishedAt: performance.now(),
       });
@@ -476,52 +406,27 @@ function renderPipeline(result) {
   jsonPanel.textContent = JSON.stringify(result, null, 2);
 }
 
-function assistantFacingReply(result) {
-  const handoff = result.handoff;
-  if (handoff?.kind === "route") return handoff.ack_reply ?? "";
-  if (handoff?.kind === "final") return handoff.reply;
-  return result.reply ?? "";
-}
-
 function renderAggregate(result) {
-  const model = result.model_recommendation;
-  const rows = [
-    ["decision", result.decision],
-    ["model_id", model?.id],
-    ["handoff", result.handoff],
-    ["routing", result.routing],
-    ["context", result.context],
-    ["tools", result.tools],
-    ["response", result.response],
-    ["safety", result.safety],
-    ["summary", result.summary],
-  ].filter(([, value]) => value !== undefined);
+  const visibleResult = withoutClassifierMeta(result);
+  const rows = Object.entries(visibleResult);
 
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
     <header class="aggregate-head">
-      <span>Aggregator output</span>
-      ${model ? `<strong>${escapeHtml(model.id)}</strong>` : ""}
+      <span>Pipeline output</span>
     </header>
     <div class="aggregate-grid">
-      ${rows.map(([label, value]) => aggregateRow(label, value)).join("")}
+      ${rows.map(([key, value]) => objectRow(key, value)).join("")}
     </div>
   `;
 }
 
-function aggregateRow(label, value) {
-  return `
-    <div class="aggregate-row">
-      <span>${escapeHtml(label)}</span>
-      <code>${escapeHtml(formatAggregateValue(value))}</code>
-    </div>
-  `;
-}
-
-function formatAggregateValue(value) {
-  if (value === null) return "null";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+function withoutClassifierMeta(result) {
+  if (!result?.meta?.classifiers) return result;
+  const { meta, ...rest } = result;
+  const { classifiers: _classifiers, ...otherMeta } = meta;
+  if (Object.keys(otherMeta).length === 0) return rest;
+  return { ...rest, meta: otherMeta };
 }
 
 function cancelClassifiersExcept(keptNames) {
@@ -575,7 +480,6 @@ function renderClassifiers() {
 function renderClassifier(name) {
   const item = state.classifiers[name] ?? { status: "pending" };
   const result = item.result;
-  const optionHtml = renderOptions(name, result);
   const detailHtml = renderDetails(name, item);
   const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
 
@@ -592,7 +496,6 @@ function renderClassifier(name) {
           ${elapsedHtml}
         </div>
       </div>
-      ${optionHtml}
       ${detailHtml}
     </article>
   `;
@@ -625,13 +528,6 @@ function updateTickers() {
   }
 }
 
-function renderOptions(name, result) {
-  if (!result) return "";
-  const chips = stockChips(result);
-  if (chips.length === 0) return "";
-  return `<div class="option-row">${chips.map((chip) => `<span class="option selected">${escapeHtml(chip)}</span>`).join("")}</div>`;
-}
-
 function renderDetails(name, item) {
   if (item.error) {
     return `<div class="detail error">${escapeHtml(item.error)}</div>`;
@@ -642,27 +538,13 @@ function renderDetails(name, item) {
     return `<div class="detail muted">${emptyStateText(item.status)}</div>`;
   }
 
-  const custom = result.output === undefined
-    ? ""
-    : `<pre class="detail-json">${escapeHtml(JSON.stringify(result.output, null, 2))}</pre>`;
-  return `${custom}${result.reason ? `<div class="detail muted">${escapeHtml(result.reason)}</div>` : ""}`;
+  return `<div class="object-grid classifier-output">${Object.entries(result)
+    .map(([key, value]) => objectRow(key, value))
+    .join("")}</div>`;
 }
 
 function classifierLabel(name) {
   return escapeHtml(CLASSIFIER_METADATA[name]?.ui?.label ?? name);
-}
-
-function stockChips(result) {
-  const chips = [];
-  if (result.handoff?.kind) chips.push(`handoff:${result.handoff.kind}`);
-  if (result.routing?.execution_mode) chips.push(result.routing.execution_mode);
-  if (result.routing?.model_tier) chips.push(result.routing.model_tier);
-  if (result.routing?.specialization) chips.push(result.routing.specialization);
-  if (result.context?.status) chips.push(`context:${result.context.status}`);
-  for (const family of result.tools?.families ?? []) chips.push(family);
-  if (result.safety?.risk_level) chips.push(`safety:${result.safety.risk_level}`);
-  if (result.output !== undefined) chips.push("custom output");
-  return chips;
 }
 
 function emptyStateText(status) {
@@ -672,6 +554,48 @@ function emptyStateText(status) {
   if (status === "failed") return "Failed";
   if (status === "pending") return "Queued";
   return "Awaiting run";
+}
+
+function objectRow(key, value) {
+  return `
+    <div class="object-row">
+      <span class="object-key">${escapeHtml(key)}</span>
+      ${renderValue(value)}
+    </div>
+  `;
+}
+
+function renderValue(value) {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `<code class="object-scalar">[]</code>`;
+    return `
+      <div class="object-list">
+        ${value.map((item, index) => `
+          <div class="object-list-item">
+            <span class="object-index">${index}</span>
+            ${renderValue(item)}
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return `<code class="object-scalar">{}</code>`;
+    return `<div class="object-nested">${entries.map(([key, item]) => objectRow(key, item)).join("")}</div>`;
+  }
+
+  return `<code class="object-scalar">${escapeHtml(formatScalar(value))}</code>`;
+}
+
+function formatScalar(value) {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function renderAttachments() {

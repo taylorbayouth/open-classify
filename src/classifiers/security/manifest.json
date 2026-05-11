@@ -19,11 +19,6 @@
     "priority": 10,
     "kinds": ["block"]
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-security:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Security",
     "renderer": "object"

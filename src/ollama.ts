@@ -171,10 +171,10 @@ export function createOllamaClassifierRunner(
   };
 }
 
-// Best-effort load of `adapter-models.json` (or the path the caller picks).
-// Missing/malformed files are not fatal — we just return the all-null
-// defaults so the base model gets used. If the file is partly populated,
-// only the matching keys override; the rest stay null.
+// Best-effort load of local classifier model overrides.
+// Missing/malformed files are not fatal — we keep the default classifier model
+// map, which is currently all-null so the base model gets used. If the file is
+// partly populated, only the matching keys override; the rest stay unchanged.
 export function discoverOllamaClassifierAdapterModels(
   configPath = OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
 ): Record<ClassifierName, string | null> {

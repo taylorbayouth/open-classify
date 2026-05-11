@@ -5,6 +5,7 @@ dist/
 .DS_Store
 .claude/
 open-classify.log
+adapter-models.json
 
 # Training data is user-supplied; only guides and evals ship in the repo.
 training/training-data/*.jsonl

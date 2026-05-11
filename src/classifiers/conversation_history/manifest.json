@@ -13,11 +13,6 @@
       "status": "unknown"
     }
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-conversation-history:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Conversation history",
     "renderer": "object"

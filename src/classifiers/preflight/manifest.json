@@ -14,11 +14,6 @@
     "priority": 0,
     "kinds": ["final"]
   },
-  "backend": {
-    "ollama": {
-      "adapter_model": "open-classify-preflight:v0.1.0"
-    }
-  },
   "ui": {
     "label": "Preflight",
     "renderer": "object"
