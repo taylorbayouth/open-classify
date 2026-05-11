@@ -1,30 +1,30 @@
-{"title":"Bare greeting","output":{"terminality":"terminal","reply":"Hey.","reason":"Phatic greeting fully answered with a brief social return."}}
-{"title":"Tiny arithmetic","output":{"terminality":"terminal","reply":"51.","reason":"Simple arithmetic answered directly without external resources."}}
-{"title":"Standalone general explanation","output":{"terminality":"continue","reply":"I'll explain.","reason":"Explanation requires more than a 1–5 word reply."}}
-{"title":"Missing referent","output":{"terminality":"unable_to_determine","reply":"I need context.","reason":"No resolvable referent makes the request unclassifiable."}}
-{"title":"Instruction attack","output":{"terminality":"continue","reply":"I'll check.","reason":"Prompt injection attempt routes downstream for safety handling."}}
-{"title":"Referential rewrite","output":{"terminality":"continue","reply":"I'll update it.","reason":"Rewrite request references prior draft and requires new text."}}
-{"title":"Contextual yes to action","output":{"terminality":"continue","reply":"On it.","reason":"User is directing an action that requires downstream execution."}}
-{"title":"Attached contract","output":{"terminality":"continue","reply":"Reading now.","reason":"Document analysis with attachment requires downstream processing."}}
-{"title":"Spreadsheet plus current web","output":{"terminality":"continue","reply":"On it.","reason":"Multi-source analysis task requires tools and downstream processing."}}
-{"title":"PR comments and local branch","output":{"terminality":"continue","reply":"On it.","reason":"Multi-step coding workflow requires downstream execution."}}
-{"title":"Memory preference","output":{"terminality":"continue","reply":"I'll check.","reason":"Booking action requires memory lookup and tool use."}}
-{"title":"Current competitor research","output":{"terminality":"continue","reply":"Looking now.","reason":"Research task requires live web access and writing."}}
-{"title":"Recurring workflow","output":{"terminality":"continue","reply":"I'll set that up.","reason":"Scheduling task requires external tool interaction."}}
-{"title":"Calendar and email","output":{"terminality":"continue","reply":"I'll check.","reason":"Multi-tool task requires email and calendar access."}}
-{"title":"Authorized security review","output":{"terminality":"continue","reply":"On it.","reason":"Security audit requires code analysis and report writing."}}
-{"title":"Untrusted remote instructions","output":{"terminality":"continue","reply":"I'll check.","reason":"Untrusted remote instruction following routes downstream for safety handling."}}
-{"title":"Destructive production action","output":{"terminality":"continue","reply":"I'll check.","reason":"High-risk destructive action requires downstream safety evaluation."}}
-{"title":"Long-context project reference","output":{"terminality":"continue","reply":"I'll check.","reason":"Spec writing requires prior session context not in this window."}}
-{"title":"Resolved option","output":{"terminality":"continue","reply":"I'll draft it.","reason":"Writing task requires generating a customer note using conversation context."}}
-{"title":"Long support thread","output":{"terminality":"continue","reply":"I'll update it.","reason":"Editing task requires generating revised text from conversation context."}}
-{"title":"Pasted email reply","output":{"terminality":"continue","reply":"I'll update it.","reason":"Editing task requires revising the draft in conversation context."}}
-{"title":"Image attachment inspection","output":{"terminality":"continue","reply":"Looking now.","reason":"Image analysis with attachment requires downstream processing."}}
-{"title":"Project management action","output":{"terminality":"continue","reply":"On it.","reason":"Tool action requires creating tasks in external PM system."}}
-{"title":"Supplied preference no memory","output":{"terminality":"continue","reply":"I'll draft it.","reason":"Writing task with conversation-supplied style constraints."}}
-{"title":"High stakes legal advice","output":{"terminality":"continue","reply":"I'll check.","reason":"High-stakes analysis task requiring detailed legal-adjacent reasoning."}}
-{"title":"Health triage boundary","output":{"terminality":"continue","reply":"I'll draft it.","reason":"Writing a specific script requires generating content."}}
-{"title":"Local repo flaky test","output":{"terminality":"continue","reply":"On it.","reason":"Multi-step debugging workflow requires repo access and test execution."}}
-{"title":"Audio attachment extraction","output":{"terminality":"continue","reply":"I'll extract.","reason":"Audio processing with attachment requires downstream tool."}}
-{"title":"Obfuscated instruction review","output":{"terminality":"continue","reply":"I'll check.","reason":"Security analysis requires decoding and evaluating untrusted content."}}
-{"title":"Ambiguous voice note","output":{"terminality":"unable_to_determine","reply":"I need context.","reason":"References options and message from outside the visible window."}}
+{"title":"Bare greeting","output":{"reason":"Phatic greeting fully answered with a brief social return.","confidence":0.9,"handoff":{"kind":"final","reply":"Hey."}}}
+{"title":"Tiny arithmetic","output":{"reason":"Simple arithmetic answered directly without external resources.","confidence":0.9,"handoff":{"kind":"final","reply":"51."}}}
+{"title":"Standalone general explanation","output":{"reason":"Explanation requires more than a 1–5 word reply.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll explain."}}}
+{"title":"Missing referent","output":{"reason":"No resolvable referent makes the request unclassifiable.","confidence":0.9}}
+{"title":"Instruction attack","output":{"reason":"Prompt injection attempt routes downstream for safety handling.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Referential rewrite","output":{"reason":"Rewrite request references prior draft and requires new text.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll update it."}}}
+{"title":"Contextual yes to action","output":{"reason":"User is directing an action that requires downstream execution.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"On it."}}}
+{"title":"Attached contract","output":{"reason":"Document analysis with attachment requires downstream processing.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"Reading now."}}}
+{"title":"Spreadsheet plus current web","output":{"reason":"Multi-source analysis task requires tools and downstream processing.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"On it."}}}
+{"title":"PR comments and local branch","output":{"reason":"Multi-step coding workflow requires downstream execution.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"On it."}}}
+{"title":"Memory preference","output":{"reason":"Booking action requires memory lookup and tool use.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Current competitor research","output":{"reason":"Research task requires live web access and writing.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"Looking now."}}}
+{"title":"Recurring workflow","output":{"reason":"Scheduling task requires external tool interaction.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll set that up."}}}
+{"title":"Calendar and email","output":{"reason":"Multi-tool task requires email and calendar access.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Authorized security review","output":{"reason":"Security audit requires code analysis and report writing.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"On it."}}}
+{"title":"Untrusted remote instructions","output":{"reason":"Untrusted remote instruction following routes downstream for safety handling.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Destructive production action","output":{"reason":"High-risk destructive action requires downstream safety evaluation.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Long-context project reference","output":{"reason":"Spec writing requires prior session context not in this window.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Resolved option","output":{"reason":"Writing task requires generating a customer note using conversation context.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll draft it."}}}
+{"title":"Long support thread","output":{"reason":"Editing task requires generating revised text from conversation context.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll update it."}}}
+{"title":"Pasted email reply","output":{"reason":"Editing task requires revising the draft in conversation context.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll update it."}}}
+{"title":"Image attachment inspection","output":{"reason":"Image analysis with attachment requires downstream processing.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"Looking now."}}}
+{"title":"Project management action","output":{"reason":"Tool action requires creating tasks in external PM system.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"On it."}}}
+{"title":"Supplied preference no memory","output":{"reason":"Writing task with conversation-supplied style constraints.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll draft it."}}}
+{"title":"High stakes legal advice","output":{"reason":"High-stakes analysis task requiring detailed legal-adjacent reasoning.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Health triage boundary","output":{"reason":"Writing a specific script requires generating content.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll draft it."}}}
+{"title":"Local repo flaky test","output":{"reason":"Multi-step debugging workflow requires repo access and test execution.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"On it."}}}
+{"title":"Audio attachment extraction","output":{"reason":"Audio processing with attachment requires downstream tool.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll extract."}}}
+{"title":"Obfuscated instruction review","output":{"reason":"Security analysis requires decoding and evaluating untrusted content.","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}}
+{"title":"Ambiguous voice note","output":{"reason":"References options and message from outside the visible window.","confidence":0.9}}

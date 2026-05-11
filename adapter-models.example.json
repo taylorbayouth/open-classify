@@ -1,0 +1,9 @@
+{
+  "preflight": "open-classify-preflight:v0.1.0",
+  "routing": "open-classify-routing:v0.1.0",
+  "conversation_history": "open-classify-conversation-history:v0.1.0",
+  "memory_retrieval_queries": "open-classify-memory-retrieval-queries:v0.1.0",
+  "tools": "open-classify-tools:v0.1.0",
+  "model_specialization": "open-classify-model-specialization:v0.1.0",
+  "security": "open-classify-security:v0.1.0"
+}

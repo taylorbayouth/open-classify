@@ -1,13 +1,13 @@
 // Shared categorical enums used by more than one classifier or by the
-// catalog. Single-classifier enums (e.g. terminality) live next to their
-// module in `src/classifiers/<name>/result.ts`. Each enum is exported twice:
+// catalog. Classifier manifests declare which stock fields they emit.
+// Each enum is exported twice:
 // once as a `*_VALUES` array (used by validators and tests) and once as a
 // string-literal union type. Keep the array and the type in sync — the type
 // is derived from the array via `(typeof X)[number]`.
 //
-// Most enums include an `unable_to_determine` (or `unclear`) escape hatch so a
-// classifier can refuse to guess. The pipeline treats those as soft-fail and
-// keeps routing.
+// Some catalog-facing enums still include an `unable_to_determine` escape
+// hatch for older config validation; stock classifier outputs omit uncertain
+// optional fields instead of emitting escape-hatch values.
 
 // How the downstream model should be invoked. `direct` is a plain chat call;
 // `tool_assisted` expects tool/function calling; `workflow` implies a multi-

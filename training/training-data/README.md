@@ -12,6 +12,6 @@ training-data/model_specialization.jsonl
 training-data/security.jsonl
 ```
 
-**These files are gitignored.** Fine-tuning data is user-specific — you generate your own using the per-classifier guides in `../guides/` and the shared workflow in `../README.md`. The repo ships only the guides and the eval sets.
+**These files are gitignored.** Fine-tuning data is user-specific — you generate your own using the per-classifier labeling specs in `../labeling-specs/`, the classifier manifests in `../../src/classifiers/<name>/`, and the shared workflow in `../README.md`. The repo ships only the labeling specs and the eval sets.
 
 If you clone this repo and want to start training, follow the generation workflow in `../README.md` to populate the JSONL files here, then run your fine-tuning pipeline against them.

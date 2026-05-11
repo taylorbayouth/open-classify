@@ -1,0 +1,21 @@
+{
+  "name": "preflight",
+  "version": "1.0.0",
+  "purpose": "Determine whether the latest message can be answered immediately or should continue downstream.",
+  "order": 10,
+  "emits": {
+    "handoff": true
+  },
+  "fallback": {
+    "reason": "",
+    "confidence": 0
+  },
+  "short_circuit": {
+    "priority": 0,
+    "kinds": ["final"]
+  },
+  "ui": {
+    "label": "Preflight",
+    "renderer": "object"
+  }
+}

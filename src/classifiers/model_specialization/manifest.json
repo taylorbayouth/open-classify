@@ -1,0 +1,17 @@
+{
+  "name": "model_specialization",
+  "version": "1.0.0",
+  "purpose": "Choose the model or prompt specialization best suited to the message.",
+  "order": 30,
+  "emits": {
+    "routing": true
+  },
+  "fallback": {
+    "reason": "",
+    "confidence": 0
+  },
+  "ui": {
+    "label": "Model specialization",
+    "renderer": "object"
+  }
+}

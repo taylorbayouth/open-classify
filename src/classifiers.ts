@@ -1,65 +1,104 @@
-// Central registry of every classifier module. The pipeline iterates this
-// tuple and has no name-specific knowledge of any classifier — short-circuit
-// behavior, downstream-envelope contributions, UI labels, and backend hints
-// all live on the module itself.
-//
-// Adding a new classifier? Three steps:
-//   1. Create `src/classifiers/<name>/` with `prompt.ts`, `result.ts`,
-//      `module.ts` (mirror an existing module).
-//   2. Append the module to `REGISTRY` below.
-//   3. If the classifier's outputs are categorical, add the enum(s) to
-//      `enums.ts` so validators and the UI server can read them.
-
-import { preflightModule } from "./classifiers/preflight/module.js";
-import { routingModule } from "./classifiers/routing/module.js";
-import { conversationHistoryModule } from "./classifiers/conversation_history/module.js";
-import { memoryRetrievalQueriesModule } from "./classifiers/memory_retrieval_queries/module.js";
-import { toolsModule } from "./classifiers/tools/module.js";
-import { modelSpecializationModule } from "./classifiers/model_specialization/module.js";
-import { securityModule } from "./classifiers/security/module.js";
-import type {
-  AnyClassifierModule,
-  ClassifierNameOf,
-  ClassifierResultsMap,
-  Registry,
-} from "./manifest.js";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ClassifierInput } from "./types.js";
+import type {
+  ClassifierName,
+  ClassifierRegistry,
+  RunClassifier,
+} from "./manifest.js";
+import type { RuntimeClassifierManifest, StockClassifierOutput } from "./stock.js";
+import {
+  validateJsonClassifierManifest,
+  validateStockClassifierOutput,
+} from "./stock-validation.js";
 
-// Tuple order is the canonical classifier order surfaced to UIs and the SSE
-// stream. Short-circuit evaluation order is independent — it comes from each
-// module's `shortCircuit.priority`.
-export const REGISTRY = [
-  preflightModule,
-  routingModule,
-  conversationHistoryModule,
-  memoryRetrievalQueriesModule,
-  toolsModule,
-  modelSpecializationModule,
-  securityModule,
-] as const satisfies Registry;
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CLASSIFIERS_DIR = join(__dirname, "classifiers");
 
-export type RegistryType = typeof REGISTRY;
-export type ClassifierName = ClassifierNameOf<RegistryType>;
+export class ClassifierManifestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClassifierManifestError";
+  }
+}
 
-export const CLASSIFIER_NAMES = REGISTRY.map((m) => m.name) as ClassifierName[];
+export function loadClassifierRegistry(
+  classifiersDir = CLASSIFIERS_DIR,
+): RuntimeClassifierManifest[] {
+  if (!existsSync(classifiersDir)) {
+    throw new ClassifierManifestError(`classifier directory not found: ${classifiersDir}`);
+  }
 
-// Convenience lookup: name → module. Useful for backends that need the
-// system prompt (Ollama), UI labels, validators, or fallbacks without
-// iterating the tuple at every call site.
+  const manifests = readdirSync(classifiersDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => loadClassifierManifest(join(classifiersDir, entry.name)))
+    .sort((a, b) => a.order - b.order);
+
+  validateRegistry(manifests);
+  return manifests;
+}
+
+function loadClassifierManifest(classifierDir: string): RuntimeClassifierManifest {
+  const manifestPath = join(classifierDir, "manifest.json");
+  const promptPath = join(classifierDir, "prompt.md");
+  if (!existsSync(manifestPath)) {
+    throw new ClassifierManifestError(`missing manifest.json in ${classifierDir}`);
+  }
+  if (!existsSync(promptPath)) {
+    throw new ClassifierManifestError(`missing prompt.md in ${classifierDir}`);
+  }
+
+  const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+  const manifest = validateJsonClassifierManifest(parsed, manifestPath);
+  const systemPrompt = readFileSync(promptPath, "utf8").trim();
+  if (systemPrompt.length === 0) {
+    throw new ClassifierManifestError(`prompt.md must not be empty: ${promptPath}`);
+  }
+
+  return { ...manifest, systemPrompt };
+}
+
+function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): void {
+  const names = new Set<string>();
+  const orders = new Set<number>();
+  for (const manifest of manifests) {
+    if (names.has(manifest.name)) {
+      throw new ClassifierManifestError(`duplicate classifier name: ${manifest.name}`);
+    }
+    names.add(manifest.name);
+    if (orders.has(manifest.order)) {
+      throw new ClassifierManifestError(`duplicate classifier order: ${manifest.order}`);
+    }
+    orders.add(manifest.order);
+  }
+}
+
+export const REGISTRY = loadClassifierRegistry() as ClassifierRegistry;
+export const CLASSIFIER_NAMES = REGISTRY.map((m) => m.name);
 export const MODULES_BY_NAME = Object.fromEntries(
-  REGISTRY.map((m) => [m.name, m as AnyClassifierModule]),
-) as Record<ClassifierName, AnyClassifierModule>;
+  REGISTRY.map((m) => [m.name, m]),
+) as Record<string, RuntimeClassifierManifest>;
 
-// Concrete map: classifier name → that classifier's typed Result.
-export type ClassifierResults = ClassifierResultsMap<RegistryType>;
+export type { ClassifierName, RunClassifier };
+export type RegistryType = typeof REGISTRY;
 
-// The function shape required to plug a custom backend into the pipeline.
-// The Ollama runner in `ollama.ts` is one implementation; you can write your
-// own (OpenAI, Anthropic, mocks for tests, etc.) as long as it satisfies this.
-// The return type is narrowed against the classifier name so callers don't
-// need to cast at the call site.
-export type RunClassifier = <Name extends ClassifierName>(
-  name: Name,
-  input: ClassifierInput,
-  signal: AbortSignal,
-) => Promise<ClassifierResults[Name]>;
+export function validateClassifierOutput(
+  name: string,
+  value: unknown,
+  model: string,
+): StockClassifierOutput {
+  const manifest = MODULES_BY_NAME[name];
+  if (!manifest) {
+    throw new ClassifierManifestError(`unknown classifier: ${name}`);
+  }
+  return validateStockClassifierOutput(value, {
+    classifier: name,
+    model,
+    emits: manifest.emits,
+    toolFamilies: manifest.tool_families?.map((family) => family.id),
+    outputSchema: manifest.output_schema,
+  });
+}
+
+export type { ClassifierInput };

@@ -1,12 +1,12 @@
 # Training
 
-This folder holds everything used to fine-tune the seven local classifier adapters: the per-classifier generation guides, your training data, the eval sets used to verify quality, and the trained adapter artifacts themselves.
+This folder holds everything used to fine-tune the seven local classifier adapters: the per-classifier labeling specs, your training data, the eval sets used to verify quality, and the trained adapter artifacts themselves.
 
 ```txt
 training/
 ├── README.md                          # this file (shared generation preamble + workflow)
 ├── scenarios.jsonl                    # canonical test scenarios (shared with the UI sample picker)
-├── guides/<classifier>.md             # per-classifier label rules, distributions, examples
+├── labeling-specs/<classifier>.md     # per-classifier label rules, distributions, examples
 ├── training-data/<classifier>.jsonl   # YOUR generated training rows (gitignored)
 ├── eval-labels/<classifier>.jsonl     # per-classifier expected outputs keyed by scenario title
 ├── evals/<classifier>.jsonl           # built from scenarios + eval-labels by `npm run build-evals` (committed)
@@ -15,11 +15,11 @@ training/
 
 Append-only JSONL, one record per line. Each adapter output must match its classifier's schema; do not train the seven adapters on a combined classifier object.
 
-`training-data/` is gitignored — fine-tuning data is user-specific, so each user generates their own using the guides. `evals/` IS committed because it's the shared baseline that lets everyone measure whether new training data improved or regressed Gemma's behavior.
+`training-data/` is gitignored — fine-tuning data is user-specific, so each user generates their own using the labeling specs. `evals/` IS committed because it's the shared baseline that lets everyone measure whether new training data improved or regressed Gemma's behavior.
 
 ## North Star
 
-Open Classify is a local context-routing control plane for AI assistants. The seven classifiers do not build the answer. They build a deterministic handoff that controls which downstream model runs, how much visible conversation history it sees, which saved-memory searches run before prompt construction, which tool families are exposed, what execution mode is used, and what safety posture applies.
+Open Classify is a local context-routing control plane for AI assistants. The seven classifiers do not build the answer. They build a deterministic handoff that controls which downstream model runs, how much visible conversation history it sees, which custom outputs are available to the caller, which tool families are exposed, what execution mode is used, and what safety posture applies.
 
 The product goal is **dynamic downstream context-window control**. Instead of dumping the same giant prompt package into every frontier-model call, Open Classify decides per-message what context belongs in the downstream prompt. That decision moves three levers at once:
 
@@ -27,14 +27,14 @@ The product goal is **dynamic downstream context-window control**. Instead of du
 - **Accuracy**: the downstream model sees less noise, so it anchors on the right signal.
 - **Latency**: smaller prompts and cheaper model lanes return faster; terminal short-circuits return immediately.
 
-Every training row should be judged against this goal. A classifier that hedges, over-includes, or guesses high "to be safe" pushes the system back toward the giant prompt that Open Classify exists to avoid. A classifier that under-includes or refuses to flag a real signal makes the downstream model worse. Per-classifier guides spell out which direction the bias goes for that classifier's specific role.
+Every training row should be judged against this goal. A classifier that hedges, over-includes, or guesses high "to be safe" pushes the system back toward the giant prompt that Open Classify exists to avoid. A classifier that under-includes or refuses to flag a real signal makes the downstream model worse. Per-classifier labeling specs spell out which direction the bias goes for that classifier's specific role.
 
 ## Two Ways to Generate Training Data
 
-The guides serve two consumers:
+The labeling specs serve two consumers:
 
-1. **LLM-as-generator (primary).** Pass this README first, then exactly one classifier-specific guide, to a frontier LLM. This README is the shared generation preamble; the guide supplies the classifier-specific label boundaries, distribution, diversity dimensions, and examples. The output is ready-to-append JSONL.
-2. **Human curator (secondary).** Read the same guide top-to-bottom and append rows by hand. Every guide opens with a quick-start summary so a human can add a single row in about a minute without reading the full generation harness.
+1. **LLM-as-generator (primary).** Pass this README first, then exactly one classifier-specific labeling spec and that classifier's manifest, to a frontier LLM. This README is the shared generation preamble; the spec and manifest supply the classifier-specific output contract, boundaries, and examples. The output is ready-to-append JSONL.
+2. **Human curator (secondary).** Read the same spec and manifest, then append rows by hand.
 
 Both consumers must produce records that satisfy the same hard rules below.
 
@@ -49,9 +49,9 @@ The production goal is:
 - Most ordinary requests classify locally and route efficiently.
 - Big or expensive downstream routes are the conservative default for consequential uncertainty, classifier uncertainty, or classifier failure.
 - Big or expensive routes should still be the minority because the local classifiers are accurate on clear inputs.
-- If any classifier has an explicit `unable_to_determine` option, use it only when the input itself is not classifiable by a careful reader.
+- If a classifier is not confident enough to emit an optional stock field, omit that field rather than inventing a value.
 - Classifier-specific uncertainty must not be hidden by guessing a cheap route, no-tool result, empty memory query, or normal security posture.
-- `preflight` is special: a `terminal` result aborts downstream routing entirely, so false-terminal examples are much more dangerous than false-continue examples.
+- `preflight` is special: a confident `handoff.kind: "final"` aborts downstream routing entirely, so false-final examples are much more dangerous than false-route examples.
 
 When generating data, optimize for boundary learning rather than easy volume. Include realistic false-positive and false-negative traps, adjacent boundary pairs, varied surfaces, and compact schema-perfect assistant outputs.
 
@@ -59,7 +59,8 @@ The prompt bundle for generation is:
 
 ```txt
 1. training/README.md
-2. training/guides/<classifier>.md
+2. training/labeling-specs/<classifier>.md
+3. src/classifiers/<classifier>/manifest.json
 ```
 
 Emit only raw JSONL records for the selected classifier. Do not emit Markdown fences, commentary, headings, combined classifier objects, or rows for other classifiers.
@@ -120,7 +121,7 @@ These invariants apply to every record in every classifier file. The guides assu
    **Why this matters specifically for Gemma:** Gemma 3/4 tokenizers handle JSON whitespace and quote-escaping inconsistently. Mixed escaping styles inside JSON strings are one of the top causes of "model learned the format almost-but-not-quite" failures on small instruct models. One inconsistent record can teach a wrong escape pattern. Pick one style (the one shown in the existing JSONL files and worked examples) and use it for every line.
 
 3. **Output-format determinism.** Across every record:
-   - Same JSON key order (the order shown in the guide's Output Contract).
+   - Same JSON key order (the order shown in the labeling spec and manifest).
    - Same whitespace inside the assistant JSON (no spaces after `:` or `,`, since the existing rows use the compact form).
    - Same enum casing exactly as defined (e.g., `tool_assisted`, not `Tool_Assisted` or `tool-assisted`).
    - All variance lives in the user message surface form, not in the assistant output shape.
@@ -133,18 +134,18 @@ These invariants apply to every record in every classifier file. The guides assu
    - The system prompt must be byte-identical to rule 1.
    - If any check fails, fix it or skip the record. Do not emit a guess.
 
-6. **Anti-leakage.** Do not reuse strings from worked examples in the guide or from the runtime system prompts in `src/prompts.ts`. The examples illustrate shape, not content. Generated training records must use new surface forms; otherwise the fine-tuned model's eval set is contaminated by its own prompt.
+6. **Anti-leakage.** Do not reuse strings from worked examples in the labeling spec or runtime prompts. The examples illustrate shape, not content. Generated training records must use new surface forms; otherwise the fine-tuned model's eval set is contaminated by its own prompt.
 
 ## Generation Workflow
 
 When using the LLM-as-generator path:
 
 1. Pick the classifier you want to grow (e.g., `security`).
-2. Pass this README and the corresponding guide (e.g., `training/guides/security.md`) to a frontier LLM as the user prompt.
-3. The LLM emits ready-to-append JSONL according to the guide's row-count target and label distribution.
+2. Pass this README, the corresponding spec (e.g., `training/labeling-specs/security.md`), and the classifier manifest to a frontier LLM as the user prompt.
+3. The LLM emits ready-to-append JSONL according to the spec and manifest.
 4. Append the rows to `training/training-data/<classifier>.jsonl` (gitignored — it stays local to your machine).
-5. Re-train the adapter, drop the resulting weights into `training/adapters/<classifier>/`, point `adapter-models.json` at the new Ollama model name, and run `training/evals/<classifier>.jsonl` through the new adapter to confirm the change moved the metric in the right direction.
+5. Re-train the adapter, drop the resulting weights into `training/adapters/<classifier>/`, point your local `adapter-models.json` at the new Ollama model name, and run `training/evals/<classifier>.jsonl` through the new adapter to confirm the change moved the metric in the right direction.
 
 Evals are the shared baseline that lets everyone measure quality across changes. They live in `training/evals/<classifier>.jsonl` (committed) and contain 20–50 hand-curated rows per classifier covering boundary cases. New training data should never duplicate eval rows — anti-leakage matters more than usual here because the eval set is small.
 
-Runtime model selection is configured separately in `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.
+Classifier runtime model overrides are configured separately in local `adapter-models.json` at the project root. Ollama chat requests select model names; they do not attach these JSONL files directly per request.
