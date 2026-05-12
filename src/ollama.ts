@@ -19,6 +19,11 @@ import {
   type ClassifierName,
   type RunClassifier,
 } from "./classifiers.js";
+import {
+  classifierModelsFromConfig,
+  loadOpenClassifyConfig,
+  type OpenClassifyConfig,
+} from "./config.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type { Catalog } from "./manifest.js";
 import type { ClassifierOutput } from "./stock.js";
@@ -64,6 +69,7 @@ export interface OllamaOptions {
 
 export interface OllamaClassifierRunnerConfig {
   host?: string;
+  defaultModel?: string;
   models?: Partial<Record<ClassifierName, string | null>>;
   options?: OllamaOptions;
   fetch?: typeof fetch;
@@ -78,6 +84,8 @@ export interface OllamaClassifierRunnerConfig {
 export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
   catalog?: Catalog;
   catalogPath?: string;
+  configPath?: string;
+  openClassifyConfig?: OpenClassifyConfig;
 }
 
 interface OllamaChatResponse {
@@ -131,12 +139,9 @@ export function createOllamaClassifierRunner(
 ): RunClassifier {
   const host = trimTrailingSlash(config.host ?? OLLAMA_DEFAULT_HOST);
   const fetchImpl = config.fetch ?? fetch;
-  const models: Record<ClassifierName, string | null> = { ...OLLAMA_CLASSIFIER_MODELS };
-  if (config.models) {
-    for (const [name, value] of Object.entries(config.models)) {
-      if (value !== undefined) models[name] = value;
-    }
-  }
+  const models = config.models ?? {};
+  const defaultModel = config.defaultModel ?? OLLAMA_BASE_MODEL;
+  const hasDefaultModelOverride = config.defaultModel !== undefined;
   const options = {
     temperature: 0,
     num_ctx: OLLAMA_CONTEXT_LENGTH,
@@ -159,8 +164,18 @@ export function createOllamaClassifierRunner(
       await resourceCheck;
     }
 
-    const model = models[name] ?? OLLAMA_BASE_MODEL;
-    return runOllamaClassifier(name, input, signal, fetchImpl, host, model, options);
+    const configuredModel = models[name];
+    const model = configuredModel ?? defaultModel;
+    return runOllamaClassifier(
+      name,
+      input,
+      signal,
+      fetchImpl,
+      host,
+      model,
+      options,
+      configuredModel === undefined && !hasDefaultModelOverride,
+    );
   };
 }
 
@@ -193,19 +208,37 @@ export async function classifyWithOllama(
   input: OpenClassifyInput,
   config: ClassifyWithOllamaConfig = {},
 ): ReturnType<typeof classifyOpenClassifyInput> {
-  let runnerConfig = config;
-  if (!config.skipResourceCheck) {
+  const fileConfig = config.openClassifyConfig ?? loadOpenClassifyConfig(config.configPath, {
+    optional: config.configPath === undefined && process.env.OPEN_CLASSIFY_CONFIG === undefined,
+  });
+  const runnerFileConfig = fileConfig?.runner;
+  const runnerConfig: OllamaClassifierRunnerConfig = {
+    ...config,
+    host: config.host ?? runnerFileConfig?.host,
+    defaultModel: config.defaultModel ?? runnerFileConfig?.defaultModel,
+    models: {
+      ...classifierModelsFromConfig(fileConfig),
+      ...config.models,
+    },
+    options: {
+      ...runnerFileConfig?.options,
+      ...config.options,
+    },
+  };
+
+  if (!runnerConfig.skipResourceCheck) {
     await assertOllamaResources({
-      minTotalMemoryBytes: config.minTotalMemoryBytes,
-      minAvailableMemoryBytes: config.minAvailableMemoryBytes,
+      minTotalMemoryBytes: runnerConfig.minTotalMemoryBytes,
+      minAvailableMemoryBytes: runnerConfig.minAvailableMemoryBytes,
     });
-    runnerConfig = {
-      ...config,
+    Object.assign(runnerConfig, {
       skipResourceCheck: true,
-    };
+    });
   }
 
-  const catalog = config.catalog ?? loadCatalog(config.catalogPath ?? OLLAMA_DEFAULT_CATALOG_PATH);
+  const catalog = config.catalog ?? loadCatalog(
+    config.catalogPath ?? fileConfig?.catalog ?? OLLAMA_DEFAULT_CATALOG_PATH,
+  );
 
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(runnerConfig),
@@ -221,11 +254,12 @@ async function runOllamaClassifier(
   host: string,
   model: string,
   options: OllamaOptions,
+  allowManifestModel: boolean,
 ): Promise<ClassifierOutput> {
   const module_ = MODULES_BY_NAME[name];
   const systemPrompt = module_.systemPrompt;
   const configuredBaseModel = module_.backend?.ollama?.base_model;
-  if (model === OLLAMA_BASE_MODEL && configuredBaseModel) {
+  if (allowManifestModel && configuredBaseModel) {
     model = configuredBaseModel;
   }
   const userPrompt = buildPackedClassifierPrompt(name, input, systemPrompt, model, options);

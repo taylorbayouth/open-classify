@@ -6,7 +6,7 @@
 import {
   assertBaseModelPresent,
   assertOllamaServerConfig,
-  baseModel,
+  classifierModelIds,
   checkTotalMemory,
   commandExists,
   formatBytes,
@@ -59,7 +59,7 @@ async function main() {
 
   console.log("Setup complete.");
   console.log(`If setup failed for memory: ${formatBytes(minTotalMemoryBytes)} total is required.`);
-  console.log(`If setup failed for model: run "ollama pull ${baseModel}".`);
+  console.log(`If setup failed for models: ${classifierModelIds().map((model) => `ollama pull ${model}`).join(" && ")}`);
 }
 
 main().catch((error) => {

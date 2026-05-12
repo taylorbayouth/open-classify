@@ -23,6 +23,10 @@ import { extname, join, normalize } from "node:path";
 import { loadCatalog } from "./catalog.js";
 import { CLASSIFIER_NAMES, REGISTRY, type RunClassifier } from "./classifiers.js";
 import {
+  classifierModelsFromConfig,
+  loadOpenClassifyConfig,
+} from "./config.js";
+import {
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
   SECURITY_DECISION_VALUES,
@@ -61,7 +65,13 @@ const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
 const UI_DIR = join(process.cwd(), "ui");
-const CATALOG_PATH = process.env.OPEN_CLASSIFY_CATALOG_PATH ?? OLLAMA_DEFAULT_CATALOG_PATH;
+const OPEN_CLASSIFY_CONFIG = loadOpenClassifyConfig(undefined, {
+  optional: process.env.OPEN_CLASSIFY_CONFIG === undefined,
+});
+const CATALOG_PATH =
+  process.env.OPEN_CLASSIFY_CATALOG_PATH ??
+  OPEN_CLASSIFY_CONFIG?.catalog ??
+  OLLAMA_DEFAULT_CATALOG_PATH;
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -161,7 +171,12 @@ async function classifyStream(
 
   try {
     const input = (await readJsonBody(request)) as OpenClassifyInput;
-    const baseRunner = createOllamaClassifierRunner();
+    const baseRunner = createOllamaClassifierRunner({
+      host: OPEN_CLASSIFY_CONFIG?.runner?.host,
+      defaultModel: OPEN_CLASSIFY_CONFIG?.runner?.defaultModel,
+      models: classifierModelsFromConfig(OPEN_CLASSIFY_CONFIG),
+      options: OPEN_CLASSIFY_CONFIG?.runner?.options,
+    });
     const runClassifier: RunClassifier = async (name, classifierInput, signal) => {
       send("classifier_started", { name, started_at: Date.now() });
 

@@ -81,15 +81,37 @@ if (result.action === "route") {
 
 `result.audit.custom_outputs[]` carries the same data with `reason` and `confidence` metadata if you need to inspect them.
 
-## Replacing the backend for one classifier
+## Choosing the classifier model
 
-The Ollama runner reads each classifier's `backend.ollama.base_model` if present:
+For apps and OSS installs, prefer `open-classify.config.json`:
+
+```json
+{
+  "runner": {
+    "provider": "ollama",
+    "defaultModel": "gemma4:e4b-it-q4_K_M",
+    "models": {
+      "custom": {
+        "topic_tags": "qwen2.5:7b-instruct-q4_K_M"
+      }
+    }
+  }
+}
+```
+
+`runner.defaultModel` applies to every classifier without an override. `runner.models.stock` contains built-in classifier ids; `runner.models.custom` contains custom classifier ids.
+
+Classifier manifests may also carry an Ollama hint for packaged classifiers:
 
 ```json
 {
   "backend": { "ollama": { "base_model": "qwen2.5:7b-instruct-q4_K_M" } }
 }
 ```
+
+Config file and function options take precedence over manifest hints.
+
+## Replacing the backend
 
 For full backend control, implement your own `RunClassifier` and pass it to `classifyOpenClassifyInput`:
 

@@ -3,18 +3,75 @@
 // resource floor lives here so the two top-level scripts can stay tiny.
 
 import { execFile, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import os from "node:os";
 
-export const baseModel = "gemma4:e4b-it-q4_K_M";
+export const defaultConfigPath = process.env.OPEN_CLASSIFY_CONFIG ?? "open-classify.config.json";
+export const runtimeConfig = loadRuntimeConfig(defaultConfigPath);
+export const runnerConfig = runtimeConfig.runner ?? {};
+
+export const baseModel = runnerConfig.defaultModel ?? "gemma4:e4b-it-q4_K_M";
 export const baseModelNativeContextLength = 131_072;
 export const requiredParallelism = 7;
-export const contextLength = 4096;
+export const contextLength = runnerConfig.options?.num_ctx ?? 4096;
 export const minTotalMemoryBytes = 16 * 1024 * 1024 * 1024;
-export const ollamaHost = process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
+export const ollamaHost =
+  process.env.OLLAMA_HOST ??
+  runnerConfig.host ??
+  "http://127.0.0.1:11434";
+export const configuredClassifierModels = {
+  ...runnerConfig.models?.stock,
+  ...runnerConfig.models?.custom,
+};
 
 const execFileAsync = promisify(execFile);
+
+function loadRuntimeConfig(path) {
+  if (!existsSync(path)) {
+    if (process.env.OPEN_CLASSIFY_CONFIG !== undefined) {
+      throw new Error(`config file not found: ${path}`);
+    }
+    return {};
+  }
+  const parsed = JSON.parse(readFileSync(path, "utf8"));
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${path}: config must be a JSON object`);
+  }
+  if (parsed.runner !== undefined) {
+    validateRunnerConfig(parsed.runner, path);
+  }
+  return parsed;
+}
+
+function validateRunnerConfig(value, path) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${path}: runner must be an object`);
+  }
+  if (value.provider !== undefined && value.provider !== "ollama") {
+    throw new Error(`${path}: runner.provider must be "ollama"`);
+  }
+  if (value.models !== undefined) {
+    if (value.models === null || typeof value.models !== "object" || Array.isArray(value.models)) {
+      throw new Error(`${path}: runner.models must be an object`);
+    }
+    validateModelGroup(value.models.stock, `${path}: runner.models.stock`);
+    validateModelGroup(value.models.custom, `${path}: runner.models.custom`);
+  }
+}
+
+function validateModelGroup(value, label) {
+  if (value === undefined) return;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  for (const [name, model] of Object.entries(value)) {
+    if (typeof model !== "string" || model.trim().length === 0) {
+      throw new Error(`${label}.${name} must be a non-empty string`);
+    }
+  }
+}
 
 export function formatBytes(value) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
@@ -111,12 +168,22 @@ export async function waitForOllama(timeoutMs = 15000) {
   throw new Error(`Ollama did not become reachable at ${ollamaHost}`);
 }
 
+export function classifierModelIds() {
+  return [...new Set([baseModel, ...Object.values(configuredClassifierModels)])];
+}
+
 export async function assertBaseModelPresent() {
   const tags = await readJson(`${ollamaHost}/api/tags`);
   const models = Array.isArray(tags.models) ? tags.models : [];
-  const found = models.some((model) => model.name === baseModel || model.model === baseModel);
-  if (!found) {
-    throw new Error(`Missing Ollama model ${baseModel}. Run: ollama pull ${baseModel}`);
+  const missing = classifierModelIds().filter(
+    (id) => !models.some((model) => model.name === id || model.model === id),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing Ollama model${missing.length === 1 ? "" : "s"} ${missing.join(", ")}. Run: ${missing
+        .map((model) => `ollama pull ${model}`)
+        .join(" && ")}`,
+    );
   }
 }
 
@@ -192,5 +259,6 @@ export function printRuntimeSummary(totalMemoryBytes) {
   console.log(`Base model native context length: ${baseModelNativeContextLength}`);
   console.log(`Configured classifier context length: ${contextLength}`);
   console.log(`Ollama host: ${ollamaHost}`);
-  console.log(`Base model: ${baseModel}`);
+  console.log(`Default classifier model: ${baseModel}`);
+  console.log(`Configured classifier models: ${classifierModelIds().join(", ")}`);
 }

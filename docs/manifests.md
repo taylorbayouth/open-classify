@@ -33,7 +33,7 @@ The `kind` field in the manifest must match the parent directory (`stock` or `cu
 | `purpose` | yes | Human-readable description. |
 | `order` | yes | Integer sort key. Duplicate orders are rejected. |
 | `fallback` | yes | Output emitted when the classifier errors or times out. Must validate against the kind's output contract. |
-| `backend.ollama.base_model` | no | Override the default base model for this classifier. |
+| `backend.ollama.base_model` | no | Packaged Ollama model hint for this classifier. User config and function options take precedence. |
 
 ## Stock manifests
 

@@ -1,0 +1,24 @@
+{
+  "runner": {
+    "provider": "ollama",
+    "host": "http://127.0.0.1:11434",
+    "defaultModel": "gemma4:e4b-it-q4_K_M",
+    "options": {
+      "num_ctx": 4096,
+      "temperature": 0
+    },
+    "models": {
+      "stock": {
+        "preflight": "gemma4:e4b-it-q4_K_M",
+        "routing": "gemma4:e4b-it-q4_K_M",
+        "model_specialization": "gemma4:e4b-it-q4_K_M",
+        "tools": "gemma4:e4b-it-q4_K_M",
+        "security": "gemma4:e4b-it-q4_K_M"
+      },
+      "custom": {
+        "memory_retrieval_queries": "gemma4:e4b-it-q4_K_M"
+      }
+    }
+  },
+  "catalog": "downstream-models.json"
+}

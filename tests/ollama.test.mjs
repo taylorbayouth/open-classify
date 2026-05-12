@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { CLASSIFIER_NAMES, MODULES_BY_NAME } from "../dist/src/classifiers.js";
+import {
+  classifierModelsFromConfig,
+  loadOpenClassifyConfig,
+  OpenClassifyConfigError,
+} from "../dist/src/config.js";
 import {
   classifyWithOllama,
   createOllamaClassifierRunner,
@@ -155,6 +163,68 @@ test("createOllamaClassifierRunner uses base model when classifier model is null
   await runner("preflight", classifierInput(), new AbortController().signal);
 
   assert.equal(calls[0].model, OLLAMA_BASE_MODEL);
+});
+
+test("createOllamaClassifierRunner accepts a configured default model", async () => {
+  const calls = [];
+  const runner = createOllamaClassifierRunner({
+    defaultModel: "configured-default",
+    skipResourceCheck: true,
+    fetch: async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs.preflight) },
+      });
+    },
+  });
+
+  await runner("preflight", classifierInput(), new AbortController().signal);
+
+  assert.equal(calls[0].model, "configured-default");
+});
+
+test("loadOpenClassifyConfig validates stock and custom model maps", () => {
+  const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
+  const path = join(dir, "open-classify.config.json");
+  writeFileSync(path, JSON.stringify({
+    runner: {
+      provider: "ollama",
+      defaultModel: "default-model",
+      models: {
+        stock: { preflight: "stock-model" },
+        custom: { memory_retrieval_queries: "custom-model" },
+      },
+    },
+    catalog: "downstream-models.json",
+  }));
+
+  const config = loadOpenClassifyConfig(path);
+
+  assert.equal(config.runner.defaultModel, "default-model");
+  assert.deepEqual(classifierModelsFromConfig(config), {
+    preflight: "stock-model",
+    memory_retrieval_queries: "custom-model",
+  });
+});
+
+test("loadOpenClassifyConfig rejects unknown classifier names", () => {
+  const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
+  const path = join(dir, "open-classify.config.json");
+  writeFileSync(path, JSON.stringify({
+    runner: {
+      provider: "ollama",
+      models: {
+        stock: { definitely_not_stock: "model" },
+      },
+    },
+  }));
+
+  assert.throws(
+    () => loadOpenClassifyConfig(path),
+    (error) =>
+      error instanceof OpenClassifyConfigError &&
+      /definitely_not_stock is not a known classifier/.test(error.message),
+  );
 });
 
 test("createOllamaClassifierRunner rejects unknown preflight fields", async () => {
@@ -377,6 +447,45 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
   }
   // reasoning + local_strong → gemma4.
   assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
+});
+
+test("classifyWithOllama applies config file models and lets explicit options win", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
+  const path = join(dir, "open-classify.config.json");
+  writeFileSync(path, JSON.stringify({
+    runner: {
+      provider: "ollama",
+      defaultModel: "config-default",
+      models: {
+        stock: { preflight: "config-preflight" },
+      },
+    },
+  }));
+
+  const seenModels = new Set();
+  await classifyWithOllama(
+    { messages: [{ role: "user", text: "review this" }] },
+    {
+      configPath: path,
+      skipResourceCheck: true,
+      catalog: TEST_CATALOG,
+      models: { preflight: "explicit-preflight" },
+      fetch: async (_url, init) => {
+        const body = JSON.parse(init.body);
+        seenModels.add(body.model);
+        const systemPrompt = body.messages[0].content;
+        const [name] = Object.entries(MODULES_BY_NAME)
+          .find(([, module]) => module.systemPrompt === systemPrompt);
+        return jsonResponse({
+          message: { content: JSON.stringify(validOutputs[name]) },
+        });
+      },
+    },
+  );
+
+  assert.ok(seenModels.has("explicit-preflight"));
+  assert.ok(seenModels.has("config-default"));
+  assert.equal(seenModels.has("config-preflight"), false);
 });
 
 test("resource check can fail before fetch is called", async () => {

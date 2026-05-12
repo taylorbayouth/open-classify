@@ -30,7 +30,7 @@ Stock classifiers have fixed typed signals. Custom classifiers carry their own J
 npm install open-classify
 ```
 
-Node 18+. The reference runner is local Ollama with `gemma4:e4b-it-q4_K_M`, but `RunClassifier` is a single function — bring your own backend.
+Node 18+. The reference runner is local Ollama and ships with `gemma4:e4b-it-q4_K_M` as the zero-config classifier model, but `RunClassifier` is a single function — bring your own backend.
 
 ## Hello World
 
@@ -178,6 +178,33 @@ npm run start
 ```
 
 UI opens at `http://127.0.0.1:4317/`. Classifier cards use classifier names from the runtime, displayed with underscores as spaces; result rendering remains generic.
+
+Optional runtime config:
+
+```sh
+cp open-classify.config.example.json open-classify.config.json
+```
+
+```json
+{
+  "runner": {
+    "provider": "ollama",
+    "defaultModel": "gemma4:e4b-it-q4_K_M",
+    "models": {
+      "stock": {
+        "routing": "qwen2.5:7b-instruct-q4_K_M",
+        "security": "llama-guard3:8b"
+      },
+      "custom": {
+        "memory_retrieval_queries": "qwen2.5:7b-instruct-q4_K_M"
+      }
+    }
+  },
+  "catalog": "downstream-models.json"
+}
+```
+
+`runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. The setup and start scripts read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
 
 ## Bring your own backend
 

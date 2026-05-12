@@ -8,9 +8,11 @@ import {
   assertBaseModelPresent,
   checkOllamaServerConfig,
   checkTotalMemory,
+  contextLength,
   commandExists,
   isOllamaReachable,
   ollamaHost,
+  requiredParallelism,
   printRuntimeSummary,
   run,
   startOllamaServe,
@@ -40,7 +42,7 @@ async function main() {
       await waitForOllama();
     }
   } else {
-    console.log("Starting Ollama with classifier runtime settings: OLLAMA_NUM_PARALLEL=7, OLLAMA_MAX_LOADED_MODELS=7, OLLAMA_CONTEXT_LENGTH=4096");
+    console.log(`Starting Ollama with classifier runtime settings: OLLAMA_NUM_PARALLEL=${requiredParallelism}, OLLAMA_MAX_LOADED_MODELS=${requiredParallelism}, OLLAMA_CONTEXT_LENGTH=${contextLength}`);
     ollamaChild = startOllamaServe();
     await waitForOllama();
   }

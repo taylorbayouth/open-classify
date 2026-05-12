@@ -32,6 +32,7 @@
   "files": [
     "dist/src",
     "src",
+    "open-classify.config.example.json",
     "LICENSE",
     "README.md"
   ],
