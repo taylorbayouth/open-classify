@@ -19,4 +19,4 @@ Use only families declared in the manifest. When no tools are needed, use `requi
 ## Boundaries
 
 - Required: current web data, files, documents, spreadsheets, communications, project management, repositories, or external system actions.
-- Not required: conceptual explanations, pure writing from supplied context, simple calculations, and questions answerable from the message alone.
+- Not required: conceptual explanations, pure writing from supplied context, rewriting or editing pasted text, simple calculations, and questions answerable from the message alone.

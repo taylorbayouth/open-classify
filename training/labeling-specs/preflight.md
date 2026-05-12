@@ -14,7 +14,7 @@ Emit `handoff` only when there is a concrete handoff decision:
 {"reason":"...","confidence":0.9,"handoff":{"kind":"route","ack_reply":"I'll check."}}
 ```
 
-Use `handoff.kind: "final"` only when the latest user message can be fully answered with a short, safe reply and no downstream model, tools, memories, or hidden context.
+Use `handoff.kind: "final"` only when the latest user message can be fully answered with a short, safe reply and no downstream model, tools, memories, or hidden context. Do not use `final` for rewriting, drafting, analysis, coding, research, or other generated work.
 
 Use `handoff.kind: "route"` when downstream work should continue and a brief acknowledgement would help.
 

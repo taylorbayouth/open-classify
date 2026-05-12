@@ -133,7 +133,8 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.messages[0].role, "system");
   assert.match(body.messages[0].content, /confidence: JSON number float from 0\.0 to 1\.0 inclusive/);
   assert.match(body.messages[0].content, /Declared optional fields: handoff\./);
-  assert.match(body.messages[0].content, /preflight classifier/);
+  assert.match(body.messages[0].content, /Classifier: preflight/);
+  assert.doesNotMatch(body.messages[0].content, /You are the preflight classifier/);
   assert.equal(body.messages[1].role, "user");
   assert.match(body.messages[1].content, /The target user message is the final message in the window\./);
   assert.match(body.messages[1].content, /Message 1 \(target\):/);
@@ -252,6 +253,23 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
       /reply must be 200 characters or fewer/.test(error.message),
+  );
+});
+
+test("createOllamaClassifierRunner routes overlong preflight final replies", async () => {
+  const runner = runnerReturning({
+    reason: "The model tried to answer a generated-work request.",
+    confidence: 0.7,
+    handoff: { kind: "final", reply: "x".repeat(201) },
+  });
+
+  assert.deepEqual(
+    await runner("preflight", classifierInput(), new AbortController().signal),
+    {
+      reason: "The model tried to answer a generated-work request.",
+      confidence: 0.7,
+      handoff: { kind: "route" },
+    },
   );
 });
 

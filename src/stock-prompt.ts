@@ -4,12 +4,15 @@ const BASE_PROMPT = `Return one JSON object and no other text.
 The object must always include:
 - reason: brief string, 120 characters or fewer
 - confidence: JSON number float from 0.0 to 1.0 inclusive; do not use a percent, string, or label
-The reason must justify this classifier's own signal, not repeat a generic summary of the user request.
-Only include optional fields declared for this classifier.`;
+The reason must justify the emitted signal, not repeat a generic summary of the user request.
+Only include optional fields declared in this prompt.`;
 
 const HANDOFF_PROMPT = `handoff:
 - Use {"kind":"route","ack_reply":"..."} when downstream work should continue and a brief acknowledgement would help.
-- Use {"kind":"final","reply":"..."} only when the message can be fully answered immediately.
+- ack_reply must be 200 characters or fewer.
+- Use {"kind":"final","reply":"..."} only for tiny terminal answers that need no downstream work.
+- Do not use final for drafting, rewriting, analysis, coding, research, or other generated work.
+- reply must be 200 characters or fewer.
 - Use {"kind":"block","reason_code":"..."} only for requests that should not continue downstream.`;
 
 const ROUTING_PROMPT = `routing:
@@ -56,7 +59,7 @@ Purpose: ${manifest.purpose}`,
   if (manifest.emits.summary) sections.push(SUMMARY_PROMPT);
   if (manifest.emits.output) {
     sections.push(
-      "output:\n- Custom classifier-specific JSON. It must match the manifest output_schema when one is provided.",
+      "output:\n- Custom JSON for this signal. It must match the manifest output_schema when one is provided.",
     );
   }
   sections.push(`Declared optional fields: ${declaredFields(manifest).join(", ") || "none"}.`);

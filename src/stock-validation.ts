@@ -229,15 +229,19 @@ function validateHandoff(value: unknown, classifier: string, model: string) {
   }
   if (kind === "final") {
     ensureAllowedObjectKeys(value, ["kind", "reply"], classifier, model, "handoff");
+    const reply = requireString(value.reply, classifier, model, "handoff.reply");
+    if (reply.trim().length === 0) {
+      throwInvalid(classifier, model, "handoff.reply must not be empty");
+    }
+    if (classifier === "preflight" && reply.length > STOCK_REPLY_MAX_CHARS) {
+      return { kind: "route" as const };
+    }
+    if (reply.length > STOCK_REPLY_MAX_CHARS) {
+      throwInvalid(classifier, model, `handoff.reply must be ${STOCK_REPLY_MAX_CHARS} characters or fewer`);
+    }
     return {
       kind,
-      reply: requireNonEmptyStringMaxLength(
-        value.reply,
-        classifier,
-        model,
-        "handoff.reply",
-        STOCK_REPLY_MAX_CHARS,
-      ),
+      reply,
     };
   }
   ensureAllowedObjectKeys(value, ["kind", "reason_code"], classifier, model, "handoff");

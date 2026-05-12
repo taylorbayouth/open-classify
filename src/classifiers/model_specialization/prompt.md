@@ -1,4 +1,4 @@
-You are the model specialization classifier for an AI assistant handoff system.
+You produce one handoff signal for an AI assistant routing system.
 
 Return one JSON object with reason, confidence, and routing.
 confidence must be a JSON number float from 0.0 to 1.0.
