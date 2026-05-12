@@ -126,9 +126,11 @@ export async function assertBaseModelPresent() {
 // `ps eww` and verify; on other platforms we skip the check rather than
 // guess. If you're on Linux/Windows and want the same protection, this is
 // the place to extend.
-export async function assertOllamaServerConfig() {
+
+// Returns the list of missing [key, value] pairs. Empty array means OK.
+export async function checkOllamaServerConfig() {
   if (process.platform !== "darwin") {
-    return;
+    return [];
   }
 
   let stdout;
@@ -158,16 +160,29 @@ export async function assertOllamaServerConfig() {
     OLLAMA_CONTEXT_LENGTH: String(contextLength),
   };
 
-  const missing = Object.entries(required).filter(
+  return Object.entries(required).filter(
     ([key, value]) => !envOutput.includes(`${key}=${value}`),
   );
+}
 
+export async function assertOllamaServerConfig() {
+  const missing = await checkOllamaServerConfig();
   if (missing.length > 0) {
     throw new Error(
       `Existing Ollama server is not configured for Open Classify. Stop it with "pkill -f ollama", then run "npm run start". Missing: ${missing
         .map(([key, value]) => `${key}=${value}`)
         .join(", ")}`,
     );
+  }
+}
+
+// Stop the running `ollama serve` process and wait for the port to clear.
+export async function stopOllamaServe() {
+  await execFileAsync("pkill", ["-f", "ollama serve"]).catch(() => {});
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 5000) {
+    if (!(await isOllamaReachable())) return;
+    await delay(500);
   }
 }
 

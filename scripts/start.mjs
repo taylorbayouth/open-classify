@@ -6,7 +6,7 @@
 
 import {
   assertBaseModelPresent,
-  assertOllamaServerConfig,
+  checkOllamaServerConfig,
   checkTotalMemory,
   commandExists,
   isOllamaReachable,
@@ -14,6 +14,7 @@ import {
   printRuntimeSummary,
   run,
   startOllamaServe,
+  stopOllamaServe,
   waitForOllama,
 } from "./runtime.mjs";
 
@@ -30,12 +31,18 @@ async function main() {
   let ollamaChild;
   if (await isOllamaReachable()) {
     console.log(`Using existing Ollama server at ${ollamaHost}`);
-    await assertOllamaServerConfig();
+    const missing = await checkOllamaServerConfig().catch((err) => { console.log("checkOllamaServerConfig threw:", err.message); return []; });
+    console.log("checkOllamaServerConfig missing:", missing);
+    if (missing.length > 0) {
+      console.log(`Ollama is misconfigured (missing: ${missing.map(([k, v]) => `${k}=${v}`).join(", ")}). Restarting with correct settings...`);
+      await stopOllamaServe();
+      ollamaChild = startOllamaServe();
+      await waitForOllama();
+    }
   } else {
     console.log("Starting Ollama with classifier runtime settings: OLLAMA_NUM_PARALLEL=7, OLLAMA_MAX_LOADED_MODELS=7, OLLAMA_CONTEXT_LENGTH=4096");
     ollamaChild = startOllamaServe();
     await waitForOllama();
-    await assertOllamaServerConfig();
   }
 
   await assertBaseModelPresent();
