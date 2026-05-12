@@ -6,7 +6,7 @@ Decide whether the target user message can be answered immediately with a tiny t
 
 Emit **at most one** of these fields:
 
-- `final_reply: {"reply":"..."}` — the reply text **is the complete answer to the user**. Nothing else happens after this. Use for tiny terminal answers like greetings, thanks, spelling, simple arithmetic, and short factual lookups.
+- `final_reply: {"reply":"..."}` — the reply text **is the complete answer to the user**. Nothing else happens after this. Use for tiny terminal answers like greetings, thanks, spelling, simple arithmetic, and similarly trivial replies.
 - `ack_reply: {"reply":"..."}` — a brief acknowledgement shown while downstream work continues. Use when the request needs generated work (drafting, analysis, coding, research) and a courtesy line helps. The reply must not contain the answer.
 
 Omit both fields when the request is ambiguous or no acknowledgement is useful.
@@ -42,4 +42,4 @@ Why: no obvious terminal reply and no useful acknowledgement.
 
 ## Rule of thumb
 
-If you would need to *say something the user does not already know* to answer them, do not use `final_reply`. Use `ack_reply` (or omit both) and let the downstream model produce the answer.
+If answering would require non-trivial generation, analysis, or judgment, do not use `final_reply`. Use `ack_reply` (or omit both) and let the downstream model produce the answer.

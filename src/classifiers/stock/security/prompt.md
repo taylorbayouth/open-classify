@@ -11,3 +11,4 @@ signals must be empty when risk_level is normal or unknown, and non-empty when r
 Use decision "allow" for ordinary user requests and benign tool use.
 Use decision "block" only for high_risk requests that should not continue downstream.
 Use decision "needs_review" when risk or intent is ambiguous enough that the caller should clarify, escalate, or fail closed.
+Do not mark ordinary requests as suspicious just because they mention prompts, files, code, or tools in a normal task context.

@@ -55,8 +55,6 @@ See [manifests.md](manifests.md) for the full field list.
 ```markdown
 You are the topic_tags classifier.
 
-Emit a JSON object of the form {"output": {"tags": [...]}}.
-
 Tags are short single-word topic labels (lowercase, no spaces). Use at most five.
 Return an empty array when no clear topic applies.
 Do not invent tags for vague or ambiguous messages.

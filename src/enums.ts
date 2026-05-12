@@ -19,20 +19,6 @@ export const DOWNSTREAM_MODEL_TIER_VALUES = [
 ] as const;
 export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 
-// Broad tools the downstream assistant might need exposed. Intentionally
-// coarse — tool-level decisions happen downstream once the manifest is loaded.
-export const TOOL_VALUES = [
-  "web",
-  "email_and_chat",
-  "calendar",
-  "files",
-  "docs_and_sheets",
-  "tasks_and_projects",
-  "code",
-  "business_apps",
-] as const;
-export type Tool = (typeof TOOL_VALUES)[number];
-
 // Which kind of model/prompt specialization fits the request best. Combined
 // with the tier to look up a concrete model in the catalog.
 export const MODEL_SPECIALIZATION_VALUES = [

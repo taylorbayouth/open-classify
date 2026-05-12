@@ -264,6 +264,13 @@ function validatePreflightOutput(
   model: string,
 ): PreflightClassifierOutput {
   ensureAllowedObjectKeys(value, ["reason", "confidence", "final_reply", "ack_reply"], "preflight", model, "output");
+  if (value.final_reply !== undefined && value.ack_reply !== undefined) {
+    throwInvalid(
+      "preflight",
+      model,
+      "final_reply and ack_reply are mutually exclusive",
+    );
+  }
   const meta = validateMetadata(value, "preflight", model);
   return {
     ...meta,

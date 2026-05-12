@@ -113,6 +113,32 @@ test("validates a routing classifier output", () => {
   assert.equal(output.model_tier, "frontier_fast");
 });
 
+test("preflight rejects emitting final_reply and ack_reply together", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "preflight",
+    version: "1.0.0",
+    purpose: "Decide whether to answer immediately.",
+    order: 10,
+    fallback: {},
+  });
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        {
+          reason: "Conflicting replies.",
+          confidence: 0.9,
+          final_reply: { reply: "Hi." },
+          ack_reply: { reply: "Working on it." },
+        },
+        { classifier: "preflight", model: "test" },
+      ),
+    /mutually exclusive/,
+  );
+});
+
 test("validates tools output and allow-list", () => {
   const manifest = tools();
   assert.deepEqual(
