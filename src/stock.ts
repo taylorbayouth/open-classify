@@ -1,5 +1,4 @@
 import type {
-  DownstreamExecutionMode,
   DownstreamModelTier,
   ModelSpecialization,
   SecurityDecision,
@@ -24,31 +23,30 @@ export interface StockClassifierInput {
   readonly attachments?: ReadonlyArray<StockClassifierAttachmentInput>;
 }
 
-export type HandoffSignal =
-  | { readonly kind: "route"; readonly ack_reply?: string }
-  | { readonly kind: "final"; readonly reply: string }
-  | { readonly kind: "block"; readonly reason_code?: string };
+// ─── Stock signal types ─────────────────────────────────────────────────────
+//
+// Each stock signal is the canonical shape for the corresponding Envelope
+// slot. Stock classifier outputs extend their signal with optional reason +
+// confidence — those metadata live on the signal itself, not on a separate
+// wrapper, so a classifier that has nothing to say doesn't return empty
+// reason/confidence metadata about nothing.
+
+export interface FinalReplySignal {
+  readonly reply: string;
+}
+
+export interface AckReplySignal {
+  readonly reply: string;
+}
 
 export interface RoutingSignal {
-  readonly execution_mode?: DownstreamExecutionMode;
   readonly model_tier?: DownstreamModelTier;
   readonly specialization?: ModelSpecialization;
 }
 
-export type ContextSignal =
-  | { readonly status: "standalone" }
-  | { readonly status: "sufficient"; readonly include_prior_messages: number }
-  | { readonly status: "insufficient" }
-  | { readonly status: "unknown" };
-
 export interface ToolsSignal {
   readonly required: boolean;
   readonly families: ReadonlyArray<string>;
-}
-
-export interface ResponseSignal {
-  readonly language?: string;
-  readonly locale?: string;
 }
 
 export interface SafetySignal {
@@ -57,61 +55,69 @@ export interface SafetySignal {
   readonly signals: ReadonlyArray<string>;
 }
 
-export interface SummarySignal {
-  readonly target_message?: string;
-  readonly conversation_window?: string;
+// ─── Per-classifier output types ────────────────────────────────────────────
+//
+// `reason` (≤120 chars) and `confidence` (0–1) are optional metadata that
+// every classifier may attach to its emitted signal. Treat absent confidence
+// as 0 in the aggregator.
+
+export interface ClassifierOutputMetadata {
+  readonly reason?: string;
+  readonly confidence?: number;
 }
 
-export interface StockClassifierOutput {
-  readonly reason: string;
-  readonly confidence: number;
-  readonly handoff?: HandoffSignal;
-  readonly routing?: RoutingSignal;
-  readonly context?: ContextSignal;
-  readonly tools?: ToolsSignal;
-  readonly response?: ResponseSignal;
-  readonly safety?: SafetySignal;
-  readonly summary?: SummarySignal;
-  readonly output?: unknown;
+export interface PreflightClassifierOutput extends ClassifierOutputMetadata {
+  readonly final_reply?: FinalReplySignal;
+  readonly ack_reply?: AckReplySignal;
 }
 
-export const STOCK_SIGNAL_KEYS = [
-  "handoff",
+export type RoutingClassifierOutput = RoutingSignal & ClassifierOutputMetadata;
+export type ModelSpecializationClassifierOutput = RoutingSignal & ClassifierOutputMetadata;
+export type ToolsClassifierOutput = ToolsSignal & ClassifierOutputMetadata;
+export type SecurityClassifierOutput = SafetySignal & ClassifierOutputMetadata;
+
+export interface CustomClassifierOutputValue extends ClassifierOutputMetadata {
+  readonly output: unknown;
+}
+
+// Discriminated map of stock classifier outputs keyed by classifier name. New
+// stock classifiers must be added here and to STOCK_CLASSIFIER_NAMES.
+export interface StockClassifierOutputs {
+  readonly preflight: PreflightClassifierOutput;
+  readonly routing: RoutingClassifierOutput;
+  readonly model_specialization: ModelSpecializationClassifierOutput;
+  readonly tools: ToolsClassifierOutput;
+  readonly security: SecurityClassifierOutput;
+}
+
+export const STOCK_CLASSIFIER_NAMES = [
+  "preflight",
   "routing",
-  "context",
+  "model_specialization",
   "tools",
-  "response",
-  "safety",
-  "summary",
-  "output",
+  "security",
 ] as const;
-export type StockSignalKey = (typeof STOCK_SIGNAL_KEYS)[number];
+export type StockClassifierName = (typeof STOCK_CLASSIFIER_NAMES)[number];
 
-export type StockSignalEmits = Partial<Record<StockSignalKey, boolean>>;
+export type StockClassifierOutput =
+  StockClassifierOutputs[StockClassifierName];
+
+export type ClassifierOutput = StockClassifierOutput | CustomClassifierOutputValue;
+
+// ─── Manifest types ─────────────────────────────────────────────────────────
 
 export interface ToolFamilyDefinition {
   readonly id: string;
   readonly description: string;
 }
 
-export interface JsonClassifierManifest {
-  readonly name: string;
+interface ManifestCommon {
   readonly version: string;
   readonly purpose: string;
   readonly order: number;
-  readonly emits: StockSignalEmits;
-  readonly fallback: StockClassifierOutput;
-  readonly short_circuit?: {
-    readonly priority: number;
-    readonly kinds?: ReadonlyArray<HandoffSignal["kind"]>;
-    readonly safety_decisions?: ReadonlyArray<NonNullable<SafetySignal["decision"]>>;
-  };
-  readonly tool_families?: ReadonlyArray<ToolFamilyDefinition>;
-  readonly output_schema?: unknown;
   readonly backend?: {
     readonly ollama?: {
       readonly base_model?: string;
-      readonly adapter_model?: string;
     };
   };
   readonly ui?: {
@@ -120,13 +126,55 @@ export interface JsonClassifierManifest {
   };
 }
 
-export interface RuntimeClassifierManifest extends JsonClassifierManifest {
+export interface StockJsonManifest<Name extends StockClassifierName = StockClassifierName>
+  extends ManifestCommon {
+  readonly kind: "stock";
+  readonly name: Name;
+  readonly fallback: StockClassifierOutputs[Name];
+  readonly tool_families?: ReadonlyArray<ToolFamilyDefinition>;
+}
+
+export interface CustomJsonManifest extends ManifestCommon {
+  readonly kind: "custom";
+  readonly name: string;
+  readonly fallback: CustomClassifierOutputValue;
+  readonly output_schema: unknown;
+}
+
+export type JsonClassifierManifest = StockJsonManifest | CustomJsonManifest;
+
+export interface RuntimeStockManifest<Name extends StockClassifierName = StockClassifierName>
+  extends StockJsonManifest<Name> {
   readonly systemPrompt: string;
 }
 
+export interface RuntimeCustomManifest extends CustomJsonManifest {
+  readonly systemPrompt: string;
+}
+
+export type RuntimeClassifierManifest =
+  | RuntimeStockManifest
+  | RuntimeCustomManifest;
+
+// Helper: narrow a manifest to its stock kind for callers that know the name.
+export function isStockManifest(
+  manifest: RuntimeClassifierManifest,
+): manifest is RuntimeStockManifest {
+  return manifest.kind === "stock";
+}
+
+export function isCustomManifest(
+  manifest: RuntimeClassifierManifest,
+): manifest is RuntimeCustomManifest {
+  return manifest.kind === "custom";
+}
+
+// What the aggregator returns to callers in `classifier_outputs`. Keyed by
+// classifier name. `output` is the raw custom value validated against the
+// classifier's output_schema.
 export interface CustomClassifierOutput {
   readonly classifier: string;
-  readonly reason: string;
-  readonly confidence: number;
+  readonly reason?: string;
+  readonly confidence?: number;
   readonly output: unknown;
 }

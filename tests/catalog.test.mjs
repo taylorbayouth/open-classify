@@ -8,7 +8,6 @@ import { CatalogError, loadCatalog, validateCatalog } from "../dist/src/catalog.
 const VALID_MODEL = {
   id: "gpt-5.5",
   specializations: ["reasoning", "coding"],
-  execution_modes: ["direct", "tool_assisted"],
   tier: "frontier_strong",
   params_in_billions: 800,
   context_window: 1_000_000,
@@ -97,8 +96,7 @@ test("validateCatalog rejects unsupported tier value", () => {
     () => validateCatalog(bad),
     (error) =>
       error instanceof CatalogError &&
-      /tier must be one of/.test(error.message) &&
-      !/unable_to_determine/.test(error.message.split(":")[0]),
+      /tier must be one of/.test(error.message),
   );
 });
 
@@ -142,16 +140,15 @@ test("validateCatalog rejects unsupported field on an entry", () => {
   );
 });
 
-test("validateCatalog rejects old tiers array", () => {
+test("validateCatalog rejects execution_modes leftover", () => {
   const bad = {
-    models: [{ ...VALID_MODEL, tiers: ["frontier_strong"] }],
+    models: [{ ...VALID_MODEL, execution_modes: ["direct"] }],
     default: VALID_MODEL.id,
   };
   assert.throws(
     () => validateCatalog(bad),
     (error) =>
-      error instanceof CatalogError &&
-      /unsupported field "tiers"/.test(error.message),
+      error instanceof CatalogError && /unsupported field "execution_modes"/.test(error.message),
   );
 });
 

@@ -4,22 +4,37 @@
       "id": "gpt-5.5",
       "provider": "openai",
       "runtime": "api",
-      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "instruction_following", "agentic_workflows"],
-      "execution_modes": ["direct", "tool_assisted", "workflow"],
+      "specializations": [
+        "chat",
+        "writing",
+        "reasoning",
+        "planning",
+        "coding",
+        "instruction_following",
+        "agentic_workflows"
+      ],
       "tier": "frontier_strong",
       "params_in_billions": null,
       "context_window": 1050000,
       "max_output_tokens": 128000,
-      "input_tokens_cpm": 5.0,
+      "input_tokens_cpm": 5,
       "cached_tokens_cpm": 0.5,
-      "output_tokens_cpm": 30.0
+      "output_tokens_cpm": 30
     },
     {
       "id": "gpt-5.4-mini",
       "provider": "openai",
       "runtime": "api",
-      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "computer_use", "subagents", "instruction_following"],
-      "execution_modes": ["direct", "tool_assisted", "workflow"],
+      "specializations": [
+        "chat",
+        "writing",
+        "reasoning",
+        "planning",
+        "coding",
+        "computer_use",
+        "subagents",
+        "instruction_following"
+      ],
       "tier": "frontier_fast",
       "params_in_billions": null,
       "context_window": 400000,
@@ -32,22 +47,30 @@
       "id": "gpt-5.3-codex",
       "provider": "openai",
       "runtime": "api",
-      "specializations": ["coding", "code_review", "debugging", "agentic_coding"],
-      "execution_modes": ["direct", "tool_assisted", "workflow"],
+      "specializations": [
+        "coding",
+        "code_review",
+        "debugging",
+        "agentic_coding"
+      ],
       "tier": "frontier_coding",
       "params_in_billions": null,
       "context_window": 400000,
       "max_output_tokens": 128000,
       "input_tokens_cpm": 1.75,
       "cached_tokens_cpm": 0.175,
-      "output_tokens_cpm": 14.0
+      "output_tokens_cpm": 14
     },
     {
       "id": "qwen2.5-coder:14b-instruct-q4_K_M",
       "provider": "ollama",
       "runtime": "local",
-      "specializations": ["coding", "code_reasoning", "code_fixing", "tool_assisted_coding"],
-      "execution_modes": ["direct", "tool_assisted"],
+      "specializations": [
+        "coding",
+        "code_reasoning",
+        "code_fixing",
+        "tool_assisted_coding"
+      ],
       "tier": "local_coding",
       "params_in_billions": 14.7,
       "context_window": 32768,
@@ -60,8 +83,14 @@
       "id": "gemma3:4b",
       "provider": "ollama",
       "runtime": "local",
-      "specializations": ["chat", "writing", "summarization", "question_answering", "reasoning", "vision_input"],
-      "execution_modes": ["direct", "tool_assisted"],
+      "specializations": [
+        "chat",
+        "writing",
+        "summarization",
+        "question_answering",
+        "reasoning",
+        "vision_input"
+      ],
       "tier": "local_small",
       "params_in_billions": 4,
       "context_window": 128000,

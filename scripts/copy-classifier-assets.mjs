@@ -8,15 +8,21 @@ const outDir = join(process.cwd(), "dist/src/classifiers");
 if (!existsSync(srcDir)) process.exit(0);
 mkdirSync(outDir, { recursive: true });
 
-for (const entry of readdirSync(srcDir)) {
-  const classifierDir = join(srcDir, entry);
-  if (!statSync(classifierDir).isDirectory()) continue;
-  const outClassifierDir = join(outDir, entry);
-  mkdirSync(outClassifierDir, { recursive: true });
-  for (const filename of ["manifest.json", "prompt.md", "output.schema.json"]) {
-    const source = join(classifierDir, filename);
-    if (existsSync(source)) {
-      cpSync(source, join(outClassifierDir, filename));
+for (const kind of readdirSync(srcDir)) {
+  const kindSrc = join(srcDir, kind);
+  if (!statSync(kindSrc).isDirectory()) continue;
+  const kindOut = join(outDir, kind);
+  mkdirSync(kindOut, { recursive: true });
+  for (const entry of readdirSync(kindSrc)) {
+    const classifierDir = join(kindSrc, entry);
+    if (!statSync(classifierDir).isDirectory()) continue;
+    const outClassifierDir = join(kindOut, entry);
+    mkdirSync(outClassifierDir, { recursive: true });
+    for (const filename of ["manifest.json", "prompt.md", "output.schema.json"]) {
+      const source = join(classifierDir, filename);
+      if (existsSync(source)) {
+        cpSync(source, join(outClassifierDir, filename));
+      }
     }
   }
 }

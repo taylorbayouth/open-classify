@@ -1,11 +1,9 @@
 {
+  "kind": "stock",
   "name": "tools",
   "version": "1.0.0",
   "purpose": "Choose broad tool manifest families for downstream exposure.",
-  "order": 50,
-  "emits": {
-    "tools": true
-  },
+  "order": 40,
   "tool_families": [
     { "id": "workspace", "description": "Local files, repositories, shell, and workspace state." },
     { "id": "web", "description": "Public web browsing, search, current public facts, URLs, and public docs." },
@@ -16,12 +14,8 @@
     { "id": "developer_platforms", "description": "GitHub, GitLab, CI/CD, deployments, package registries, and cloud developer services." }
   ],
   "fallback": {
-    "reason": "",
-    "confidence": 0,
-    "tools": {
-      "required": false,
-      "families": []
-    }
+    "required": false,
+    "families": []
   },
   "ui": {
     "label": "Tools",

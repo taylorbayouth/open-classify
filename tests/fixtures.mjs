@@ -1,24 +1,18 @@
 // Shared fixtures and helpers for the test suite.
 
-// Sample valid outputs for each built-in classifier manifest.
+// Sample valid outputs for each built-in classifier manifest, in the new
+// flat-per-signal shape: each classifier's output IS its signal, with optional
+// reason/confidence metadata attached.
 export const validClassifierOutputs = {
   preflight: {
     reason: "The latest message requires downstream work.",
     confidence: 0.85,
-    handoff: { kind: "route", ack_reply: "Let me check." },
+    ack_reply: { reply: "Let me check." },
   },
   routing: {
-    reason: "The request needs tools and moderate reasoning.",
+    reason: "The request needs moderate reasoning.",
     confidence: 0.85,
-    routing: {
-      execution_mode: "tool_assisted",
-      model_tier: "local_strong",
-    },
-  },
-  conversation_history: {
-    reason: "The latest message can be handled without prior messages.",
-    confidence: 0.9,
-    context: { status: "standalone" },
+    model_tier: "local_strong",
   },
   memory_retrieval_queries: {
     reason: "Saved user review preferences could improve the response.",
@@ -28,17 +22,20 @@ export const validClassifierOutputs = {
   tools: {
     reason: "The request requires code access.",
     confidence: 0.9,
-    tools: { required: true, families: ["workspace"] },
+    required: true,
+    families: ["workspace"],
   },
   model_specialization: {
     reason: "The request asks for evaluative review.",
     confidence: 0.85,
-    routing: { specialization: "reasoning" },
+    specialization: "reasoning",
   },
   security: {
     reason: "No notable risk.",
     confidence: 0.95,
-    safety: { decision: "allow", risk_level: "normal", signals: [] },
+    decision: "allow",
+    risk_level: "normal",
+    signals: [],
   },
 };
 
@@ -49,7 +46,6 @@ export const TEST_CATALOG = {
     {
       id: "gpt-5.5",
       specializations: ["chat", "writing", "reasoning", "planning", "coding", "instruction_following"],
-      execution_modes: ["direct", "tool_assisted", "workflow"],
       tier: "frontier_strong",
       params_in_billions: 800,
       context_window: 1000000,
@@ -60,7 +56,6 @@ export const TEST_CATALOG = {
     {
       id: "gpt-5.4-mini",
       specializations: ["chat", "writing", "reasoning", "planning", "instruction_following"],
-      execution_modes: ["direct", "tool_assisted", "workflow"],
       tier: "frontier_fast",
       params_in_billions: 15,
       context_window: 200000,
@@ -71,7 +66,6 @@ export const TEST_CATALOG = {
     {
       id: "qwen2.5-coder:14b",
       specializations: ["coding"],
-      execution_modes: ["direct", "tool_assisted"],
       tier: "local_strong",
       params_in_billions: 14,
       context_window: 128000,
@@ -79,7 +73,6 @@ export const TEST_CATALOG = {
     {
       id: "gemma4:e4b-it-q4_K_M",
       specializations: ["chat", "writing", "reasoning", "planning", "instruction_following"],
-      execution_modes: ["direct", "tool_assisted", "workflow"],
       tier: "local_strong",
       params_in_billions: 4,
       context_window: 131072,

@@ -1,12 +1,25 @@
 import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
   SECURITY_DECISION_VALUES,
 } from "./enums.js";
 import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
-import type { JsonClassifierManifest, StockClassifierOutput } from "./stock.js";
-import { STOCK_SIGNAL_KEYS } from "./stock.js";
+import type {
+  CustomJsonManifest,
+  JsonClassifierManifest,
+  PreflightClassifierOutput,
+  RoutingClassifierOutput,
+  SafetySignal,
+  SecurityClassifierOutput,
+  StockClassifierName,
+  StockClassifierOutputs,
+  StockJsonManifest,
+  ToolsClassifierOutput,
+  CustomClassifierOutputValue,
+  ClassifierOutput,
+  ToolFamilyDefinition,
+} from "./stock.js";
+import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import {
   ensureNoDuplicates,
   isRecord,
@@ -17,28 +30,17 @@ import {
   requireNonNegativeSafeInteger,
   requireString,
   requireStringArray,
-  requireStringMaxLength,
   throwInvalid,
 } from "./validation.js";
 
 export const STOCK_REASON_MAX_CHARS = 120;
 export const STOCK_REPLY_MAX_CHARS = 200;
-export const STOCK_SUMMARY_TARGET_MAX_CHARS = 200;
-export const STOCK_SUMMARY_WINDOW_MAX_CHARS = 800;
 export const STOCK_TOOL_FAMILY_ID_MAX_CHARS = 64;
 export const STOCK_TOOL_FAMILY_DESCRIPTION_MAX_CHARS = 240;
 export const STOCK_MANIFEST_NAME_MAX_CHARS = 80;
 export const STOCK_MANIFEST_VERSION_MAX_CHARS = 40;
 export const STOCK_MANIFEST_PURPOSE_MAX_CHARS = 400;
 
-const STOCK_CONTEXT_STATUS_VALUES = [
-  "standalone",
-  "sufficient",
-  "insufficient",
-  "unknown",
-] as const;
-
-const STOCK_HANDOFF_KIND_VALUES = ["route", "final", "block"] as const;
 const STOCK_SAFETY_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
@@ -46,8 +48,30 @@ const STOCK_SAFETY_RISK_LEVEL_VALUES = [
   "unknown",
 ] as const;
 const STOCK_UI_RENDERER_VALUES = ["enum", "list", "object", "boolean"] as const;
+const MANIFEST_KIND_VALUES = ["stock", "custom"] as const;
 
 const ajv = new Ajv({ allErrors: true, strict: false });
+
+const COMMON_MANIFEST_KEYS = [
+  "kind",
+  "name",
+  "version",
+  "purpose",
+  "order",
+  "fallback",
+  "backend",
+  "ui",
+] as const;
+
+const STOCK_MANIFEST_KEYS = [
+  ...COMMON_MANIFEST_KEYS,
+  "tool_families",
+] as const;
+
+const CUSTOM_MANIFEST_KEYS = [
+  ...COMMON_MANIFEST_KEYS,
+  "output_schema",
+] as const;
 
 export function validateJsonClassifierManifest(
   value: unknown,
@@ -56,26 +80,54 @@ export function validateJsonClassifierManifest(
   if (!isRecord(value)) {
     throwInvalid("manifest", model, "manifest must be a JSON object");
   }
-  ensureAllowedObjectKeys(
-    value,
-    [
-      "name",
-      "version",
-      "purpose",
-      "order",
-      "emits",
-      "fallback",
-      "short_circuit",
-      "tool_families",
-      "output_schema",
-      "backend",
-      "ui",
-    ],
+  const kind = requireEnum(value.kind, MANIFEST_KIND_VALUES, "manifest", model, "kind");
+  return kind === "stock"
+    ? validateStockManifest(value, model)
+    : validateCustomManifest(value, model);
+}
+
+function validateStockManifest(
+  value: Record<string, unknown>,
+  model: string,
+): StockJsonManifest {
+  ensureAllowedObjectKeys(value, STOCK_MANIFEST_KEYS, "manifest", model, "manifest");
+  const name = requireEnum(
+    value.name,
+    STOCK_CLASSIFIER_NAMES,
     "manifest",
     model,
-    "manifest",
+    "name",
   );
+  const base = validateManifestCommon(value, model);
+  const toolFamilies =
+    value.tool_families === undefined
+      ? undefined
+      : validateToolFamilies(value.tool_families, model);
 
+  if (name !== "tools" && toolFamilies !== undefined) {
+    throwInvalid(
+      "manifest",
+      model,
+      "tool_families is only supported on the tools classifier",
+    );
+  }
+
+  const fallback = validateStockOutputForName(name, value.fallback, model, toolFamilies);
+
+  return {
+    kind: "stock",
+    name,
+    ...base,
+    fallback,
+    ...(toolFamilies === undefined ? {} : { tool_families: toolFamilies }),
+  };
+}
+
+function validateCustomManifest(
+  value: Record<string, unknown>,
+  model: string,
+): CustomJsonManifest {
+  ensureAllowedObjectKeys(value, CUSTOM_MANIFEST_KEYS, "manifest", model, "manifest");
   const name = requireNonEmptyStringMaxLength(
     value.name,
     "manifest",
@@ -83,6 +135,40 @@ export function validateJsonClassifierManifest(
     "name",
     STOCK_MANIFEST_NAME_MAX_CHARS,
   );
+  if ((STOCK_CLASSIFIER_NAMES as ReadonlyArray<string>).includes(name)) {
+    throwInvalid(
+      "manifest",
+      model,
+      `custom classifier name "${name}" collides with a stock classifier`,
+    );
+  }
+  const base = validateManifestCommon(value, model);
+  if (value.output_schema === undefined) {
+    throwInvalid("manifest", model, "output_schema is required for custom classifiers");
+  }
+  const outputSchema = value.output_schema;
+  compileOutputSchema(outputSchema, "manifest", model);
+  const fallback = validateCustomOutput(value.fallback, name, model, outputSchema);
+
+  return {
+    kind: "custom",
+    name,
+    ...base,
+    fallback,
+    output_schema: outputSchema,
+  };
+}
+
+function validateManifestCommon(
+  value: Record<string, unknown>,
+  model: string,
+): {
+  version: string;
+  purpose: string;
+  order: number;
+  backend?: JsonClassifierManifest["backend"];
+  ui?: JsonClassifierManifest["ui"];
+} {
   const version = requireNonEmptyStringMaxLength(
     value.version,
     "manifest",
@@ -99,363 +185,222 @@ export function validateJsonClassifierManifest(
   );
   const order = requireNonNegativeSafeInteger(value.order, "manifest", model, "order");
 
-  if (!isRecord(value.emits)) {
-    throwInvalid("manifest", model, "emits is required and must be an object");
-  }
-  const emits: JsonClassifierManifest["emits"] = {};
-  for (const [key, enabled] of Object.entries(value.emits)) {
-    if (!STOCK_SIGNAL_KEYS.includes(key as (typeof STOCK_SIGNAL_KEYS)[number])) {
-      throwInvalid("manifest", model, `emits.${key} is not a supported stock signal`);
-    }
-    emits[key as keyof JsonClassifierManifest["emits"]] = requireBoolean(
-      enabled,
-      "manifest",
-      model,
-      `emits.${key}`,
-    );
-  }
-
-  const toolFamilies = value.tool_families === undefined
-    ? undefined
-    : validateToolFamilies(value.tool_families, model);
-  if (emits.output === true && value.output_schema === undefined) {
-    throwInvalid("manifest", model, "output_schema is required when emits.output is true");
-  }
-  const outputSchema = value.output_schema;
-  if (outputSchema !== undefined) {
-    compileOutputSchema(outputSchema, "manifest", model);
-  }
-  const fallback = validateStockClassifierOutput(value.fallback, {
-    classifier: name,
-    model,
-    emits,
-    toolFamilies: toolFamilies?.map((family) => family.id),
-    outputSchema,
-  });
-
   return {
-    name,
     version,
     purpose,
     order,
-    emits,
-    fallback,
-    ...(value.short_circuit === undefined
-      ? {}
-      : { short_circuit: validateShortCircuit(value.short_circuit, model) }),
-    ...(toolFamilies === undefined ? {} : { tool_families: toolFamilies }),
-    ...(outputSchema === undefined ? {} : { output_schema: outputSchema }),
     ...(value.backend === undefined ? {} : { backend: validateBackend(value.backend, model) }),
     ...(value.ui === undefined ? {} : { ui: validateUi(value.ui, model) }),
   };
 }
 
-interface ValidateOutputOptions {
+// ─── Output validation ──────────────────────────────────────────────────────
+
+export interface ValidateOutputContext {
   readonly classifier: string;
   readonly model: string;
-  readonly emits?: JsonClassifierManifest["emits"];
-  readonly toolFamilies?: ReadonlyArray<string>;
-  readonly outputSchema?: unknown;
 }
 
-export function validateStockClassifierOutput(
+export function validateOutputForManifest(
+  manifest: JsonClassifierManifest,
   value: unknown,
-  options: ValidateOutputOptions,
-): StockClassifierOutput {
-  const { classifier, model, emits, toolFamilies } = options;
-  if (!isRecord(value)) {
-    throwInvalid(classifier, model, "output must be a JSON object");
-  }
-
-  const allowedKeys = new Set(["reason", "confidence"]);
-  for (const key of STOCK_SIGNAL_KEYS) {
-    if (emits?.[key]) allowedKeys.add(key);
-  }
-  for (const key of Object.keys(value)) {
-    if (!allowedKeys.has(key)) {
-      throwInvalid(classifier, model, `${key} is not declared in emits`);
-    }
-  }
-
-  const output: StockClassifierOutput = {
-    reason: truncateText(
-      requireString(value.reason, classifier, model, "reason"),
-      STOCK_REASON_MAX_CHARS,
-    ),
-    confidence: requireConfidence(value.confidence, classifier, model),
-  };
-
-  const out: StockClassifierOutput = {
-    ...output,
-    ...(value.handoff === undefined ? {} : { handoff: validateHandoff(value.handoff, classifier, model) }),
-    ...(value.routing === undefined ? {} : { routing: validateRouting(value.routing, classifier, model) }),
-    ...(value.context === undefined ? {} : { context: validateContext(value.context, classifier, model) }),
-    ...(value.tools === undefined
-      ? {}
-      : { tools: validateTools(value.tools, classifier, model, toolFamilies) }),
-    ...(value.response === undefined ? {} : { response: validateResponse(value.response, classifier, model) }),
-    ...(value.safety === undefined ? {} : { safety: validateSafety(value.safety, classifier, model) }),
-    ...(value.summary === undefined ? {} : { summary: validateSummary(value.summary, classifier, model) }),
-    ...(value.output === undefined ? {} : { output: value.output }),
-  };
-  if (value.output !== undefined && options.outputSchema !== undefined) {
-    validateWithSchema(value.output, options.outputSchema, classifier, model, "output");
-  }
-  return out;
-}
-
-function validateHandoff(value: unknown, classifier: string, model: string) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "handoff must be an object");
-  const kind = requireEnum(value.kind, STOCK_HANDOFF_KIND_VALUES, classifier, model, "handoff.kind");
-  if (kind === "route") {
-    ensureAllowedObjectKeys(value, ["kind", "ack_reply"], classifier, model, "handoff");
-    return {
-      kind,
-      ...(value.ack_reply === undefined
-        ? {}
-        : {
-            ack_reply: requireNonEmptyStringMaxLength(
-              value.ack_reply,
-              classifier,
-              model,
-              "handoff.ack_reply",
-              STOCK_REPLY_MAX_CHARS,
-            ),
-          }),
-    };
-  }
-  if (kind === "final") {
-    ensureAllowedObjectKeys(value, ["kind", "reply"], classifier, model, "handoff");
-    const reply = requireString(value.reply, classifier, model, "handoff.reply");
-    if (reply.trim().length === 0) {
-      throwInvalid(classifier, model, "handoff.reply must not be empty");
-    }
-    if (classifier === "preflight" && reply.length > STOCK_REPLY_MAX_CHARS) {
-      return { kind: "route" as const };
-    }
-    if (reply.length > STOCK_REPLY_MAX_CHARS) {
-      throwInvalid(classifier, model, `handoff.reply must be ${STOCK_REPLY_MAX_CHARS} characters or fewer`);
-    }
-    return {
-      kind,
-      reply,
-    };
-  }
-  ensureAllowedObjectKeys(value, ["kind", "reason_code"], classifier, model, "handoff");
-  return {
-    kind,
-    ...(value.reason_code === undefined
-      ? {}
-      : { reason_code: requireString(value.reason_code, classifier, model, "handoff.reason_code") }),
-  };
-}
-
-function validateRouting(value: unknown, classifier: string, model: string) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "routing must be an object");
-  ensureAllowedObjectKeys(
-    value,
-    ["execution_mode", "model_tier", "specialization"],
-    classifier,
-    model,
-    "routing",
-  );
-  return {
-    ...(value.execution_mode === undefined
-      ? {}
-      : {
-          execution_mode: requireEnum(
-            value.execution_mode,
-            DOWNSTREAM_EXECUTION_MODE_VALUES,
-            classifier,
-            model,
-            "routing.execution_mode",
-          ),
-        }),
-    ...(value.model_tier === undefined
-      ? {}
-      : {
-          model_tier: requireEnum(
-            value.model_tier,
-            DOWNSTREAM_MODEL_TIER_VALUES,
-            classifier,
-            model,
-            "routing.model_tier",
-          ),
-        }),
-    ...(value.specialization === undefined
-      ? {}
-      : {
-          specialization: requireEnum(
-            value.specialization,
-            MODEL_SPECIALIZATION_VALUES,
-            classifier,
-            model,
-            "routing.specialization",
-          ),
-        }),
-  };
-}
-
-function validateContext(value: unknown, classifier: string, model: string) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "context must be an object");
-  const status = requireEnum(
-    value.status,
-    STOCK_CONTEXT_STATUS_VALUES,
-    classifier,
-    model,
-    "context.status",
-  );
-  if (status === "sufficient") {
-    ensureAllowedObjectKeys(
+  context: ValidateOutputContext,
+): ClassifierOutput {
+  if (manifest.kind === "stock") {
+    return validateStockOutputForName(
+      manifest.name,
       value,
-      ["status", "include_prior_messages"],
-      classifier,
-      model,
-      "context",
+      context.model,
+      manifest.tool_families,
     );
-    return {
-      status,
-      include_prior_messages: requireNonNegativeSafeInteger(
-        value.include_prior_messages,
-        classifier,
-        model,
-        "context.include_prior_messages",
-      ),
-    };
   }
-  ensureAllowedObjectKeys(value, ["status", "include_prior_messages"], classifier, model, "context");
-  return { status };
+  return validateCustomOutput(value, context.classifier, context.model, manifest.output_schema);
 }
 
-function validateTools(
+function validateStockOutputForName<Name extends StockClassifierName>(
+  name: Name,
+  value: unknown,
+  model: string,
+  toolFamilies: ReadonlyArray<ToolFamilyDefinition> | undefined,
+): StockClassifierOutputs[Name] {
+  if (!isRecord(value)) {
+    throwInvalid(name, model, "output must be a JSON object");
+  }
+  switch (name) {
+    case "preflight":
+      return validatePreflightOutput(value, model) as StockClassifierOutputs[Name];
+    case "routing":
+      return validateRoutingOutput(value, name, model) as StockClassifierOutputs[Name];
+    case "model_specialization":
+      return validateRoutingOutput(value, name, model) as StockClassifierOutputs[Name];
+    case "tools":
+      return validateToolsOutput(value, model, toolFamilies?.map((f) => f.id)) as StockClassifierOutputs[Name];
+    case "security":
+      return validateSecurityOutput(value, model) as StockClassifierOutputs[Name];
+    default: {
+      const _exhaustive: never = name;
+      void _exhaustive;
+      throwInvalid("manifest", model, `unknown stock classifier name`);
+    }
+  }
+}
+
+function validateMetadata(
+  value: Record<string, unknown>,
+  classifier: string,
+  model: string,
+): { reason?: string; confidence?: number } {
+  return {
+    ...(value.reason === undefined
+      ? {}
+      : { reason: truncateText(requireString(value.reason, classifier, model, "reason"), STOCK_REASON_MAX_CHARS) }),
+    ...(value.confidence === undefined
+      ? {}
+      : { confidence: requireConfidence(value.confidence, classifier, model) }),
+  };
+}
+
+function validatePreflightOutput(
+  value: Record<string, unknown>,
+  model: string,
+): PreflightClassifierOutput {
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "final_reply", "ack_reply"], "preflight", model, "output");
+  const meta = validateMetadata(value, "preflight", model);
+  return {
+    ...meta,
+    ...(value.final_reply === undefined
+      ? {}
+      : { final_reply: validateReplySignal(value.final_reply, "preflight", model, "final_reply") }),
+    ...(value.ack_reply === undefined
+      ? {}
+      : { ack_reply: validateReplySignal(value.ack_reply, "preflight", model, "ack_reply") }),
+  };
+}
+
+function validateReplySignal(
   value: unknown,
   classifier: string,
   model: string,
+  field: "final_reply" | "ack_reply",
+): { reply: string } {
+  if (!isRecord(value)) {
+    throwInvalid(classifier, model, `${field} must be an object`);
+  }
+  ensureAllowedObjectKeys(value, ["reply"], classifier, model, field);
+  const reply = requireString(value.reply, classifier, model, `${field}.reply`);
+  if (reply.trim().length === 0) {
+    throwInvalid(classifier, model, `${field}.reply must not be empty`);
+  }
+  if (reply.length > STOCK_REPLY_MAX_CHARS) {
+    throwInvalid(
+      classifier,
+      model,
+      `${field}.reply must be ${STOCK_REPLY_MAX_CHARS} characters or fewer`,
+    );
+  }
+  return { reply };
+}
+
+function validateRoutingOutput(
+  value: Record<string, unknown>,
+  classifier: string,
+  model: string,
+): RoutingClassifierOutput {
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "model_tier", "specialization"], classifier, model, "output");
+  const meta = validateMetadata(value, classifier, model);
+  return {
+    ...meta,
+    ...(value.model_tier === undefined
+      ? {}
+      : { model_tier: requireEnum(value.model_tier, DOWNSTREAM_MODEL_TIER_VALUES, classifier, model, "model_tier") }),
+    ...(value.specialization === undefined
+      ? {}
+      : { specialization: requireEnum(value.specialization, MODEL_SPECIALIZATION_VALUES, classifier, model, "specialization") }),
+  };
+}
+
+function validateToolsOutput(
+  value: Record<string, unknown>,
+  model: string,
   toolFamilies: ReadonlyArray<string> | undefined,
-) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "tools must be an object");
-  ensureAllowedObjectKeys(value, ["required", "families"], classifier, model, "tools");
-  const families = requireStringArray(value.families, classifier, model, "tools.families")
-    .map(normalizeToolFamily);
-  const required = families.length > 0
-    ? true
-    : requireBoolean(value.required, classifier, model, "tools.required");
-  ensureNoDuplicates(families, classifier, model, "tools.families");
+): ToolsClassifierOutput {
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "required", "families"], "tools", model, "output");
+  const meta = validateMetadata(value, "tools", model);
+  const families = requireStringArray(value.families, "tools", model, "families").map(normalizeToolFamily);
+  ensureNoDuplicates(families, "tools", model, "families");
   if (toolFamilies) {
     const allowed = new Set(toolFamilies);
     for (const family of families) {
       if (!allowed.has(family)) {
-        throwInvalid(classifier, model, `tools.families includes unsupported family ${family}`);
+        throwInvalid("tools", model, `families includes unsupported family ${family}`);
       }
     }
   }
-  return { required, families };
+  const required =
+    families.length > 0
+      ? true
+      : requireBoolean(value.required, "tools", model, "required");
+  return { ...meta, required, families };
 }
 
-function normalizeToolFamily(family: string): string {
-  const aliases: Record<string, string> = {
-    browser: "web",
-    browsing: "web",
-    internet: "web",
-    web_browsing: "web",
-    web_search: "web",
-  };
-  return aliases[family] ?? family;
-}
-
-function truncateText(text: string, maxChars: number): string {
-  return text.length <= maxChars ? text : text.slice(0, maxChars).trimEnd();
-}
-
-function validateResponse(value: unknown, classifier: string, model: string) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "response must be an object");
-  ensureAllowedObjectKeys(value, ["language", "locale"], classifier, model, "response");
-  return {
-    ...(value.language === undefined
-      ? {}
-      : { language: requireString(value.language, classifier, model, "response.language") }),
-    ...(value.locale === undefined
-      ? {}
-      : { locale: requireString(value.locale, classifier, model, "response.locale") }),
-  };
-}
-
-function validateSafety(value: unknown, classifier: string, model: string) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "safety must be an object");
-  ensureAllowedObjectKeys(value, ["decision", "risk_level", "signals"], classifier, model, "safety");
-  const decision = value.decision === undefined
-    ? undefined
-    : requireEnum(
-        value.decision,
-        SECURITY_DECISION_VALUES,
-        classifier,
-        model,
-        "safety.decision",
-      );
+function validateSecurityOutput(
+  value: Record<string, unknown>,
+  model: string,
+): SecurityClassifierOutput {
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "decision", "risk_level", "signals"], "security", model, "output");
+  const meta = validateMetadata(value, "security", model);
+  const decision =
+    value.decision === undefined
+      ? undefined
+      : requireEnum(value.decision, SECURITY_DECISION_VALUES, "security", model, "decision");
   const riskLevel = requireEnum(
     value.risk_level,
     STOCK_SAFETY_RISK_LEVEL_VALUES,
-    classifier,
+    "security",
     model,
-    "safety.risk_level",
+    "risk_level",
   );
-  const signals = requireStringArray(value.signals, classifier, model, "safety.signals");
-  ensureNoDuplicates(signals, classifier, model, "safety.signals");
+  const signals = requireStringArray(value.signals, "security", model, "signals");
+  ensureNoDuplicates(signals, "security", model, "signals");
   if ((riskLevel === "normal" || riskLevel === "unknown") && signals.length > 0) {
-    throwInvalid(classifier, model, `${riskLevel} safety.risk_level must not include signals`);
+    throwInvalid("security", model, `${riskLevel} risk_level must not include signals`);
   }
   if (riskLevel !== "normal" && riskLevel !== "unknown" && signals.length === 0) {
-    throwInvalid(classifier, model, "elevated safety.risk_level must include at least one signal");
+    throwInvalid("security", model, "elevated risk_level must include at least one signal");
   }
   if (decision === "block" && riskLevel !== "high_risk") {
-    throwInvalid(classifier, model, "safety.decision block requires high_risk risk_level");
+    throwInvalid("security", model, "decision block requires high_risk risk_level");
   }
   if (decision === "allow" && riskLevel === "high_risk") {
-    throwInvalid(classifier, model, "safety.decision allow must not use high_risk risk_level");
+    throwInvalid("security", model, "decision allow must not use high_risk risk_level");
   }
   return {
+    ...meta,
     ...(decision === undefined ? {} : { decision }),
     risk_level: riskLevel,
     signals,
   };
 }
 
-function validateSummary(value: unknown, classifier: string, model: string) {
-  if (!isRecord(value)) throwInvalid(classifier, model, "summary must be an object");
-  ensureAllowedObjectKeys(
-    value,
-    ["target_message", "conversation_window"],
-    classifier,
-    model,
-    "summary",
-  );
-  return {
-    ...(value.target_message === undefined
-      ? {}
-      : {
-          target_message: requireStringMaxLength(
-            value.target_message,
-            classifier,
-            model,
-            "summary.target_message",
-            STOCK_SUMMARY_TARGET_MAX_CHARS,
-          ),
-        }),
-    ...(value.conversation_window === undefined
-      ? {}
-      : {
-          conversation_window: requireStringMaxLength(
-            value.conversation_window,
-            classifier,
-            model,
-            "summary.conversation_window",
-            STOCK_SUMMARY_WINDOW_MAX_CHARS,
-          ),
-        }),
-  };
+function validateCustomOutput(
+  value: unknown,
+  classifier: string,
+  model: string,
+  schema: unknown,
+): CustomClassifierOutputValue {
+  if (!isRecord(value)) {
+    throwInvalid(classifier, model, "output must be a JSON object");
+  }
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "output"], classifier, model, "output");
+  if (value.output === undefined) {
+    throwInvalid(classifier, model, "output is required for custom classifiers");
+  }
+  const meta = validateMetadata(value, classifier, model);
+  validateWithSchema(value.output, schema, classifier, model, "output");
+  return { ...meta, output: value.output };
 }
 
-function validateToolFamilies(value: unknown, model: string) {
+function validateToolFamilies(value: unknown, model: string): ToolFamilyDefinition[] {
   if (!Array.isArray(value)) {
     throwInvalid("manifest", model, "tool_families must be an array");
   }
@@ -484,60 +429,6 @@ function validateToolFamilies(value: unknown, model: string) {
   return out;
 }
 
-function validateShortCircuit(value: unknown, model: string) {
-  if (!isRecord(value)) {
-    throwInvalid("manifest", model, "short_circuit must be an object");
-  }
-  ensureAllowedObjectKeys(
-    value,
-    ["priority", "kinds", "safety_decisions"],
-    "manifest",
-    model,
-    "short_circuit",
-  );
-  if (value.kinds === undefined && value.safety_decisions === undefined) {
-    throwInvalid("manifest", model, "short_circuit requires kinds or safety_decisions");
-  }
-  const kinds = value.kinds === undefined ? undefined : validateShortCircuitValues(
-    value.kinds,
-    STOCK_HANDOFF_KIND_VALUES,
-    model,
-    "short_circuit.kinds",
-  );
-  const safetyDecisions = value.safety_decisions === undefined ? undefined : validateShortCircuitValues(
-    value.safety_decisions,
-    SECURITY_DECISION_VALUES,
-    model,
-    "short_circuit.safety_decisions",
-  );
-  return {
-    priority: requireNonNegativeSafeInteger(
-      value.priority,
-      "manifest",
-      model,
-      "short_circuit.priority",
-    ),
-    ...(kinds === undefined ? {} : { kinds }),
-    ...(safetyDecisions === undefined ? {} : { safety_decisions: safetyDecisions }),
-  };
-}
-
-function validateShortCircuitValues<T extends string>(
-  value: unknown,
-  allowed: ReadonlyArray<T>,
-  model: string,
-  path: string,
-): T[] {
-  if (!Array.isArray(value)) {
-    throwInvalid("manifest", model, `${path} must be an array`);
-  }
-  const out = value.map((item, index) =>
-    requireEnum(item, allowed, "manifest", model, `${path}[${index}]`),
-  );
-  ensureNoDuplicates(out, "manifest", model, path);
-  return out;
-}
-
 function validateBackend(value: unknown, model: string) {
   if (!isRecord(value)) throwInvalid("manifest", model, "backend must be an object");
   ensureAllowedObjectKeys(value, ["ollama"], "manifest", model, "backend");
@@ -545,28 +436,12 @@ function validateBackend(value: unknown, model: string) {
   if (!isRecord(value.ollama)) {
     throwInvalid("manifest", model, "backend.ollama must be an object");
   }
-  ensureAllowedObjectKeys(
-    value.ollama,
-    ["base_model", "adapter_model"],
-    "manifest",
-    model,
-    "backend.ollama",
-  );
+  ensureAllowedObjectKeys(value.ollama, ["base_model"], "manifest", model, "backend.ollama");
   return {
     ollama: {
       ...(value.ollama.base_model === undefined
         ? {}
         : { base_model: requireString(value.ollama.base_model, "manifest", model, "backend.ollama.base_model") }),
-      ...(value.ollama.adapter_model === undefined
-        ? {}
-        : {
-            adapter_model: requireString(
-              value.ollama.adapter_model,
-              "manifest",
-              model,
-              "backend.ollama.adapter_model",
-            ),
-          }),
     },
   };
 }
@@ -629,7 +504,42 @@ export function validateWithSchema(
   }
 }
 
+function normalizeToolFamily(family: string): string {
+  const aliases: Record<string, string> = {
+    browser: "web",
+    browsing: "web",
+    internet: "web",
+    web_browsing: "web",
+    web_search: "web",
+  };
+  return aliases[family] ?? family;
+}
+
+function truncateText(text: string, maxChars: number): string {
+  return text.length <= maxChars ? text : text.slice(0, maxChars).trimEnd();
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// Backwards-compatible helper preserved for backends that still need a
+// one-call validator keyed by (classifier name, raw value).
+export interface LegacyValidateOptions {
+  readonly classifier: string;
+  readonly model: string;
+  readonly manifest: JsonClassifierManifest;
+}
+
+export function validateClassifierOutputWithManifest(
+  value: unknown,
+  options: LegacyValidateOptions,
+): ClassifierOutput {
+  return validateOutputForManifest(options.manifest, value, {
+    classifier: options.classifier,
+    model: options.model,
+  });
+}
+
+// Helper used by `SafetySignal` checks elsewhere — kept as a typed re-export.
+export type { SafetySignal };

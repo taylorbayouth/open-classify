@@ -17,7 +17,14 @@ import type {
   PipelineMeta,
   PipelineResult,
 } from "./manifest.js";
-import type { HandoffSignal, SafetySignal, StockClassifierOutput } from "./stock.js";
+import type {
+  ClassifierOutput,
+  CustomClassifierOutputValue,
+  PreflightClassifierOutput,
+  SafetySignal,
+  SecurityClassifierOutput,
+} from "./stock.js";
+import { isCustomManifest } from "./stock.js";
 import type {
   ClassifierFallbackReason,
   NormalizedOpenClassifyInput,
@@ -44,8 +51,14 @@ export interface ClassifyOptions {
 }
 
 type SettledClassifierResult =
-  | { ok: true; name: string; value: StockClassifierOutput }
+  | { ok: true; name: string; value: ClassifierOutput }
   | { ok: false; name: string; error: unknown; reason: ClassifierFallbackReason };
+
+// Short-circuit gates are intrinsic to specific stock signals — not configured
+// per-manifest. preflight.final_reply ⇒ answer; security.decision in
+// {block, needs_review} ⇒ block / needs_review. Order matters: preflight is
+// cheaper to evaluate, so we check it first.
+const SHORT_CIRCUIT_GATES = ["preflight", "security"] as const;
 
 export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
@@ -71,6 +84,7 @@ export async function classifyOpenClassifyInput(
   const classifierInput = toClassifierInput(request);
   const classifierTimeoutMs = options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
+  const threshold = options.aggregator?.confidenceThreshold ?? 0.6;
 
   const runs = new Map<string, Promise<SettledClassifierResult>>(
     CLASSIFIER_NAMES.map((name) => [
@@ -87,25 +101,18 @@ export async function classifyOpenClassifyInput(
   );
 
   try {
-    const gates = REGISTRY
-      .filter((m) => m.short_circuit !== undefined)
-      .slice()
-      .sort((a, b) => a.short_circuit!.priority - b.short_circuit!.priority);
-
-    for (const manifest of gates) {
-      const settled = await runs.get(manifest.name)!;
+    for (const gate of SHORT_CIRCUIT_GATES) {
+      const gateRun = runs.get(gate);
+      if (gateRun === undefined) continue;
+      const settled = await gateRun;
       if (!settled.ok) continue;
-      const verdict = shortCircuitVerdict(manifest, settled.value, options.aggregator);
+
+      const verdict = shortCircuitVerdict(gate, settled.value, threshold);
       if (!verdict) continue;
 
       controller.abort();
-      await settleClassifierRunsExcept(runs, [manifest.name]);
-      return buildShortCircuitResult(
-        manifest.name,
-        verdict,
-        settled,
-        request.target_message_hash,
-      );
+      await settleClassifierRunsExcept(runs, [gate]);
+      return buildShortCircuitResult(gate, verdict, settled, request.target_message_hash);
     }
 
     const settled = await Promise.all([...runs.values()]);
@@ -124,35 +131,57 @@ export async function classifyOpenClassifyInput(
   }
 }
 
-function shortCircuitVerdict(
-  manifest: (typeof REGISTRY)[number],
-  result: StockClassifierOutput,
-  config: AggregatorConfig | undefined,
-): ({ kind: "final"; reply: string } | { kind: "block" } | { kind: "needs_review" }) | null {
-  const threshold = config?.confidenceThreshold ?? 0.6;
-  if (!manifest.short_circuit || result.confidence < threshold) return null;
+type ShortCircuitVerdict =
+  | { kind: "answer"; reply: string }
+  | { kind: "block"; safety: SafetySignal }
+  | { kind: "needs_review"; safety: SafetySignal };
 
-  const handoff = result.handoff;
-  if (handoff && manifest.short_circuit.kinds?.includes(handoff.kind)) {
-    if (handoff.kind === "final") return { kind: "final", reply: handoff.reply };
-    if (handoff.kind === "block") return { kind: "block" };
+function shortCircuitVerdict(
+  gate: (typeof SHORT_CIRCUIT_GATES)[number],
+  result: ClassifierOutput,
+  threshold: number,
+): ShortCircuitVerdict | null {
+  const confidence = (result as { confidence?: number }).confidence ?? 0;
+  if (confidence < threshold) return null;
+
+  if (gate === "preflight") {
+    const preflight = result as PreflightClassifierOutput;
+    if (preflight.final_reply !== undefined) {
+      return { kind: "answer", reply: preflight.final_reply.reply };
+    }
+    return null;
   }
 
-  const safetyDecision = result.safety?.decision;
-  if (
-    safetyDecision &&
-    manifest.short_circuit.safety_decisions?.includes(safetyDecision)
-  ) {
-    if (safetyDecision === "block") return { kind: "block" };
-    if (safetyDecision === "needs_review") return { kind: "needs_review" };
+  if (gate === "security") {
+    const security = result as SecurityClassifierOutput;
+    if (security.decision === "block") {
+      return {
+        kind: "block",
+        safety: extractSafety(security),
+      };
+    }
+    if (security.decision === "needs_review") {
+      return {
+        kind: "needs_review",
+        safety: extractSafety(security),
+      };
+    }
   }
 
   return null;
 }
 
+function extractSafety(value: SecurityClassifierOutput): SafetySignal {
+  return {
+    ...(value.decision === undefined ? {} : { decision: value.decision }),
+    risk_level: value.risk_level,
+    signals: value.signals,
+  };
+}
+
 function buildShortCircuitResult(
   name: string,
-  verdict: { kind: "final"; reply: string } | { kind: "block" } | { kind: "needs_review" },
+  verdict: ShortCircuitVerdict,
   settled: SettledClassifierResult,
   target_message_hash: string,
 ): PipelineResult {
@@ -162,56 +191,55 @@ function buildShortCircuitResult(
     ...value,
     status: classifierRunStatus(settled),
     version: manifest.version,
-  };
-  const base = {
-    fired_by: name,
-    ...shortCircuitStockSignals(value),
-    meta: { classifiers: { [name]: entry } },
-  };
-  const audit = { ...base };
+  } as ClassifierEntry;
+  const meta: PipelineMeta = { classifiers: { [name]: entry } };
   const classifier_outputs = classifierCustomOutputs({ [name]: value });
-  if (verdict.kind === "needs_review") {
-    return {
-      action: "needs_review",
-      message_id: target_message_hash,
-      fired_by: name,
-      reason: {
-        risk_level: value.safety?.risk_level,
-        signals: value.safety?.signals,
-      },
-      classifier_outputs,
-      audit,
-    };
-  }
-  if (verdict.kind === "final") {
+
+  if (verdict.kind === "answer") {
+    const preflight = value as PreflightClassifierOutput;
     return {
       action: "answer",
       message_id: target_message_hash,
       reply: verdict.reply,
       reason: "already_answered",
       classifier_outputs,
-      audit,
+      audit: {
+        fired_by: name,
+        ...(preflight.final_reply === undefined ? {} : { final_reply: preflight.final_reply }),
+        meta,
+      },
+    };
+  }
+  if (verdict.kind === "needs_review") {
+    return {
+      action: "needs_review",
+      message_id: target_message_hash,
+      fired_by: name,
+      reason: {
+        risk_level: verdict.safety.risk_level,
+        signals: verdict.safety.signals,
+      },
+      classifier_outputs,
+      audit: {
+        fired_by: name,
+        safety: verdict.safety,
+        meta,
+      },
     };
   }
   return {
     action: "block",
     message_id: target_message_hash,
     reason: {
-      code: value.handoff?.kind === "block" ? value.handoff.reason_code : undefined,
-      risk_level: value.safety?.risk_level,
-      signals: value.safety?.signals,
+      risk_level: verdict.safety.risk_level,
+      signals: verdict.safety.signals,
     },
     classifier_outputs,
-    audit,
-  };
-}
-
-function shortCircuitStockSignals(
-  value: StockClassifierOutput,
-): { handoff?: HandoffSignal; safety?: SafetySignal } {
-  return {
-    ...(value.handoff === undefined ? {} : { handoff: value.handoff }),
-    ...(value.safety === undefined ? {} : { safety: value.safety }),
+    audit: {
+      fired_by: name,
+      safety: verdict.safety,
+      meta,
+    },
   };
 }
 
@@ -229,7 +257,7 @@ function collectFullEntries(settled: SettledClassifierResult[]): {
       ...value,
       status: classifierRunStatus(s),
       version: manifest.version,
-    };
+    } as ClassifierEntry;
   }
   return { results, meta: { classifiers } };
 }
@@ -240,23 +268,15 @@ function buildRouteResult(
   results: ClassifierResults,
   meta: PipelineMeta,
 ): PipelineResult {
-  const target = {
-    role: "user" as const,
-    text: request.text,
-    hash: request.target_message_hash,
-    ...(envelope.summary?.target_message === undefined
-      ? {}
-      : { summary: envelope.summary.target_message }),
-  };
   const downstream: DownstreamPayload = {
     model_id: envelope.model_recommendation.id,
-    messages: downstreamMessages(request.messages, envelope.context),
-    target_message: target,
+    messages: request.messages,
+    target_message: {
+      role: "user",
+      text: request.text,
+      hash: request.target_message_hash,
+    },
     tools: envelope.tools ?? { required: false, families: [] },
-    ...(envelope.context === undefined ? {} : { context: envelope.context }),
-    ...(envelope.summary?.conversation_window === undefined
-      ? {}
-      : { context_summary: envelope.summary.conversation_window }),
     attachments: request.attachments,
   };
 
@@ -272,26 +292,15 @@ function buildRouteResult(
   };
 }
 
-function downstreamMessages(
-  messages: NormalizedOpenClassifyInput["messages"],
-  context: Envelope["context"],
-): NormalizedOpenClassifyInput["messages"] {
-  if (messages.length <= 1 || context?.status === "standalone") {
-    return [messages[messages.length - 1]];
-  }
-  if (context?.status === "sufficient") {
-    const count = context.include_prior_messages;
-    return messages.slice(Math.max(0, messages.length - count - 1));
-  }
-  return messages;
-}
-
 function classifierCustomOutputs(results: ClassifierResults): ClassifierCustomOutputs {
-  return Object.fromEntries(
-    Object.entries(results)
-      .filter(([, result]) => result.output !== undefined)
-      .map(([name, result]) => [name, result.output]),
-  );
+  const out: ClassifierCustomOutputs = {};
+  for (const manifest of REGISTRY) {
+    if (!isCustomManifest(manifest)) continue;
+    const result = results[manifest.name] as CustomClassifierOutputValue | undefined;
+    if (result === undefined) continue;
+    out[manifest.name] = result.output;
+  }
+  return out;
 }
 
 async function runClassifierWithRetry(
@@ -323,7 +332,7 @@ async function runClassifierAttempt(
   rootSignal: AbortSignal,
   timeoutMs: number,
 ): Promise<
-  | { ok: true; value: StockClassifierOutput }
+  | { ok: true; value: ClassifierOutput }
   | { ok: false; error: unknown; reason: ClassifierFallbackReason }
 > {
   const controller = new AbortController();
@@ -363,7 +372,9 @@ async function settleClassifierRunsExcept(
   keep: ReadonlyArray<string>,
 ): Promise<void> {
   const keepSet = new Set(keep);
-  await Promise.all([...runs].filter(([name]) => !keepSet.has(name)).map(([, run]) => run.catch(() => undefined)));
+  await Promise.all(
+    [...runs].filter(([name]) => !keepSet.has(name)).map(([, run]) => run.catch(() => undefined)),
+  );
 }
 
 function classifierRunStatus(settled: SettledClassifierResult) {

@@ -1,0 +1,12 @@
+{
+  "kind": "stock",
+  "name": "routing",
+  "version": "1.0.0",
+  "purpose": "Recommend the downstream model tier.",
+  "order": 20,
+  "fallback": {},
+  "ui": {
+    "label": "Routing",
+    "renderer": "object"
+  }
+}

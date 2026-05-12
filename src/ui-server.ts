@@ -23,7 +23,6 @@ import { extname, join, normalize } from "node:path";
 import { loadCatalog } from "./catalog.js";
 import { CLASSIFIER_NAMES, REGISTRY, type RunClassifier } from "./classifiers.js";
 import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
   SECURITY_DECISION_VALUES,
@@ -44,7 +43,6 @@ import type { OpenClassifyInput } from "./types.js";
 
 // Served at GET /api/enums so the UI never needs to duplicate shared enum values.
 const CLASSIFIER_ENUMS = {
-  downstream_execution_mode: [...DOWNSTREAM_EXECUTION_MODE_VALUES],
   downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
   model_specialization: [...MODEL_SPECIALIZATION_VALUES],
   tool_family: [...TOOL_FAMILY_VALUES],
@@ -55,12 +53,14 @@ const CLASSIFIER_ENUMS = {
 
 const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
   name: classifier.name,
+  kind: classifier.kind,
   version: classifier.version,
   purpose: classifier.purpose,
   order: classifier.order,
-  emits: classifier.emits,
   ui: classifier.ui,
-  tool_families: classifier.tool_families ?? [],
+  tool_families: classifier.kind === "stock" && classifier.name === "tools"
+    ? classifier.tool_families ?? []
+    : [],
 }));
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
