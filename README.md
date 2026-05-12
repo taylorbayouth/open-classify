@@ -91,7 +91,7 @@ Example `route` result:
 
 ## Stock classifiers
 
-Stock classifiers are built in and have fixed, typed output shapes. Each one owns exactly one signal and lives in `src/classifiers/stock/<name>/`.
+Stock classifiers are built in and have fixed, typed output shapes. Each one owns exactly one signal. Its manifest lives in `src/classifiers/stock/<name>/manifest.json`; the shared stock prompt building blocks live in `src/classifiers/stock/prompts/`.
 
 | Name | Signal | Short-circuits? |
 |---|---|---|
@@ -218,7 +218,7 @@ type RunClassifier = (
 ) => Promise<ClassifierOutput>;
 ```
 
-Pass any `RunClassifier` to `classifyOpenClassifyInput({ runClassifier, catalog })` to back classifiers with OpenAI, Anthropic, a remote service, or anything else.
+Pass any `RunClassifier` to `classifyOpenClassifyInput(input, { runClassifier, catalog })` to back classifiers with OpenAI, Anthropic, a remote service, or anything else.
 
 ## Further reading
 
