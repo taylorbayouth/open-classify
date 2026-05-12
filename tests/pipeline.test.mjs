@@ -33,7 +33,6 @@ test("starts all classifiers concurrently and returns route result", async () =>
 
   assert.equal(result.action, "route");
   assert.equal("fired_by" in result, false);
-  assert.equal("kind" in result, false);
   assert.deepEqual(started.sort(), Object.keys(results).sort());
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
   assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
@@ -59,16 +58,14 @@ test("starts all classifiers concurrently and returns route result", async () =>
     "every classifier should appear in meta.classifiers",
   );
 
-  // Envelope slots: contributed by the modules and flattened onto the route
-  // result alongside `meta`. The preflight `continue` reply becomes the
-  // stock handoff acknowledgement.
-  assert.deepEqual(result.audit.handoff, { kind: "route", ack_reply: "Let me check." });
+  // Envelope slots: contributed by the stock classifiers and flattened onto
+  // the route result alongside `meta`. preflight's ack_reply is preserved.
+  assert.deepEqual(result.audit.ack_reply, { reply: "Let me check." });
+  assert.equal(result.audit.final_reply, undefined);
   assert.deepEqual(result.audit.routing, {
-    execution_mode: "tool_assisted",
     model_tier: "local_strong",
     specialization: "reasoning",
   });
-  assert.deepEqual(result.audit.context, { status: "standalone" });
   assert.deepEqual(result.audit.tools, { required: true, families: ["workspace"] });
   assert.deepEqual(result.audit.safety, { decision: "allow", risk_level: "normal", signals: [] });
   assert.deepEqual(result.audit.custom_outputs, [
@@ -82,12 +79,8 @@ test("starts all classifiers concurrently and returns route result", async () =>
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: ["user review preferences"] },
   });
-  assert.equal(result.memory_queries, undefined);
-  assert.equal(result.tool_families, undefined);
-  assert.equal(result.safety_signals, undefined);
 
-  // resolveModel should pick gemma4: it matches reasoning + tool_assisted +
-  // local_strong, while qwen is coding-only.
+  // reasoning + local_strong → gemma4 matches (qwen is coding-only).
   assert.equal(result.audit.model_recommendation.id, "gemma4:e4b-it-q4_K_M");
   assert.equal(result.audit.model_recommendation.params_in_billions, 4);
 });
@@ -98,13 +91,7 @@ test("route picks the cheapest adequate matching model from the catalog", async 
     baseOptions({
       async runClassifier(name) {
         if (name === "routing") {
-          return {
-            ...results.routing,
-            routing: {
-              ...results.routing.routing,
-              model_tier: "frontier_strong",
-            },
-          };
+          return { ...results.routing, model_tier: "frontier_strong" };
         }
         return results[name];
       },
@@ -112,12 +99,12 @@ test("route picks the cheapest adequate matching model from the catalog", async 
   );
 
   assert.equal(result.action, "route");
-  // reasoning + frontier_strong + tool_assisted → only gpt-5.5 matches.
+  // reasoning + frontier_strong → only gpt-5.5 matches.
   assert.equal(result.downstream.model_id, "gpt-5.5");
   assert.equal(result.audit.model_recommendation.resolution.fell_back_to_default, false);
 });
 
-test("route returns the downstream-ready message window", async () => {
+test("route returns the full normalized message window", async () => {
   const messages = [
     userMessage("older"),
     { role: "assistant", text: "Which repo?" },
@@ -128,20 +115,13 @@ test("route returns the downstream-ready message window", async () => {
     { messages },
     baseOptions({
       async runClassifier(name) {
-        if (name === "conversation_history") {
-          return {
-            ...results.conversation_history,
-            context: { status: "sufficient", include_prior_messages: 2 },
-          };
-        }
         return results[name];
       },
     }),
   );
 
   assert.equal(result.action, "route");
-  assert.deepEqual(result.downstream.messages, messages.slice(1));
-  assert.deepEqual(result.downstream.context, { status: "sufficient", include_prior_messages: 2 });
+  assert.deepEqual(result.downstream.messages, messages);
   assert.equal(result.downstream.target_message.text, "review routing");
 });
 
@@ -156,7 +136,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
           return Promise.resolve({
             reason: "The message is a closing acknowledgement.",
             confidence: 0.95,
-            handoff: { kind: "final", reply: "Anytime." },
+            final_reply: { reply: "Anytime." },
           });
         }
 
@@ -176,53 +156,18 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
 
   assert.equal(result.action, "answer");
   assert.equal(result.reply, "Anytime.");
-  assert.deepEqual(result.audit.handoff, { kind: "final", reply: "Anytime." });
+  assert.deepEqual(result.audit.final_reply, { reply: "Anytime." });
   assert.equal(result.audit.fired_by, "preflight");
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.audit.meta.classifiers.preflight, {
     reason: "The message is a closing acknowledgement.",
     confidence: 0.95,
-    handoff: { kind: "final", reply: "Anytime." },
+    final_reply: { reply: "Anytime." },
     status: { ok: true, source: "model" },
     version: "1.0.0",
   });
-  assert.equal(aborted.length, 6);
+  assert.equal(aborted.length, Object.keys(results).length - 1);
   assert.equal(Object.keys(result.audit.meta.classifiers).length, 1);
-});
-
-test("terminal preflight returns without waiting for slow aborted classifiers", async () => {
-  const settledAfterAbort = [];
-
-  const result = await classifyOpenClassifyInput(
-    { messages: [userMessage("thanks")] },
-    baseOptions({
-      runClassifier(name, _input, signal) {
-        if (name === "preflight") {
-          return Promise.resolve({
-            reason: "The message is a closing acknowledgement.",
-            confidence: 0.95,
-            handoff: { kind: "final", reply: "Anytime." },
-          });
-        }
-
-        return new Promise((resolve) => {
-          signal.addEventListener(
-            "abort",
-            () => {
-              setTimeout(() => {
-                settledAfterAbort.push(name);
-                resolve(results[name]);
-              }, 10);
-            },
-            { once: true },
-          );
-        });
-      },
-    }),
-  );
-
-  assert.equal(result.action, "answer");
-  assert.equal(settledAfterAbort.length, 0);
 });
 
 test("high risk security aborts non-gate classifiers and returns block", async () => {
@@ -230,7 +175,9 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   const security = {
     reason: "The message attempts to override instructions.",
     confidence: 0.95,
-    safety: { decision: "block", risk_level: "high_risk", signals: ["instruction_attack"] },
+    decision: "block",
+    risk_level: "high_risk",
+    signals: ["instruction_attack"],
   };
 
   const result = await classifyOpenClassifyInput(
@@ -241,7 +188,7 @@ test("high risk security aborts non-gate classifiers and returns block", async (
           return Promise.resolve({
             reason: "The message requires downstream handling.",
             confidence: 0.85,
-            handoff: { kind: "route", ack_reply: "Let me check." },
+            ack_reply: { reply: "Let me check." },
           });
         }
         if (name === "security") {
@@ -265,7 +212,7 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   assert.equal(result.action, "block");
   assert.equal(result.audit.fired_by, "security");
   assert.equal(result.reason.risk_level, "high_risk");
-  assert.equal(result.audit.handoff, undefined);
+  assert.equal(result.audit.final_reply, undefined);
   assert.deepEqual(result.audit.safety, {
     decision: "block",
     risk_level: "high_risk",
@@ -286,11 +233,9 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
   const security = {
     reason: "The request may involve sensitive data but intent is ambiguous.",
     confidence: 0.95,
-    safety: {
-      decision: "needs_review",
-      risk_level: "suspicious",
-      signals: ["secret_or_private_data_risk"],
-    },
+    decision: "needs_review",
+    risk_level: "suspicious",
+    signals: ["secret_or_private_data_risk"],
   };
 
   const result = await classifyOpenClassifyInput(
@@ -301,7 +246,7 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
           return Promise.resolve({
             reason: "The message requires downstream handling.",
             confidence: 0.85,
-            handoff: { kind: "route", ack_reply: "Let me check." },
+            ack_reply: { reply: "Let me check." },
           });
         }
         if (name === "security") {
@@ -324,8 +269,11 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
 
   assert.equal(result.action, "needs_review");
   assert.equal(result.fired_by, "security");
-  assert.equal("kind" in result, false);
-  assert.deepEqual(result.audit.safety, security.safety);
+  assert.deepEqual(result.audit.safety, {
+    decision: security.decision,
+    risk_level: security.risk_level,
+    signals: security.signals,
+  });
   assert.equal("reply" in result, false);
   assert.deepEqual(result.audit.meta.classifiers.security, {
     ...security,
@@ -336,7 +284,7 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
   assert.ok(aborted.length > 0);
 });
 
-test("low-confidence preflight without handoff behaves like route", async () => {
+test("low-confidence preflight without final_reply behaves like route", async () => {
   const result = await classifyOpenClassifyInput(
     { messages: [userMessage("ambiguous")] },
     baseOptions({
@@ -353,7 +301,7 @@ test("low-confidence preflight without handoff behaves like route", async () => 
   );
 
   assert.equal(result.action, "route");
-  assert.equal(result.audit.meta.classifiers.preflight.handoff, undefined);
+  assert.equal(result.audit.meta.classifiers.preflight.final_reply, undefined);
 });
 
 test("normalization failure rejects before classifiers start", async () => {
@@ -394,13 +342,9 @@ test("classifier failure retries once and falls back", async () => {
   assert.equal(result.action, "route");
   assert.equal(attempts.security, 2);
   const security = result.audit.meta.classifiers.security;
-  assert.deepEqual(security.safety, {
-    decision: "needs_review",
-    risk_level: "unknown",
-    signals: [],
-  });
-  assert.equal(security.reason, "");
-  assert.equal(security.confidence, 0);
+  assert.equal(security.decision, "needs_review");
+  assert.equal(security.risk_level, "unknown");
+  assert.deepEqual(security.signals, []);
   assert.equal(security.status.ok, false);
   assert.equal(security.status.source, "fallback");
   assert.match(security.status.error, /model unavailable/);
@@ -426,8 +370,7 @@ test("classifier timeout retries once and falls back even if signal is ignored",
   assert.equal(result.action, "route");
   assert.equal(attempts.routing, 2);
   const routing = result.audit.meta.classifiers.routing;
-  assert.equal(routing.routing, undefined);
-  assert.equal(routing.reason, "");
+  assert.equal(routing.model_tier, undefined);
   assert.equal(routing.status.ok, false);
   assert.equal(routing.status.reason, "timeout");
 });
@@ -479,12 +422,13 @@ test("preflight failure falls back and still routes", async () => {
   assert.equal(result.action, "route");
   assert.equal(attempts.preflight, 2);
   const preflight = result.audit.meta.classifiers.preflight;
-  assert.equal(preflight.handoff, undefined);
+  assert.equal(preflight.final_reply, undefined);
+  assert.equal(preflight.ack_reply, undefined);
   assert.equal(preflight.status.ok, false);
   assert.equal(preflight.status.source, "fallback");
-  // No preflight ack contribution: the fallback's empty reply means the
-  // handoff slot doesn't get a contributor.
-  assert.equal(result.audit.handoff, undefined);
+  // No preflight contribution: the fallback has no signals.
+  assert.equal(result.audit.final_reply, undefined);
+  assert.equal(result.audit.ack_reply, undefined);
 });
 
 test("memory_retrieval_queries fallback yields fallback custom output", async () => {
@@ -502,12 +446,9 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
   );
 
   assert.equal(result.action, "route");
-  assert.equal(result.memory_queries, undefined);
   assert.deepEqual(result.audit.custom_outputs, [
     {
       classifier: "memory_retrieval_queries",
-      reason: "",
-      confidence: 0,
       output: { queries: [] },
     },
   ]);
@@ -516,7 +457,6 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
   });
   const memEntry = result.audit.meta.classifiers.memory_retrieval_queries;
   assert.equal(memEntry.status.ok, false);
-  assert.equal(memEntry.reason, "");
 });
 
 test("classifierRetryCount of 0 attempts each classifier exactly once", async () => {

@@ -1,14 +1,12 @@
 import type {
+  AckReplySignal,
+  ClassifierOutput,
   CustomClassifierOutput,
-  HandoffSignal,
-  ResponseSignal,
+  FinalReplySignal,
   RoutingSignal,
-  SafetySignal,
-  StockClassifierOutput,
-  SummarySignal,
-  ToolsSignal,
-  ContextSignal,
   RuntimeClassifierManifest,
+  SafetySignal,
+  ToolsSignal,
 } from "./stock.js";
 import type {
   ClassifierInput,
@@ -16,24 +14,21 @@ import type {
   ConversationMessageInput,
 } from "./types.js";
 import type {
-  DownstreamExecutionMode,
   DownstreamModelTier,
   ModelSpecialization,
 } from "./enums.js";
 
-export type ClassifierResultBase = Pick<StockClassifierOutput, "reason" | "confidence">;
 export type ClassifierName = string;
-export type ClassifierResults = Record<ClassifierName, StockClassifierOutput>;
+export type ClassifierResults = Record<ClassifierName, ClassifierOutput>;
 export type RunClassifier = (
   name: ClassifierName,
   input: ClassifierInput,
   signal: AbortSignal,
-) => Promise<StockClassifierOutput>;
+) => Promise<ClassifierOutput>;
 
 export interface CatalogEntry {
   readonly id: string;
   readonly specializations: ReadonlyArray<ModelSpecialization>;
-  readonly execution_modes: ReadonlyArray<DownstreamExecutionMode>;
   readonly tier: DownstreamModelTier;
   readonly params_in_billions: number | null;
   readonly context_window: number;
@@ -50,16 +45,11 @@ export interface Catalog {
 export interface ModelRecommendationResolution {
   readonly constraints_used: Partial<{
     specialization: ModelSpecialization;
-    execution_mode: DownstreamExecutionMode;
     tier: DownstreamModelTier;
   }>;
   readonly constraints_dropped: ReadonlyArray<{
-    readonly axis: "specialization" | "execution_mode" | "tier";
-    readonly reason:
-      | "low_confidence"
-      | "escape_hatch"
-      | "no_match_relaxed"
-      | "default_fallback";
+    readonly axis: "specialization" | "tier";
+    readonly reason: "low_confidence" | "no_match_relaxed" | "default_fallback";
   }>;
   readonly confidences: Partial<{
     routing: number;
@@ -78,13 +68,11 @@ export interface ModelRecommendation {
 }
 
 export interface Envelope {
-  readonly handoff?: HandoffSignal;
+  readonly final_reply?: FinalReplySignal;
+  readonly ack_reply?: AckReplySignal;
   readonly routing?: RoutingSignal;
-  readonly context?: ContextSignal;
   readonly tools?: ToolsSignal;
-  readonly response?: ResponseSignal;
   readonly safety?: SafetySignal;
-  readonly summary?: SummarySignal;
   readonly custom_outputs: ReadonlyArray<CustomClassifierOutput>;
   readonly model_recommendation: ModelRecommendation;
 }
@@ -95,7 +83,6 @@ export interface DownstreamTargetMessage {
   readonly role: "user";
   readonly text: string;
   readonly hash: string;
-  readonly summary?: string;
 }
 
 export interface DownstreamPayload {
@@ -103,12 +90,10 @@ export interface DownstreamPayload {
   readonly messages: ReadonlyArray<ConversationMessageInput>;
   readonly target_message: DownstreamTargetMessage;
   readonly tools: ToolsSignal;
-  readonly context?: ContextSignal;
-  readonly context_summary?: string;
   readonly attachments: ClassifierInput["attachments"];
 }
 
-export type ClassifierEntry = StockClassifierOutput & {
+export type ClassifierEntry = ClassifierOutput & {
   readonly status: ClassifierRunStatus;
   readonly version: string;
 };
@@ -128,19 +113,18 @@ export type AnswerPipelineResult = {
   readonly reply: string;
   readonly reason: "already_answered";
   readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "handoff" | "meta" | "fired_by">;
+  readonly audit: Pick<PipelineAudit, "final_reply" | "meta" | "fired_by">;
 };
 
 export type BlockPipelineResult = {
   readonly action: "block";
   readonly message_id: string;
   readonly reason: {
-    readonly code?: string;
     readonly risk_level?: SafetySignal["risk_level"];
     readonly signals?: ReadonlyArray<string>;
   };
   readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "handoff" | "safety" | "meta" | "fired_by">;
+  readonly audit: Pick<PipelineAudit, "safety" | "meta" | "fired_by">;
 };
 
 export type NeedsReviewPipelineResult = {

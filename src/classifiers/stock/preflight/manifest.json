@@ -1,0 +1,12 @@
+{
+  "kind": "stock",
+  "name": "preflight",
+  "version": "1.0.0",
+  "purpose": "Determine whether the latest message can be answered immediately or should continue downstream.",
+  "order": 10,
+  "fallback": {},
+  "ui": {
+    "label": "Preflight",
+    "renderer": "object"
+  }
+}

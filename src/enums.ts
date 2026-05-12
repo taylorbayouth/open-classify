@@ -1,22 +1,13 @@
 // Shared categorical enums used by more than one classifier or by the
-// catalog. Classifier manifests declare which stock fields they emit.
-// Each enum is exported twice:
-// once as a `*_VALUES` array (used by validators and tests) and once as a
-// string-literal union type. Keep the array and the type in sync — the type
-// is derived from the array via `(typeof X)[number]`.
+// catalog. Each enum is exported twice: once as a `*_VALUES` array (used by
+// validators and tests) and once as a string-literal union type derived from
+// the array via `(typeof X)[number]`. Keep the array and the type in sync.
 //
 // Classifier outputs omit uncertain optional fields rather than emitting an
 // escape-hatch value, so these enums list only concrete choices.
 
-export const DOWNSTREAM_EXECUTION_MODE_VALUES = [
-  "direct",
-  "tool_assisted",
-  "workflow",
-] as const;
-export type DownstreamExecutionMode = (typeof DOWNSTREAM_EXECUTION_MODE_VALUES)[number];
-
 // Coarse capability+latency tier for the downstream model. Callers map these
-// onto concrete model names via `DownstreamModelConfig` (see types.ts).
+// onto concrete model names via the catalog.
 export const DOWNSTREAM_MODEL_TIER_VALUES = [
   "local_fast",
   "local_small",
@@ -31,19 +22,19 @@ export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 // Broad tool families the downstream assistant might need exposed. Intentionally
 // coarse — tool-level decisions happen downstream once the manifest is loaded.
 export const TOOL_FAMILY_VALUES = [
-  "web",                // search, fetch, browse
-  "email_and_chat",     // Gmail, Slack, Teams, Discord, iMessage
-  "calendar",           // Google Calendar, Outlook, scheduling
-  "files",              // Drive, Dropbox, Box, local file ops
-  "docs_and_sheets",    // Google Docs, Notion, Word, Sheets, Excel, Airtable
-  "tasks_and_projects", // Jira, Linear, Asana, Todoist, Trello, GitHub Issues
-  "code",               // GitHub, GitLab, Vercel, AWS, CI/CD, deploy
-  "business_apps",      // CRM (Salesforce, HubSpot), finance (Stripe), design (Figma), everything else
+  "web",
+  "email_and_chat",
+  "calendar",
+  "files",
+  "docs_and_sheets",
+  "tasks_and_projects",
+  "code",
+  "business_apps",
 ] as const;
 export type ToolFamily = (typeof TOOL_FAMILY_VALUES)[number];
 
 // Which kind of model/prompt specialization fits the request best. Combined
-// with the tier to look up a concrete model in `DownstreamModelConfig`.
+// with the tier to look up a concrete model in the catalog.
 export const MODEL_SPECIALIZATION_VALUES = [
   "agentic_coding",
   "agentic_workflows",

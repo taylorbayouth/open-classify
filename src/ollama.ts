@@ -10,7 +10,6 @@
 // `classifyOpenClassifyInput` — you don't have to use this module at all.
 
 import { execFile } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { loadCatalog } from "./catalog.js";
 import {
@@ -22,6 +21,7 @@ import {
 } from "./classifiers.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
 import type { Catalog } from "./manifest.js";
+import type { ClassifierOutput } from "./stock.js";
 import type {
   ClassifierInput,
   OpenClassifyInput,
@@ -35,12 +35,11 @@ export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
 export const OLLAMA_REQUIRED_PARALLELISM = 7;
-export const OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG = "adapter-models.json";
 export const OLLAMA_DEFAULT_CATALOG_PATH = "downstream-models.json";
 
 /*
  * Gemma 4 E4B's native context is 131,072 tokens (128K). The reference local
- * runtime is deliberately much smaller because Open Classify sends seven
+ * runtime is deliberately much smaller because Open Classify sends multiple
  * classifiers in parallel on one workstation-class Ollama server. This is the
  * configured classifier runtime context, not the model's architectural maximum.
  */
@@ -56,13 +55,6 @@ export const OLLAMA_CLASSIFIER_MODELS = Object.fromEntries(
   CLASSIFIER_NAMES.map((name) => [name, null]),
 ) as Record<ClassifierName, string | null>;
 
-export const OLLAMA_CLASSIFIER_ADAPTER_MODELS = Object.fromEntries(
-  CLASSIFIER_NAMES.map((name) => [
-    name,
-    MODULES_BY_NAME[name].backend?.ollama?.adapter_model ?? null,
-  ]),
-) as Record<ClassifierName, string | null>;
-
 export interface OllamaOptions {
   temperature?: number;
   top_p?: number;
@@ -72,7 +64,6 @@ export interface OllamaOptions {
 
 export interface OllamaClassifierRunnerConfig {
   host?: string;
-  adapterModelConfig?: string;
   models?: Partial<Record<ClassifierName, string | null>>;
   options?: OllamaOptions;
   fetch?: typeof fetch;
@@ -140,10 +131,12 @@ export function createOllamaClassifierRunner(
 ): RunClassifier {
   const host = trimTrailingSlash(config.host ?? OLLAMA_DEFAULT_HOST);
   const fetchImpl = config.fetch ?? fetch;
-  const models = {
-    ...discoverOllamaClassifierAdapterModels(config.adapterModelConfig),
-    ...config.models,
-  };
+  const models: Record<ClassifierName, string | null> = { ...OLLAMA_CLASSIFIER_MODELS };
+  if (config.models) {
+    for (const [name, value] of Object.entries(config.models)) {
+      if (value !== undefined) models[name] = value;
+    }
+  }
   const options = {
     temperature: 0,
     num_ctx: OLLAMA_CONTEXT_LENGTH,
@@ -169,41 +162,6 @@ export function createOllamaClassifierRunner(
     const model = models[name] ?? OLLAMA_BASE_MODEL;
     return runOllamaClassifier(name, input, signal, fetchImpl, host, model, options);
   };
-}
-
-// Best-effort load of local classifier model overrides.
-// Missing/malformed files are not fatal — we keep the default classifier model
-// map, which is currently all-null so the base model gets used. If the file is
-// partly populated, only the matching keys override; the rest stay unchanged.
-export function discoverOllamaClassifierAdapterModels(
-  configPath = OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
-): Record<ClassifierName, string | null> {
-  const models: Record<ClassifierName, string | null> = {
-    ...OLLAMA_CLASSIFIER_ADAPTER_MODELS,
-  };
-  if (!isFile(configPath)) {
-    return models;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
-    if (!isRecord(parsed)) {
-      return models;
-    }
-
-    for (const name of CLASSIFIER_NAMES) {
-      const model = parsed[name];
-      if (typeof model === "string" && model.trim().length > 0) {
-        models[name] = model.trim();
-      } else if (model === null) {
-        models[name] = null;
-      }
-    }
-  } catch {
-    return models;
-  }
-
-  return models;
 }
 
 export async function assertOllamaResources(
@@ -263,7 +221,7 @@ async function runOllamaClassifier(
   host: string,
   model: string,
   options: OllamaOptions,
-){
+): Promise<ClassifierOutput> {
   const module_ = MODULES_BY_NAME[name];
   const systemPrompt = module_.systemPrompt;
   const configuredBaseModel = module_.backend?.ollama?.base_model;
@@ -333,9 +291,6 @@ async function runOllamaClassifier(
   try {
     return validateClassifierOutput(name, parsed, model);
   } catch (error) {
-    // Validation helpers throw the backend-neutral ClassifierValidationError.
-    // The public Ollama API keeps OllamaClassifierError, so wrap at the
-    // boundary instead of leaking the internal type.
     if (error instanceof ClassifierValidationError) {
       throw new OllamaClassifierError(name, model, error.message, error);
     }
@@ -343,11 +298,6 @@ async function runOllamaClassifier(
   }
 }
 
-// Cross-platform "available memory" reading. On macOS, `os.freemem()` only
-// counts truly idle pages and underreports badly when the system is using
-// memory for cache; we shell out to `vm_stat` to get free + speculative +
-// purgeable, which matches what Activity Monitor calls "available." On
-// Linux/everywhere else we trust `os.freemem()`.
 async function getSystemMemoryBytes(): Promise<{
   totalMemoryBytes: number;
   availableMemoryBytes: number;
@@ -389,27 +339,6 @@ function readVmStatPages(output: string, label: string): number {
   return match === null ? 0 : Number(match[1]);
 }
 
-/*
- * Prompt packing policy:
- *
- * The normalizer enforces coarse payload safety based on the reference runtime
- * budget. This runner enforces exact fit for the configured Ollama num_ctx
- * after the full classifier system prompt, wrapper text, conversation window,
- * and attachment metadata have been rendered.
- *
- * We intentionally do not truncate message text here. The final message is the
- * thing being classified, and chopping off its tail can change the route,
- * security posture, or memory hints in ways that look confident and are wrong.
- * Older context is useful but optional, so we drop older whole messages until
- * the fully rendered chat prompt fits the estimated context window. If the
- * target message alone does not fit, this runtime should fail clearly instead
- * of manufacturing a smaller, more convenient user request.
- *
- * This is not a tokenizer. It is the smallest honest heuristic: one named
- * assumption, applied to the full rendered prompt including the classifier
- * system prompt and our wrapper text. A model tokenizer would be more exact;
- * a pile of hidden constants would only be more decorative.
- */
 function buildPackedClassifierPrompt(
   name: ClassifierName,
   input: ClassifierInput,
@@ -542,14 +471,6 @@ function unwrapJsonFence(content: string): string {
   const trimmed = content.trim();
   const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
   return match?.[1]?.trim() ?? trimmed;
-}
-
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
 }
 
 function trimTrailingSlash(value: string): string {

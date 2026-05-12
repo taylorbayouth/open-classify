@@ -12,7 +12,6 @@ const CATALOG = {
     {
       id: "gpt-5.5",
       specializations: ["reasoning", "coding", "writing"],
-      execution_modes: ["direct", "tool_assisted", "workflow"],
       tier: "frontier_strong",
       params_in_billions: 800,
       context_window: 1_000_000,
@@ -23,7 +22,6 @@ const CATALOG = {
     {
       id: "gpt-5.3-codex",
       specializations: ["coding"],
-      execution_modes: ["direct", "tool_assisted"],
       tier: "frontier_fast",
       params_in_billions: 30,
       context_window: 500_000,
@@ -34,7 +32,6 @@ const CATALOG = {
     {
       id: "gpt-5.4-mini",
       specializations: ["writing", "chat", "reasoning"],
-      execution_modes: ["direct", "tool_assisted", "workflow"],
       tier: "frontier_fast",
       params_in_billions: 15,
       context_window: 200_000,
@@ -45,7 +42,6 @@ const CATALOG = {
     {
       id: "qwen2.5-coder",
       specializations: ["coding"],
-      execution_modes: ["direct", "tool_assisted"],
       tier: "local_strong",
       params_in_billions: 14,
       context_window: 128_000,
@@ -56,18 +52,11 @@ const CATALOG = {
 const HIGH = 0.9;
 const LOW = 0.1;
 
-function routingSignal(routing, confidence = HIGH) {
-  return { routing, reason: "ok", confidence };
-}
-
 test("resolveModel picks the cheapest exact stock-routing match", () => {
   const rec = resolveModel(
     {
-      routing: routingSignal({
-        specialization: "coding",
-        execution_mode: "tool_assisted",
-        model_tier: "frontier_fast",
-      }),
+      routing: { model_tier: "frontier_fast", confidence: HIGH },
+      model_specialization: { specialization: "coding", confidence: HIGH },
     },
     CATALOG,
     DEFAULT_CONFIDENCE_THRESHOLD,
@@ -75,7 +64,6 @@ test("resolveModel picks the cheapest exact stock-routing match", () => {
   assert.equal(rec.id, "gpt-5.3-codex");
   assert.deepEqual(rec.resolution.constraints_used, {
     specialization: "coding",
-    execution_mode: "tool_assisted",
     tier: "frontier_fast",
   });
 });
@@ -83,20 +71,17 @@ test("resolveModel picks the cheapest exact stock-routing match", () => {
 test("resolveModel ignores low-confidence stock routing", () => {
   const rec = resolveModel(
     {
-      routing: routingSignal({
-        specialization: "coding",
-        execution_mode: "tool_assisted",
-        model_tier: "frontier_fast",
-      }, LOW),
+      routing: { model_tier: "frontier_fast", confidence: LOW },
+      model_specialization: { specialization: "coding", confidence: LOW },
     },
     CATALOG,
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
+  // No confident constraints → catalog default ranking → cheapest model.
   assert.equal(rec.id, "qwen2.5-coder");
   assert.deepEqual(rec.resolution.constraints_used, {});
   assert.deepEqual(rec.resolution.constraints_dropped, [
     { axis: "specialization", reason: "low_confidence" },
-    { axis: "execution_mode", reason: "low_confidence" },
     { axis: "tier", reason: "low_confidence" },
   ]);
 });
@@ -104,72 +89,24 @@ test("resolveModel ignores low-confidence stock routing", () => {
 test("resolveModel relaxes tier before specialization", () => {
   const rec = resolveModel(
     {
-      routing: routingSignal({
-        specialization: "reasoning",
-        execution_mode: "workflow",
-        model_tier: "local_fast",
-      }),
+      routing: { model_tier: "local_fast", confidence: HIGH },
+      model_specialization: { specialization: "reasoning", confidence: HIGH },
     },
     CATALOG,
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
   assert.equal(rec.id, "gpt-5.4-mini");
-  assert.deepEqual(rec.resolution.constraints_used, {
-    specialization: "reasoning",
-    execution_mode: "workflow",
-  });
+  assert.deepEqual(rec.resolution.constraints_used, { specialization: "reasoning" });
   assert.deepEqual(rec.resolution.constraints_dropped, [
     { axis: "tier", reason: "no_match_relaxed" },
   ]);
 });
 
-test("resolveModel keeps execution_mode as a hard constraint through relaxation", () => {
+test("resolveModel relaxes specialization and tier when no constraint matches", () => {
   const rec = resolveModel(
     {
-      routing: routingSignal({
-        specialization: "coding",
-        execution_mode: "workflow",
-        model_tier: "local_strong",
-      }),
-    },
-    {
-      default: "direct-coder",
-      models: [
-        {
-          id: "direct-coder",
-          specializations: ["coding"],
-          execution_modes: ["direct"],
-          tier: "local_strong",
-          params_in_billions: 14,
-          context_window: 128_000,
-        },
-        {
-          id: "workflow-generalist",
-          specializations: ["chat"],
-          execution_modes: ["workflow"],
-          tier: "frontier_fast",
-          params_in_billions: 15,
-          context_window: 200_000,
-          input_tokens_cpm: 0.25,
-          cached_tokens_cpm: 0.03,
-          output_tokens_cpm: 1.25,
-        },
-      ],
-    },
-    DEFAULT_CONFIDENCE_THRESHOLD,
-  );
-  assert.equal(rec.id, "workflow-generalist");
-  assert.deepEqual(rec.resolution.constraints_used, { execution_mode: "workflow" });
-});
-
-test("resolveModel falls back to catalog.default when no hard-capability entry matches", () => {
-  const rec = resolveModel(
-    {
-      routing: routingSignal({
-        specialization: "coding",
-        execution_mode: "workflow",
-        model_tier: "local_strong",
-      }),
+      routing: { model_tier: "local_strong", confidence: HIGH },
+      model_specialization: { specialization: "coding", confidence: HIGH },
     },
     {
       default: "fallback",
@@ -177,7 +114,6 @@ test("resolveModel falls back to catalog.default when no hard-capability entry m
         {
           id: "fallback",
           specializations: ["chat"],
-          execution_modes: ["direct"],
           tier: "frontier_fast",
           params_in_billions: 15,
           context_window: 200_000,
@@ -190,7 +126,11 @@ test("resolveModel falls back to catalog.default when no hard-capability entry m
     DEFAULT_CONFIDENCE_THRESHOLD,
   );
   assert.equal(rec.id, "fallback");
-  assert.equal(rec.resolution.fell_back_to_default, true);
+  assert.equal(rec.resolution.fell_back_to_default, false);
+  assert.deepEqual(rec.resolution.constraints_dropped, [
+    { axis: "specialization", reason: "no_match_relaxed" },
+    { axis: "tier", reason: "no_match_relaxed" },
+  ]);
 });
 
 test("resolveModel ties on price by picking the larger model", () => {
@@ -200,7 +140,6 @@ test("resolveModel ties on price by picking the larger model", () => {
       {
         id: "small",
         specializations: ["chat"],
-        execution_modes: ["direct"],
         tier: "local_strong",
         params_in_billions: 4,
         context_window: 200_000,
@@ -208,7 +147,6 @@ test("resolveModel ties on price by picking the larger model", () => {
       {
         id: "large",
         specializations: ["chat"],
-        execution_modes: ["direct"],
         tier: "local_strong",
         params_in_billions: 14,
         context_window: 128_000,
@@ -217,11 +155,8 @@ test("resolveModel ties on price by picking the larger model", () => {
   };
   const rec = resolveModel(
     {
-      routing: routingSignal({
-        specialization: "chat",
-        execution_mode: "direct",
-        model_tier: "local_strong",
-      }),
+      routing: { model_tier: "local_strong", confidence: HIGH },
+      model_specialization: { specialization: "chat", confidence: HIGH },
     },
     catalog,
     DEFAULT_CONFIDENCE_THRESHOLD,
@@ -232,57 +167,45 @@ test("resolveModel ties on price by picking the larger model", () => {
 test("composeEnvelope merges stock fields and custom outputs", () => {
   const envelope = composeEnvelope({
     registry: [
-      { name: "a", order: 20 },
-      { name: "b", order: 10 },
-      { name: "c", order: 30 },
+      { kind: "stock", name: "preflight", order: 10 },
+      { kind: "stock", name: "routing", order: 20 },
+      { kind: "stock", name: "model_specialization", order: 30 },
+      { kind: "stock", name: "tools", order: 40 },
+      { kind: "stock", name: "security", order: 50 },
+      { kind: "custom", name: "memory", order: 60 },
     ],
     results: {
-      a: {
-        reason: "a",
-        confidence: 0.9,
-        handoff: { kind: "route", ack_reply: "low priority" },
-        tools: { required: true, families: ["workspace"] },
-        output: { queries: ["alpha"] },
-      },
-      b: {
-        reason: "b",
-        confidence: 0.9,
-        handoff: { kind: "route", ack_reply: "high priority" },
-        tools: { required: true, families: ["web", "workspace"] },
-        routing: {
-          specialization: "reasoning",
-          execution_mode: "tool_assisted",
-          model_tier: "frontier_fast",
-        },
-      },
-      c: {
-        reason: "c",
-        confidence: 0.9,
-        safety: { risk_level: "suspicious", signals: ["instruction_attack"] },
-      },
+      preflight: { ack_reply: { reply: "On it." }, confidence: 0.9 },
+      routing: { model_tier: "frontier_fast", confidence: 0.9 },
+      model_specialization: { specialization: "reasoning", confidence: 0.9 },
+      tools: { required: true, families: ["web", "workspace"], confidence: 0.9 },
+      security: { risk_level: "suspicious", signals: ["instruction_attack"], confidence: 0.9 },
+      memory: { output: { queries: ["alpha"] }, reason: "a", confidence: 0.9 },
     },
     catalog: CATALOG,
     input: { text: "x", messages: [], attachments: [], target_message_hash: "abc12345" },
   });
 
-  assert.deepEqual(envelope.handoff, { kind: "route", ack_reply: "high priority" });
-  assert.deepEqual(envelope.tools, { required: true, families: ["workspace", "web"] });
+  assert.deepEqual(envelope.ack_reply, { reply: "On it." });
+  assert.equal(envelope.final_reply, undefined);
+  assert.deepEqual(envelope.tools, { required: true, families: ["web", "workspace"] });
   assert.deepEqual(envelope.safety, {
     risk_level: "suspicious",
     signals: ["instruction_attack"],
   });
+  assert.deepEqual(envelope.routing, {
+    model_tier: "frontier_fast",
+    specialization: "reasoning",
+  });
   assert.deepEqual(envelope.custom_outputs, [
-    { classifier: "a", reason: "a", confidence: 0.9, output: { queries: ["alpha"] } },
+    { classifier: "memory", reason: "a", confidence: 0.9, output: { queries: ["alpha"] } },
   ]);
-  assert.equal(envelope.memory_queries, undefined);
-  assert.equal(envelope.tool_families, undefined);
-  assert.equal(envelope.safety_signals, undefined);
 });
 
 test("composeEnvelope is pure: same inputs produce structurally equal outputs", () => {
   const args = {
-    registry: [{ name: "a", order: 0 }],
-    results: { a: { reason: "", confidence: 0.9, tools: { required: false, families: [] } } },
+    registry: [{ kind: "stock", name: "tools", order: 40 }],
+    results: { tools: { required: false, families: [], confidence: 0.9 } },
     catalog: CATALOG,
     input: { text: "x", messages: [], attachments: [], target_message_hash: "abc12345" },
   };

@@ -45,8 +45,7 @@
     "setup": "node scripts/setup.mjs",
     "start": "node scripts/start.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "build-evals": "node scripts/build-evals.mjs",
-    "ui": "npm run build && node dist/src/ui-server.js",
+"ui": "npm run build && node dist/src/ui-server.js",
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {

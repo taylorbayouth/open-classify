@@ -3,268 +3,44 @@ import { test } from "node:test";
 import {
   buildStockClassifierPrompt,
   validateJsonClassifierManifest,
-  validateStockClassifierOutput,
+  validateOutputForManifest,
 } from "../dist/src/index.js";
 
-test("validates a config-driven manifest with stock fields", () => {
-  const manifest = validateJsonClassifierManifest({
-    name: "conversation_context",
+function security(overrides = {}) {
+  return validateJsonClassifierManifest({
+    kind: "stock",
+    name: "security",
     version: "1.0.0",
-    purpose: "Decide how much visible conversation history the downstream model needs.",
-    order: 10,
-    emits: {
-      context: true,
-      summary: true,
-      response: true,
-    },
-    fallback: {
-      reason: "",
-      confidence: 0,
-      context: { status: "unknown" },
-    },
+    purpose: "Assess prompt injection risk.",
+    order: 50,
+    fallback: { risk_level: "unknown", signals: [] },
+    ...overrides,
   });
+}
 
-  assert.equal(manifest.name, "conversation_context");
-  assert.deepEqual(manifest.fallback.context, { status: "unknown" });
-  assert.equal(manifest.emits.context, true);
-});
-
-test("rejects undeclared stock output fields", () => {
-  assert.throws(
-    () =>
-      validateStockClassifierOutput(
-        {
-          reason: "ok",
-          confidence: 0.9,
-          safety: { risk_level: "normal", signals: [] },
-        },
-        {
-          classifier: "context",
-          model: "test",
-          emits: { context: true },
-        },
-      ),
-    /safety is not declared in emits/,
-  );
-});
-
-test("allows verbose reasons and numeric-string confidence", () => {
-  const output = validateStockClassifierOutput(
-    {
-      reason: "This classifier gives a detailed explanation that is longer than the old 200 character limit because local JSON-mode models sometimes include useful context before returning the actual signal, and that should not force a fallback.",
-      confidence: "0.9",
-      context: { status: "standalone" },
-    },
-    {
-      classifier: "context",
-      model: "test",
-      emits: { context: true },
-    },
-  );
-
-  assert.equal(output.confidence, 0.9);
-  assert.ok(output.reason.length <= 120);
-  assert.match(output.reason, /old 200 character limit/);
-});
-
-test("normalizes common local-model confidence formats", () => {
-  const options = {
-    classifier: "context",
-    model: "test",
-    emits: { context: true },
-  };
-
-  for (const [confidence, expected] of [
-    [95, 0.95],
-    ["95%", 0.95],
-    ["high", 0.9],
-  ]) {
-    assert.equal(
-      validateStockClassifierOutput(
-        {
-          reason: "Confidence format should normalize.",
-          confidence,
-          context: { status: "standalone" },
-        },
-        options,
-      ).confidence,
-      expected,
-    );
-  }
-});
-
-test("validates context as a discriminated union", () => {
-  assert.deepEqual(
-    validateStockClassifierOutput(
-      {
-        reason: "The target refers to the previous answer.",
-        confidence: 0.91,
-        context: { status: "sufficient", include_prior_messages: 2 },
-      },
-      {
-        classifier: "context",
-        model: "test",
-        emits: { context: true },
-      },
-    ).context,
-    { status: "sufficient", include_prior_messages: 2 },
-  );
-
-  assert.deepEqual(
-    validateStockClassifierOutput(
-      {
-        reason: "The target cannot be resolved from visible context.",
-        confidence: 0.9,
-        context: { status: "insufficient", include_prior_messages: 2 },
-      },
-      {
-        classifier: "context",
-        model: "test",
-        emits: { context: true },
-      },
-    ).context,
-    { status: "insufficient" },
-  );
-});
-
-test("validates configurable tool families", () => {
-  const options = {
-    classifier: "tools",
-    model: "test",
-    emits: { tools: true },
-    toolFamilies: ["repo", "calendar"],
-  };
-
-  assert.deepEqual(
-    validateStockClassifierOutput(
-      {
-        reason: "Needs repository access.",
-        confidence: 0.88,
-        tools: { required: true, families: ["repo"] },
-      },
-      options,
-    ).tools,
-    { required: true, families: ["repo"] },
-  );
-
-  assert.throws(
-    () =>
-      validateStockClassifierOutput(
-        {
-          reason: "Needs mail.",
-          confidence: 0.88,
-          tools: { required: true, families: ["email"] },
-        },
-        options,
-      ),
-    /unsupported family email/,
-  );
-});
-
-test("validates safety decisions", () => {
-  const output = validateStockClassifierOutput(
-    {
-      reason: "Security can continue.",
-      confidence: 0.9,
-      safety: { decision: "allow", risk_level: "normal", signals: [] },
-    },
-    {
-      classifier: "security",
-      model: "test",
-      emits: { safety: true },
-    },
-  );
-
-  assert.deepEqual(output.safety, { decision: "allow", risk_level: "normal", signals: [] });
-
-  assert.throws(
-    () =>
-      validateStockClassifierOutput(
-        {
-          reason: "Inconsistent safety decision.",
-          confidence: 0.9,
-          safety: {
-            decision: "block",
-            risk_level: "suspicious",
-            signals: ["instruction_attack"],
-          },
-        },
-        {
-          classifier: "security",
-          model: "test",
-          emits: { safety: true },
-        },
-      ),
-    /block requires high_risk/,
-  );
-});
-
-test("normalizes common tool family aliases", () => {
-  assert.deepEqual(
-    validateStockClassifierOutput(
-      {
-        reason: "Needs current public data.",
-        confidence: 0.88,
-        tools: { required: true, families: ["web_browsing"] },
-      },
-      {
-        classifier: "tools",
-        model: "test",
-        emits: { tools: true },
-        toolFamilies: ["web"],
-      },
-    ).tools,
-    { required: true, families: ["web"] },
-  );
-});
-
-test("builds stock prompt fragments from manifest emits", () => {
-  const manifest = validateJsonClassifierManifest({
-    name: "tool_router",
+function tools(overrides = {}) {
+  return validateJsonClassifierManifest({
+    kind: "stock",
+    name: "tools",
     version: "1.0.0",
-    purpose: "Pick tool access for the downstream model.",
-    order: 10,
-    emits: { tools: true, handoff: true },
+    purpose: "Pick tool families.",
+    order: 40,
     tool_families: [
       { id: "repo", description: "Read and edit source repositories." },
     ],
-    fallback: {
-      reason: "",
-      confidence: 0,
-      tools: { required: false, families: [] },
-    },
+    fallback: { required: false, families: [] },
+    ...overrides,
   });
+}
 
-  const prompt = buildStockClassifierPrompt(manifest);
-  assert.match(prompt, /Return one JSON object/);
-  assert.match(prompt, /confidence: JSON number float from 0\.0 to 1\.0 inclusive/);
-  assert.match(prompt, /handoff:/);
-  assert.match(prompt, /tools:/);
-  assert.match(prompt, /repo: Read and edit source repositories/);
-  assert.doesNotMatch(prompt, /context:/);
-});
-
-test("requires output_schema when emitting custom output", () => {
-  assert.throws(
-    () =>
-      validateJsonClassifierManifest({
-        name: "memory",
-        version: "1.0.0",
-        purpose: "Emit memory queries.",
-        order: 20,
-        emits: { output: true },
-        fallback: { reason: "", confidence: 0, output: { queries: [] } },
-      }),
-    /output_schema is required/,
-  );
-});
-
-test("validates custom output with JSON Schema", () => {
-  const options = {
-    classifier: "memory",
-    model: "test",
-    emits: { output: true },
-    outputSchema: {
+function customMemory() {
+  return validateJsonClassifierManifest({
+    kind: "custom",
+    name: "memory",
+    version: "1.0.0",
+    purpose: "Emit memory queries.",
+    order: 60,
+    output_schema: {
       type: "object",
       additionalProperties: false,
       required: ["queries"],
@@ -272,29 +48,180 @@ test("validates custom output with JSON Schema", () => {
         queries: { type: "array", items: { type: "string", minLength: 1 } },
       },
     },
-  };
+    fallback: { output: { queries: [] } },
+  });
+}
 
+test("validates a stock security manifest", () => {
+  const manifest = security();
+  assert.equal(manifest.kind, "stock");
+  assert.equal(manifest.name, "security");
+  assert.deepEqual(manifest.fallback, { risk_level: "unknown", signals: [] });
+});
+
+test("rejects undeclared fields on a security output", () => {
+  const manifest = security();
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { decision: "allow", risk_level: "normal", signals: [], extra: 1 },
+        { classifier: "security", model: "test" },
+      ),
+    /extra is not a supported field/,
+  );
+});
+
+test("normalizes common confidence formats", () => {
+  const manifest = security();
+  for (const [confidence, expected] of [
+    [95, 0.95],
+    ["95%", 0.95],
+    ["high", 0.9],
+  ]) {
+    const output = validateOutputForManifest(
+      manifest,
+      { reason: "ok", confidence, decision: "allow", risk_level: "normal", signals: [] },
+      { classifier: "security", model: "test" },
+    );
+    assert.equal(output.confidence, expected);
+  }
+});
+
+test("validates a routing classifier output", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "routing",
+    version: "1.0.0",
+    purpose: "Pick a tier.",
+    order: 20,
+    fallback: {},
+  });
+  const output = validateOutputForManifest(
+    manifest,
+    { reason: "ok", confidence: 0.9, model_tier: "frontier_fast" },
+    { classifier: "routing", model: "test" },
+  );
+  assert.equal(output.model_tier, "frontier_fast");
+});
+
+test("validates tools output and family allow-list", () => {
+  const manifest = tools();
   assert.deepEqual(
-    validateStockClassifierOutput(
-      {
-        reason: "Memory may help.",
-        confidence: 0.8,
-        output: { queries: ["review preferences"] },
-      },
-      options,
+    validateOutputForManifest(
+      manifest,
+      { reason: "Needs repo.", confidence: 0.88, required: true, families: ["repo"] },
+      { classifier: "tools", model: "test" },
+    ),
+    { reason: "Needs repo.", confidence: 0.88, required: true, families: ["repo"] },
+  );
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "Needs mail.", confidence: 0.88, required: true, families: ["email"] },
+        { classifier: "tools", model: "test" },
+      ),
+    /unsupported family email/,
+  );
+});
+
+test("validates safety risk_level / signals / decision consistency", () => {
+  const manifest = security();
+  const output = validateOutputForManifest(
+    manifest,
+    { reason: "Allow.", confidence: 0.9, decision: "allow", risk_level: "normal", signals: [] },
+    { classifier: "security", model: "test" },
+  );
+  assert.equal(output.decision, "allow");
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "Bad.", confidence: 0.9, decision: "block", risk_level: "suspicious", signals: ["instruction_attack"] },
+        { classifier: "security", model: "test" },
+      ),
+    /block requires high_risk/,
+  );
+});
+
+test("normalizes tool family aliases", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "tools",
+    version: "1.0.0",
+    purpose: "Pick tool families.",
+    order: 40,
+    tool_families: [
+      { id: "web", description: "Public web browsing." },
+    ],
+    fallback: { required: false, families: [] },
+  });
+  const output = validateOutputForManifest(
+    manifest,
+    { reason: "Needs current data.", confidence: 0.88, required: true, families: ["web_browsing"] },
+    { classifier: "tools", model: "test" },
+  );
+  assert.deepEqual(output.families, ["web"]);
+});
+
+test("builds a prompt for a stock manifest", () => {
+  const manifest = tools();
+  const prompt = buildStockClassifierPrompt(manifest);
+  assert.match(prompt, /Return one JSON object/);
+  assert.match(prompt, /repo: Read and edit source repositories/);
+});
+
+test("custom manifest requires output_schema", () => {
+  assert.throws(
+    () =>
+      validateJsonClassifierManifest({
+        kind: "custom",
+        name: "memory",
+        version: "1.0.0",
+        purpose: "Emit memory queries.",
+        order: 60,
+        fallback: { output: { queries: [] } },
+      }),
+    /output_schema is required/,
+  );
+});
+
+test("custom classifier rejects a name colliding with a stock name", () => {
+  assert.throws(
+    () =>
+      validateJsonClassifierManifest({
+        kind: "custom",
+        name: "security",
+        version: "1.0.0",
+        purpose: "shadow",
+        order: 99,
+        output_schema: { type: "object" },
+        fallback: { output: {} },
+      }),
+    /collides with a stock classifier/,
+  );
+});
+
+test("custom output is validated against schema", () => {
+  const manifest = customMemory();
+  assert.deepEqual(
+    validateOutputForManifest(
+      manifest,
+      { reason: "Memory may help.", confidence: 0.8, output: { queries: ["review preferences"] } },
+      { classifier: "memory", model: "test" },
     ).output,
     { queries: ["review preferences"] },
   );
 
   assert.throws(
     () =>
-      validateStockClassifierOutput(
-        {
-          reason: "bad",
-          confidence: 0.8,
-          output: { queries: [""] },
-        },
-        options,
+      validateOutputForManifest(
+        manifest,
+        { reason: "bad", confidence: 0.8, output: { queries: [""] } },
+        { classifier: "memory", model: "test" },
       ),
     /must NOT have fewer than 1 characters/,
   );

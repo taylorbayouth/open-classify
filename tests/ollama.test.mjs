@@ -1,17 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
 import { MODULES_BY_NAME } from "../dist/src/classifiers.js";
 import {
   classifyWithOllama,
   createOllamaClassifierRunner,
-  discoverOllamaClassifierAdapterModels,
   OllamaClassifierError,
   OllamaResourceError,
-  OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG,
-  OLLAMA_CLASSIFIER_ADAPTER_MODELS,
   OLLAMA_BASE_MODEL,
   OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH,
   OLLAMA_CLASSIFIER_MODELS,
@@ -32,67 +26,8 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH, 131_072);
   assert.equal(OLLAMA_REQUIRED_PARALLELISM, 7);
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
-  assert.equal(OLLAMA_DEFAULT_ADAPTER_MODEL_CONFIG, "adapter-models.json");
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
-  assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.preflight, null);
-  assert.equal(OLLAMA_CLASSIFIER_ADAPTER_MODELS.model_specialization, null);
-});
-
-test("discovers classifier model overrides from JSON config incrementally", async () => {
-  const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
-  const configPath = join(root, "adapter-models.json");
-  try {
-    await writeFile(configPath, JSON.stringify({
-      preflight: "open-classify-preflight:v0.1.0",
-      security: null,
-    }));
-
-    const models = discoverOllamaClassifierAdapterModels(configPath);
-
-    assert.equal(models.preflight, "open-classify-preflight:v0.1.0");
-    assert.equal(models.security, null);
-    assert.equal(models.routing, null);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("createOllamaClassifierRunner uses base model for missing adapter config entries", async () => {
-  const root = await mkdtemp(join(tmpdir(), "open-classify-adapters-"));
-  const configPath = join(root, "adapter-models.json");
-  try {
-    await writeFile(
-      configPath,
-      JSON.stringify({ preflight: "open-classify-preflight:v0.1.0" }),
-    );
-
-    const calls = [];
-    const runner = createOllamaClassifierRunner({
-      adapterModelConfig: configPath,
-      skipResourceCheck: true,
-      fetch: async (_url, init) => {
-        const body = JSON.parse(init.body);
-        calls.push(body);
-        return jsonResponse({
-          message: {
-            content: JSON.stringify(
-              body.model === "open-classify-preflight:v0.1.0"
-                ? validOutputs.preflight
-                : validOutputs.routing,
-            ),
-          },
-        });
-      },
-    });
-
-    await runner("preflight", classifierInput(), new AbortController().signal);
-    await runner("routing", classifierInput(), new AbortController().signal);
-
-    assert.equal(calls[0].model, "open-classify-preflight:v0.1.0");
-    assert.equal(calls[1].model, OLLAMA_BASE_MODEL);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+  assert.equal(OLLAMA_CLASSIFIER_MODELS.model_specialization, null);
 });
 
 test("createOllamaClassifierRunner posts classifier chat request with model override", async () => {
@@ -131,10 +66,8 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.options.temperature, 0);
   assert.equal(body.options.num_ctx, OLLAMA_CONTEXT_LENGTH);
   assert.equal(body.messages[0].role, "system");
-  assert.match(body.messages[0].content, /confidence: JSON number float from 0\.0 to 1\.0 inclusive/);
-  assert.match(body.messages[0].content, /Declared optional fields: handoff\./);
   assert.match(body.messages[0].content, /Classifier: preflight/);
-  assert.doesNotMatch(body.messages[0].content, /You are the preflight classifier/);
+  assert.match(body.messages[0].content, /final_reply/);
   assert.equal(body.messages[1].role, "user");
   assert.match(body.messages[1].content, /The target user message is the final message in the window\./);
   assert.match(body.messages[1].content, /Message 1 \(target\):/);
@@ -206,7 +139,7 @@ test("createOllamaClassifierRunner rejects when target alone exceeds estimated c
   assert.equal(called, false);
 });
 
-test("createOllamaClassifierRunner uses base model for null adapter", async () => {
+test("createOllamaClassifierRunner uses base model when classifier model is null", async () => {
   const calls = [];
   const runner = createOllamaClassifierRunner({
     models: { preflight: null },
@@ -224,11 +157,11 @@ test("createOllamaClassifierRunner uses base model for null adapter", async () =
   assert.equal(calls[0].model, OLLAMA_BASE_MODEL);
 });
 
-test("createOllamaClassifierRunner validates preflight handoff kind", async () => {
+test("createOllamaClassifierRunner rejects unknown preflight fields", async () => {
   const runner = runnerReturning({
-    reason: "Invalid terminality.",
+    reason: "Invalid.",
     confidence: 0.7,
-    handoff: { kind: "bad", reply: "Nope." },
+    handoff: { kind: "final", reply: "Nope." },
   });
 
   await assert.rejects(
@@ -236,15 +169,15 @@ test("createOllamaClassifierRunner validates preflight handoff kind", async () =
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
-      /unsupported value/.test(error.message),
+      /handoff is not a supported field/.test(error.message),
   );
 });
 
 test("createOllamaClassifierRunner validates preflight reply length", async () => {
   const runner = runnerReturning({
-    reason: "The reply is intentionally too long.",
+    reason: "Too long.",
     confidence: 0.7,
-    handoff: { kind: "route", ack_reply: "x".repeat(201) },
+    ack_reply: { reply: "x".repeat(201) },
   });
 
   await assert.rejects(
@@ -256,28 +189,11 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
   );
 });
 
-test("createOllamaClassifierRunner routes overlong preflight final replies", async () => {
-  const runner = runnerReturning({
-    reason: "The model tried to answer a generated-work request.",
-    confidence: 0.7,
-    handoff: { kind: "final", reply: "x".repeat(201) },
-  });
-
-  assert.deepEqual(
-    await runner("preflight", classifierInput(), new AbortController().signal),
-    {
-      reason: "The model tried to answer a generated-work request.",
-      confidence: 0.7,
-      handoff: { kind: "route" },
-    },
-  );
-});
-
 test("createOllamaClassifierRunner rejects empty preflight replies", async () => {
   const runner = runnerReturning({
-    reason: "The reply is intentionally empty.",
+    reason: "Empty.",
     confidence: 0.7,
-    handoff: { kind: "route", ack_reply: "   " },
+    ack_reply: { reply: "   " },
   });
 
   await assert.rejects(
@@ -291,9 +207,9 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
 
 test("createOllamaClassifierRunner validates routing enum values", async () => {
   const runner = runnerReturning({
-    reason: "Invalid model tier.",
+    reason: "Invalid tier.",
     confidence: 0.5,
-    routing: { execution_mode: "tool_assisted", model_tier: "ultra_strong" },
+    model_tier: "ultra_strong",
   });
 
   await assert.rejects(
@@ -305,59 +221,9 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
   );
 });
 
-test("createOllamaClassifierRunner validates conversation_history context shape", async () => {
-  const runner = runnerReturning({
-    reason: "The latest message refers to visible history.",
-    confidence: 0.6,
-    context: { status: "sufficient" },
-  });
-
-  await assert.rejects(
-    runner("conversation_history", classifierInput(), new AbortController().signal),
-    (error) =>
-      error instanceof OllamaClassifierError &&
-      error.classifier === "conversation_history" &&
-      /include_prior_messages/.test(error.message),
-  );
-});
-
-test("createOllamaClassifierRunner validates conversation_history exact keys", async () => {
-  const runner = runnerReturning({
-    reason: "The latest message can be handled without prior messages.",
-    confidence: 0.9,
-    context: { status: "standalone" },
-    extra: true,
-  });
-
-  await assert.rejects(
-    runner("conversation_history", classifierInput(), new AbortController().signal),
-    (error) =>
-      error instanceof OllamaClassifierError &&
-      error.classifier === "conversation_history" &&
-      /not declared in emits/.test(error.message),
-  );
-});
-
-test("createOllamaClassifierRunner drops irrelevant include_prior_messages", async () => {
-  const runner = runnerReturning({
-    reason: "The latest message refers to visible history.",
-    confidence: 0.5,
-    context: { status: "standalone", include_prior_messages: 1 },
-  });
-
-  assert.deepEqual(
-    await runner("conversation_history", classifierInput(), new AbortController().signal),
-    {
-      reason: "The latest message refers to visible history.",
-      confidence: 0.5,
-      context: { status: "standalone" },
-    },
-  );
-});
-
 test("createOllamaClassifierRunner validates memory custom output schema", async () => {
   const runner = runnerReturning({
-    reason: "The query is intentionally invalid.",
+    reason: "Bad query.",
     confidence: 0.5,
     output: { queries: [""] },
   });
@@ -373,9 +239,10 @@ test("createOllamaClassifierRunner validates memory custom output schema", async
 
 test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
   const runner = runnerReturning({
-    reason: "The families are intentionally duplicated.",
+    reason: "Duplicate.",
     confidence: 0.5,
-    tools: { required: true, families: ["workspace", "workspace"] },
+    required: true,
+    families: ["workspace", "workspace"],
   });
 
   await assert.rejects(
@@ -387,18 +254,18 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
   );
 });
 
-test("tools system prompt keeps needed aligned with families", () => {
+test("tools system prompt keeps required aligned with families", () => {
   assert.match(
     MODULES_BY_NAME.tools.systemPrompt,
-    /tools\.required must be true exactly when tools\.families is non-empty/,
+    /required must be true exactly when families is non-empty/,
   );
 });
 
 test("createOllamaClassifierRunner validates model_specialization enum", async () => {
   const runner = runnerReturning({
-    reason: "Invalid specialization.",
+    reason: "Invalid spec.",
     confidence: 0.5,
-    routing: { specialization: "spreadsheet_magic" },
+    specialization: "spreadsheet_magic",
   });
 
   await assert.rejects(
@@ -412,9 +279,10 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
 
 test("createOllamaClassifierRunner validates security risk-level / signals consistency", async () => {
   const runner = runnerReturning({
-    reason: "Conflicting output.",
+    reason: "Conflicting.",
     confidence: 0.5,
-    safety: { risk_level: "normal", signals: ["instruction_attack"] },
+    risk_level: "normal",
+    signals: ["instruction_attack"],
   });
 
   await assert.rejects(
@@ -422,7 +290,7 @@ test("createOllamaClassifierRunner validates security risk-level / signals consi
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "security" &&
-      /normal safety.risk_level must not include signals/.test(error.message),
+      /normal risk_level must not include signals/.test(error.message),
   );
 });
 
@@ -485,16 +353,12 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
         const body = JSON.parse(init.body);
         assert.ok(typeof body.model === "string" && body.model.length > 0);
         const systemPrompt = body.messages[0].content;
-        // Identify which classifier was invoked by matching generated system
-        // prompts back to the registered modules.
         const entries = Object.entries(MODULES_BY_NAME);
         const match = entries.find(([, module]) => module.systemPrompt === systemPrompt);
         assert.ok(match, "system prompt should match a registered module");
         const [name] = match;
 
         assert.match(body.messages[1].content, /text:\nreview this/);
-        assert.doesNotMatch(body.messages[1].content, /"text"/);
-        assert.doesNotMatch(body.messages[1].content, /"raw"/);
 
         return jsonResponse({
           message: { content: JSON.stringify(validOutputs[name]) },
@@ -512,8 +376,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     }
     assert.equal(entry.status.ok, true);
   }
-  // model_specialization "reasoning" + tier "local_strong" → gemma matches
-  // (qwen is coding-only). gemma > nothing else local_strong+reasoning.
+  // reasoning + local_strong → gemma4.
   assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
 });
 

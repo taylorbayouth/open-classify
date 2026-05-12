@@ -23,7 +23,6 @@ import { extname, join, normalize } from "node:path";
 import { loadCatalog } from "./catalog.js";
 import { CLASSIFIER_NAMES, REGISTRY, type RunClassifier } from "./classifiers.js";
 import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
   SECURITY_DECISION_VALUES,
@@ -44,7 +43,6 @@ import type { OpenClassifyInput } from "./types.js";
 
 // Served at GET /api/enums so the UI never needs to duplicate shared enum values.
 const CLASSIFIER_ENUMS = {
-  downstream_execution_mode: [...DOWNSTREAM_EXECUTION_MODE_VALUES],
   downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
   model_specialization: [...MODEL_SPECIALIZATION_VALUES],
   tool_family: [...TOOL_FAMILY_VALUES],
@@ -55,18 +53,19 @@ const CLASSIFIER_ENUMS = {
 
 const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
   name: classifier.name,
+  kind: classifier.kind,
   version: classifier.version,
   purpose: classifier.purpose,
   order: classifier.order,
-  emits: classifier.emits,
   ui: classifier.ui,
-  tool_families: classifier.tool_families ?? [],
+  tool_families: classifier.kind === "stock" && classifier.name === "tools"
+    ? classifier.tool_families ?? []
+    : [],
 }));
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
 const UI_DIR = join(process.cwd(), "ui");
-const SCENARIOS_PATH = join(process.cwd(), "training/scenarios.jsonl");
 const CATALOG_PATH = process.env.OPEN_CLASSIFY_CATALOG_PATH ?? OLLAMA_DEFAULT_CATALOG_PATH;
 
 const MIME_TYPES: Record<string, string> = {
@@ -74,7 +73,6 @@ const MIME_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".jsonl": "application/x-ndjson; charset=utf-8",
 };
 
 const server = createServer((request, response) => {
@@ -104,11 +102,6 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
 
     if (request.method === "GET" && url.pathname === "/api/classifiers") {
       sendJson(response, { classifiers: CLASSIFIER_METADATA });
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/scenarios.jsonl") {
-      serveScenarios(response);
       return;
     }
 
@@ -237,15 +230,6 @@ async function classifyStream(
 // reasons with a structured discriminator.
 function isTimeoutAbort(name: string, signal: AbortSignal): boolean {
   return errorMessage(signal.reason).includes(`${name} classifier timed out`);
-}
-
-function serveScenarios(response: ServerResponse): void {
-  if (!existsSync(SCENARIOS_PATH)) {
-    sendJson(response, { error: "scenarios not found" }, 404);
-    return;
-  }
-  response.writeHead(200, { "content-type": MIME_TYPES[".jsonl"]! });
-  createReadStream(SCENARIOS_PATH).on("error", () => response.destroy()).pipe(response);
 }
 
 function serveStatic(pathname: string, response: ServerResponse): void {

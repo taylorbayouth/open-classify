@@ -1,0 +1,16 @@
+{
+  "kind": "stock",
+  "name": "security",
+  "version": "1.0.0",
+  "purpose": "Assess prompt injection, exfiltration, and permission boundary risk.",
+  "order": 50,
+  "fallback": {
+    "decision": "needs_review",
+    "risk_level": "unknown",
+    "signals": []
+  },
+  "ui": {
+    "label": "Security",
+    "renderer": "object"
+  }
+}

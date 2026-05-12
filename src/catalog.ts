@@ -11,7 +11,6 @@
 
 import { readFileSync, statSync } from "node:fs";
 import {
-  DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
 } from "./enums.js";
@@ -81,12 +80,6 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
       `${where}.specializations`,
       path,
     );
-    const execution_modes = requireEnumArray(
-      entry.execution_modes,
-      DOWNSTREAM_EXECUTION_MODE_VALUES,
-      `${where}.execution_modes`,
-      path,
-    );
     const tier = requireEnumValue(
       entry.tier,
       DOWNSTREAM_MODEL_TIER_VALUES,
@@ -113,7 +106,6 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
         "provider",
         "runtime",
         "specializations",
-        "execution_modes",
         "tier",
         "params_in_billions",
         "context_window",
@@ -130,7 +122,6 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
     return {
       id,
       specializations,
-      execution_modes,
       tier,
       params_in_billions,
       context_window,

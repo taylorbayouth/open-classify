@@ -1,0 +1,33 @@
+{
+  "kind": "custom",
+  "name": "memory_retrieval_queries",
+  "version": "1.0.0",
+  "purpose": "Generate short saved-memory query hints for caller-owned memory retrieval.",
+  "order": 60,
+  "fallback": {
+    "output": {
+      "queries": []
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["queries"],
+    "properties": {
+      "queries": {
+        "type": "array",
+        "maxItems": 5,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "uniqueItems": true
+      }
+    }
+  },
+  "ui": {
+    "label": "Memory queries",
+    "renderer": "object"
+  }
+}

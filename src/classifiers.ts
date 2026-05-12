@@ -7,15 +7,19 @@ import type {
   ClassifierRegistry,
   RunClassifier,
 } from "./manifest.js";
-import type { RuntimeClassifierManifest, StockClassifierOutput } from "./stock.js";
+import type {
+  ClassifierOutput,
+  RuntimeClassifierManifest,
+} from "./stock.js";
 import { buildStockClassifierPrompt } from "./stock-prompt.js";
 import {
   validateJsonClassifierManifest,
-  validateStockClassifierOutput,
+  validateOutputForManifest,
 } from "./stock-validation.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLASSIFIERS_DIR = join(__dirname, "classifiers");
+const KIND_DIRS = ["stock", "custom"] as const;
 
 export class ClassifierManifestError extends Error {
   constructor(message: string) {
@@ -31,16 +35,24 @@ export function loadClassifierRegistry(
     throw new ClassifierManifestError(`classifier directory not found: ${classifiersDir}`);
   }
 
-  const manifests = readdirSync(classifiersDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => loadClassifierManifest(join(classifiersDir, entry.name)))
-    .sort((a, b) => a.order - b.order);
-
+  const manifests: RuntimeClassifierManifest[] = [];
+  for (const kind of KIND_DIRS) {
+    const kindDir = join(classifiersDir, kind);
+    if (!existsSync(kindDir)) continue;
+    for (const entry of readdirSync(kindDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      manifests.push(loadClassifierManifest(join(kindDir, entry.name), kind));
+    }
+  }
+  manifests.sort((a, b) => a.order - b.order);
   validateRegistry(manifests);
   return manifests;
 }
 
-function loadClassifierManifest(classifierDir: string): RuntimeClassifierManifest {
+function loadClassifierManifest(
+  classifierDir: string,
+  expectedKind: "stock" | "custom",
+): RuntimeClassifierManifest {
   const manifestPath = join(classifierDir, "manifest.json");
   const promptPath = join(classifierDir, "prompt.md");
   if (!existsSync(manifestPath)) {
@@ -52,13 +64,18 @@ function loadClassifierManifest(classifierDir: string): RuntimeClassifierManifes
 
   const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
   const manifest = validateJsonClassifierManifest(parsed, manifestPath);
+  if (manifest.kind !== expectedKind) {
+    throw new ClassifierManifestError(
+      `${manifestPath}: manifest kind "${manifest.kind}" does not match parent directory "${expectedKind}"`,
+    );
+  }
   const classifierPrompt = readFileSync(promptPath, "utf8").trim();
   if (classifierPrompt.length === 0) {
     throw new ClassifierManifestError(`prompt.md must not be empty: ${promptPath}`);
   }
   const systemPrompt = `${buildStockClassifierPrompt(manifest)}\n\nClassifier guidance:\n${classifierPrompt}`;
 
-  return { ...manifest, systemPrompt };
+  return { ...manifest, systemPrompt } as RuntimeClassifierManifest;
 }
 
 function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): void {
@@ -89,18 +106,12 @@ export function validateClassifierOutput(
   name: string,
   value: unknown,
   model: string,
-): StockClassifierOutput {
+): ClassifierOutput {
   const manifest = MODULES_BY_NAME[name];
   if (!manifest) {
     throw new ClassifierManifestError(`unknown classifier: ${name}`);
   }
-  return validateStockClassifierOutput(value, {
-    classifier: name,
-    model,
-    emits: manifest.emits,
-    toolFamilies: manifest.tool_families?.map((family) => family.id),
-    outputSchema: manifest.output_schema,
-  });
+  return validateOutputForManifest(manifest, value, { classifier: name, model });
 }
 
 export type { ClassifierInput };
