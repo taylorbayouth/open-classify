@@ -295,7 +295,7 @@ function renderMessage(message, index) {
       </div>
       <label class="field">
         <span>Text</span>
-        <textarea data-field="text" rows="${isFinal ? 3 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
+        <textarea data-field="text" rows="2" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
       </label>
     </article>
   `;
@@ -403,12 +403,10 @@ function pipelineState(result) {
 function renderAggregate(result) {
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
-    <header class="result-banner">
-      <span class="result-banner-label">Final output</span>
-      ${resultBannerItem("Model", selectedModel(result))}
-      ${resultBannerItem("Action", result.action)}
-      ${resultBannerItem("Security", securityDecision(result))}
-    </header>
+    <span class="result-banner-label">Final output</span>
+    ${resultBannerItem("Model", selectedModel(result))}
+    ${resultToolsItem(selectedTools(result))}
+    ${resultBannerItem("Security", securityDecision(result))}
   `;
 }
 
@@ -432,6 +430,10 @@ function securityDecision(result) {
   return result.audit?.meta?.classifiers?.security?.decision ?? result.audit?.safety?.decision;
 }
 
+function selectedTools(result) {
+  return result.downstream?.tools?.tools ?? result.audit?.tools?.tools ?? [];
+}
+
 function stockClassifierOutputs(result) {
   const classifiers = result.audit?.meta?.classifiers;
   if (!classifiers) return [];
@@ -453,6 +455,18 @@ function resultBannerItem(label, value) {
     <div class="result-banner-item">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(String(value))}</strong>
+    </div>
+  `;
+}
+
+function resultToolsItem(tools) {
+  const items = Array.isArray(tools) && tools.length > 0 ? tools : ["none"];
+  return `
+    <div class="result-banner-item result-tools-item">
+      <span>Tools</span>
+      <div class="pill-list">
+        ${items.map((tool) => `<strong class="tool-pill${tool === "none" ? " is-empty" : ""}">${escapeHtml(String(tool))}</strong>`).join("")}
+      </div>
     </div>
   `;
 }

@@ -74,12 +74,12 @@ button, input, textarea, select {
 .shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 18px;
+  gap: 20px;
   width: 100vw;
   height: 100vh;
   min-width: 0;
   margin: 0;
-  padding: 10px;
+  padding: 12px;
   overflow: hidden;
 }
 
@@ -178,8 +178,8 @@ h1 {
 .workspace {
   display: grid;
   grid-template-columns: minmax(420px, 0.75fr) minmax(0, 1.6fr);
-  gap: 24px;
-  align-items: start;
+  gap: 28px;
+  align-items: stretch;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -197,8 +197,8 @@ h1 {
 .composer {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto auto auto;
-  gap: 18px;
-  padding: 22px;
+  gap: 20px;
+  padding: 24px;
   height: 100%;
   overflow: hidden;
 }
@@ -226,10 +226,11 @@ textarea, input, select {
 }
 
 textarea {
-  min-height: 58px;
+  height: 44px;
+  min-height: 44px;
   resize: vertical;
-  padding: 15px 16px;
-  line-height: 1.5;
+  padding: 8px 12px;
+  line-height: 1.35;
   font-size: 16px;
 }
 
@@ -273,7 +274,7 @@ textarea:focus, input:focus, select:focus {
 .message-list {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 16px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -282,11 +283,11 @@ textarea:focus, input:focus, select:focus {
 
 .message-editor {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
-  padding: 15px;
+  padding: 17px;
 }
 
 .target-message {
@@ -496,35 +497,26 @@ button:disabled { cursor: wait; opacity: 0.55; }
 /* ======== Results ======== */
 
 .results {
-  padding: 22px;
+  height: 100%;
+  padding: 24px;
   background: #06080c;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .aggregate-panel {
-  display: grid;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 22px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--bg);
-  padding: 14px;
+  padding: 16px 18px;
 }
 
 .aggregate-panel[hidden] { display: none; }
-
-.result-banner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--ok);
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
-}
 
 .result-banner-label {
   flex: 0 0 auto;
@@ -544,6 +536,10 @@ button:disabled { cursor: wait; opacity: 0.55; }
   border-left: 1px solid var(--line);
 }
 
+.result-tools-item {
+  align-items: center;
+}
+
 .result-banner-item span {
   flex: 0 0 auto;
   color: var(--muted-2);
@@ -560,6 +556,31 @@ button:disabled { cursor: wait; opacity: 0.55; }
   font-size: 14px;
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tool-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 999px;
+  background: rgba(94, 234, 212, 0.11);
+  color: var(--accent);
+  padding: 4px 9px;
+  font-size: 12.5px;
+  line-height: 1;
+}
+
+.tool-pill.is-empty {
+  border-color: var(--line-2);
+  background: var(--panel-3);
+  color: var(--muted);
 }
 
 .field-row span {
@@ -636,7 +657,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   content: "▾";
   flex-shrink: 0;
   color: var(--muted-2);
-  font-size: 13px;
+  font-size: 23px;
   line-height: 1;
   transition: transform 120ms ease;
 }
@@ -713,7 +734,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .classifier-grid {
   column-count: 2;
-  column-gap: 18px;
+  column-gap: 20px;
+  min-width: 0;
 }
 
 .classifier-card {
@@ -722,12 +744,12 @@ button:disabled { cursor: wait; opacity: 0.55; }
   gap: 14px;
   align-content: start;
   break-inside: avoid;
-  margin-bottom: 18px;
+  margin-bottom: 20px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--muted-2);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
-  padding: 18px 19px;
+  padding: 20px 21px;
   transition: border-color 200ms ease, background 200ms ease;
 }
 
@@ -1038,6 +1060,11 @@ button:disabled { cursor: wait; opacity: 0.55; }
   background: var(--panel-2);
   font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--ink-2);
+}
+
+.hashes[hidden],
+.hashes:empty {
+  display: none;
 }
 
 .hashes em {
