@@ -2,7 +2,7 @@ import type { JsonClassifierManifest, ToolFamilyDefinition } from "./stock.js";
 
 const BASE_PROMPT = `Return one JSON object and no other text.
 The object must always include:
-- reason: string, 200 characters or fewer
+- reason: brief string
 - confidence: number from 0 to 1
 Only include optional fields declared for this classifier.`;
 

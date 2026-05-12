@@ -131,15 +131,17 @@ export function requireConfidence(
   model: string,
   path = "confidence",
 ): number {
+  const confidence =
+    typeof value === "string" && value.trim() !== "" ? Number(value) : value;
   if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > 1
+    typeof confidence !== "number" ||
+    !Number.isFinite(confidence) ||
+    confidence < 0 ||
+    confidence > 1
   ) {
     throwInvalid(classifier, model, `${path} must be a number between 0 and 1 inclusive`);
   }
-  return value;
+  return confidence;
 }
 
 export function ensureExactKeys(

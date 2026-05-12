@@ -48,6 +48,24 @@ test("rejects undeclared stock output fields", () => {
   );
 });
 
+test("allows verbose reasons and numeric-string confidence", () => {
+  const output = validateStockClassifierOutput(
+    {
+      reason: "This classifier gives a detailed explanation that is longer than the old 200 character limit because local JSON-mode models sometimes include useful context before returning the actual signal, and that should not force a fallback.",
+      confidence: "0.9",
+      context: { status: "standalone" },
+    },
+    {
+      classifier: "context",
+      model: "test",
+      emits: { context: true },
+    },
+  );
+
+  assert.equal(output.confidence, 0.9);
+  assert.match(output.reason, /old 200 character limit/);
+});
+
 test("validates context as a discriminated union", () => {
   assert.deepEqual(
     validateStockClassifierOutput(

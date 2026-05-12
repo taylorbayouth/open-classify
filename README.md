@@ -95,8 +95,8 @@ Every classifier returns JSON with required base fields:
 
 Validation rules:
 
-- `reason` is required and capped at 200 characters.
-- `confidence` is required and must be between `0` and `1`.
+- `reason` is required.
+- `confidence` is required and must be between `0` and `1`; numeric strings are normalized.
 - Any stock field must be declared by that classifier's manifest in `emits`.
 - Any custom `output` must be declared by `emits.output: true` and validated by `output_schema`.
 - Unknown top-level fields are rejected.

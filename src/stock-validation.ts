@@ -23,7 +23,6 @@ import {
   throwInvalid,
 } from "./validation.js";
 
-export const STOCK_REASON_MAX_CHARS = 200;
 export const STOCK_REPLY_MAX_CHARS = 200;
 export const STOCK_SUMMARY_TARGET_MAX_CHARS = 200;
 export const STOCK_SUMMARY_WINDOW_MAX_CHARS = 800;
@@ -180,13 +179,7 @@ export function validateStockClassifierOutput(
   }
 
   const output: StockClassifierOutput = {
-    reason: requireStringMaxLength(
-      value.reason,
-      classifier,
-      model,
-      "reason",
-      STOCK_REASON_MAX_CHARS,
-    ),
+    reason: requireString(value.reason, classifier, model, "reason"),
     confidence: requireConfidence(value.confidence, classifier, model),
   };
 
