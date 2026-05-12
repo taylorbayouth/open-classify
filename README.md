@@ -6,12 +6,6 @@
   A manifest-driven classifier runtime for deciding what should happen before a user message reaches a downstream assistant model.
 </p>
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/open-classify"><img alt="npm" src="https://img.shields.io/npm/v/open-classify.svg"></a>
-  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/npm/l/open-classify.svg"></a>
-  <img alt="node" src="https://img.shields.io/node/v/open-classify.svg">
-</p>
-
 The core idea is deliberately small:
 
 - Each classifier lives in `src/classifiers/<name>/`.
