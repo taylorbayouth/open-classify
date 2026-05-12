@@ -277,7 +277,6 @@ function buildRouteResult(
       hash: request.target_message_hash,
     },
     tools: envelope.tools ?? { tools: [] },
-    attachments: request.attachments,
   };
 
   return {

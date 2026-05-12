@@ -9,18 +9,8 @@ export interface StockClassifierMessageInput {
   readonly text: string;
 }
 
-export interface StockClassifierAttachmentInput {
-  readonly id?: string;
-  readonly filename?: string;
-  readonly mime_type?: string;
-  readonly size_bytes?: number;
-  readonly text_preview?: string;
-  readonly text_truncated?: boolean;
-}
-
 export interface StockClassifierInput {
   readonly messages: ReadonlyArray<StockClassifierMessageInput>;
-  readonly attachments?: ReadonlyArray<StockClassifierAttachmentInput>;
 }
 
 // ─── Stock signal types ─────────────────────────────────────────────────────

@@ -16,10 +16,6 @@ const message = process.argv[2] ?? "Can you review the attached vendor contract 
 const result = await classifyWithOllama(
   {
     messages: [{ role: "user", text: message }],
-    attachments:
-      process.argv[2] === undefined
-        ? [{ filename: "vendor-contract.pdf", mime_type: "application/pdf", size_bytes: 482_331 }]
-        : [],
   },
   {
     catalog: loadCatalog("downstream-models.json"),

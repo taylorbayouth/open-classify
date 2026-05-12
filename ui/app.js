@@ -1,7 +1,6 @@
 let CLASSIFIER_METADATA = {};
 
 const state = {
-  attachments: [],
   messages: [createMessage()],
   samples: [],
   classifierNames: [],
@@ -16,8 +15,6 @@ const form = document.querySelector("#classifyForm");
 const messageList = document.querySelector("#messageList");
 const addMessageButton = document.querySelector("#addMessageButton");
 const sampleButton = document.querySelector("#sampleButton");
-const attachmentInput = document.querySelector("#attachmentInput");
-const attachmentList = document.querySelector("#attachmentList");
 const classifierGrid = document.querySelector("#classifierGrid");
 const aggregatePanel = document.querySelector("#aggregatePanel");
 const runState = document.querySelector("#runState");
@@ -44,7 +41,6 @@ async function init() {
   state.samples = samples;
   resetClassifiers("idle");
   renderMessages();
-  renderAttachments();
   startTicker();
 
   messageList.addEventListener("keydown", (event) => {
@@ -64,19 +60,6 @@ async function init() {
     if (!runButton.disabled) {
       form.requestSubmit();
     }
-  });
-
-  attachmentInput.addEventListener("change", () => {
-    state.attachments = [
-      ...state.attachments,
-      ...Array.from(attachmentInput.files ?? []).map((file) => ({
-        filename: file.name,
-        size_bytes: file.size,
-        mime_type: file.type || undefined,
-      })),
-    ];
-    attachmentInput.value = "";
-    renderAttachments();
   });
 
   addMessageButton.addEventListener("click", () => {
@@ -123,12 +106,9 @@ async function init() {
 
   clearButton.addEventListener("click", () => {
     form.reset();
-    state.attachments = [];
     state.messages = [createMessage()];
-    attachmentInput.value = "";
     resetRunOutput();
     renderMessages();
-    renderAttachments();
   });
 
   form.addEventListener("submit", (event) => {
@@ -169,16 +149,13 @@ function loadRandomSample() {
   if (state.samples.length === 0) return;
 
   const sample = state.samples[Math.floor(Math.random() * state.samples.length)];
-  state.attachments = Array.isArray(sample.attachments) ? sample.attachments : [];
   state.messages = sample.messages.map((message) => ({
     ...createMessage(),
     ...message,
   }));
   state.messages[state.messages.length - 1].role = "user";
-  attachmentInput.value = "";
   resetRunOutput();
   renderMessages();
-  renderAttachments();
   messageList.scrollIntoView({ behavior: "smooth", block: "start" });
   const inputs = messageList.querySelectorAll("textarea[data-field='text']");
   inputs[inputs.length - 1]?.focus({ preventScroll: true });
@@ -237,13 +214,7 @@ async function classify() {
 function buildInput() {
   const messages = state.messages.map(toConversationMessage);
   messages[messages.length - 1].role = "user";
-
-  const input = {
-    messages,
-    attachments: state.attachments,
-  };
-
-  return input;
+  return { messages };
 }
 
 function createMessage() {
@@ -797,23 +768,6 @@ function objectSummary(value) {
   return `${Object.keys(value).length} field${Object.keys(value).length === 1 ? "" : "s"}`;
 }
 
-function renderAttachments() {
-  if (state.attachments.length === 0) {
-    attachmentList.innerHTML = "";
-    return;
-  }
-  attachmentList.innerHTML = state.attachments
-    .map(
-      (a) => `
-        <div class="attachment">
-          <strong>${escapeHtml(a.filename)}</strong>
-          <span>${formatBytes(a.size_bytes)} · ${escapeHtml(a.mime_type || "unknown")}</span>
-        </div>
-      `,
-    )
-    .join("");
-}
-
 function appendEvent(event, classifier, message) {
   state.eventCount += 1;
   const timestamp = new Date();
@@ -935,13 +889,6 @@ function renderPhaseTrail() {
       return `<span class="phase-step${isLast ? " phase-step-active" : ""}">${labels[p] ?? p}</span>`;
     })
     .join('<span class="phase-sep">→</span>');
-}
-
-function formatBytes(value) {
-  if (!Number.isFinite(value)) return "0 B";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function escapeHtml(value) {

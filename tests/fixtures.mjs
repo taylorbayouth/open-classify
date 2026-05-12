@@ -102,7 +102,6 @@ export function classifierInput(overrides = {}) {
   return {
     text: "hello",
     messages: [{ role: "user", text: "hello" }],
-    attachments: [],
     target_message_hash: "message",
     ...overrides,
   };

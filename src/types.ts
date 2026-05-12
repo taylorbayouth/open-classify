@@ -6,12 +6,6 @@
 
 export type ConversationMessageRole = "user" | "assistant";
 
-export interface AttachmentInput {
-  filename?: string;
-  size_bytes?: number;
-  mime_type?: string;
-}
-
 export interface ConversationMessageInput {
   role?: ConversationMessageRole;
   text: string;
@@ -28,7 +22,6 @@ export interface OpenClassifyInput {
    * 20 messages. It never slices message text.
    */
   messages: ConversationMessageInput[];
-  attachments?: AttachmentInput[];
 }
 
 // Result of running the input through `normalizeOpenClassifyInput`. `text` is
@@ -38,7 +31,6 @@ export interface OpenClassifyInput {
 export interface NormalizedOpenClassifyInput {
   messages: ConversationMessageInput[];
   text: string;
-  attachments: AttachmentInput[];
   target_message_hash: string;
 }
 
@@ -48,7 +40,6 @@ export interface NormalizedOpenClassifyInput {
 export interface ClassifierInput {
   text: string;
   messages: ConversationMessageInput[];
-  attachments: AttachmentInput[];
   target_message_hash: string;
 }
 

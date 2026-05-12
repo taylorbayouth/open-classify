@@ -90,7 +90,6 @@ export interface DownstreamPayload {
   readonly messages: ReadonlyArray<ConversationMessageInput>;
   readonly target_message: DownstreamTargetMessage;
   readonly tools: ToolsSignal;
-  readonly attachments: ClassifierInput["attachments"];
 }
 
 export type ClassifierEntry = ClassifierOutput & {

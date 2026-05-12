@@ -269,7 +269,7 @@ function sendJson(response: ServerResponse, data: unknown, status = 200): void {
 }
 
 // 512 KiB cap matches the input contract (5,000-char message budget plus
-// generous slack for attachments and history). Big enough for any legitimate
+// generous slack for history). Big enough for any legitimate
 // classification request, small enough to not be a DoS vector.
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];

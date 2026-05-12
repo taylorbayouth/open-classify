@@ -431,7 +431,6 @@ function buildClassifierPrompt(input: ClassifierInput): string {
     "Classify the final message in the normalized conversation window below.",
     "Earlier messages are context only; do not classify them as new requests.",
     "The target user message is the final message in the window.",
-    "Use attachments as metadata only.",
     "Return JSON only.",
     "",
     "Conversation window:",
@@ -449,26 +448,6 @@ function buildClassifierPrompt(input: ClassifierInput): string {
     lines.push("text:");
     lines.push(message.text);
     lines.push("");
-  }
-
-  lines.push("Attachments:");
-
-  if (input.attachments.length === 0) {
-    lines.push("none");
-    return lines.join("\n");
-  }
-
-  for (const [index, attachment] of input.attachments.entries()) {
-    lines.push(`- Attachment ${index + 1}:`);
-    if (attachment.filename !== undefined) {
-      lines.push(`  filename: ${attachment.filename}`);
-    }
-    if (attachment.mime_type !== undefined) {
-      lines.push(`  mime_type: ${attachment.mime_type}`);
-    }
-    if (attachment.size_bytes !== undefined) {
-      lines.push(`  size_bytes: ${attachment.size_bytes}`);
-    }
   }
 
   return lines.join("\n");

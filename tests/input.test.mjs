@@ -68,71 +68,11 @@ test("enforces payload caps", () => {
     () => normalizeOpenClassifyInput({ messages: [message("a".repeat(5_001))] }),
     /5000 characters/,
   );
-  assert.throws(
-    () =>
-      normalizeOpenClassifyInput({
-        messages: [message("hello")],
-        attachments: [{ filename: "s".repeat(513) }],
-      }),
-    /512 characters or fewer/,
-  );
 });
 
-test("accepts any number of attachments", () => {
-  const normalized = normalizeOpenClassifyInput({
-    messages: [message("inspect these")],
-    attachments: Array.from({ length: 50 }, (_, index) => ({
-      filename: `file-${index + 1}.custom`,
-      mime_type: `application/x-custom-${index + 1}`,
-      size_bytes: index,
-    })),
-  });
-
-  assert.equal(normalized.attachments.length, 50);
-  assert.equal(normalized.attachments[49].filename, "file-50.custom");
-});
-
-test("accepts arbitrary attachment metadata without file contents", () => {
-  const normalized = normalizeOpenClassifyInput({
-    messages: [message("inspect these")],
-    attachments: [
-      {
-        filename: "photo.webp",
-        size_bytes: 252_696,
-        mime_type: "image/webp",
-      },
-      {
-        filename: "archive.custom",
-        size_bytes: 42,
-        mime_type: "application/x-custom",
-      },
-    ],
-  });
-
-  assert.deepEqual(normalized.attachments, [
-    {
-      filename: "photo.webp",
-      size_bytes: 252_696,
-      mime_type: "image/webp",
-    },
-    {
-      filename: "archive.custom",
-      size_bytes: 42,
-      mime_type: "application/x-custom",
-    },
-  ]);
-});
-
-test("toClassifierInput exposes only sanitized messages, attachment metadata, and target hash", () => {
+test("toClassifierInput exposes only sanitized messages and target hash", () => {
   const normalized = normalizeOpenClassifyInput({
     messages: [message("\uFEFF hello\x00 ")],
-    attachments: [
-      {
-        filename: "contract.pdf",
-        size_bytes: 100,
-        mime_type: "application/pdf",
-      },
-    ],
   });
 
   const classifierInput = toClassifierInput(normalized);
@@ -145,7 +85,6 @@ test("toClassifierInput exposes only sanitized messages, attachment metadata, an
     },
   ]);
   assert.equal(classifierInput.target_message_hash, normalized.target_message_hash);
-  assert.equal(classifierInput.attachments[0].filename, "contract.pdf");
 });
 
 test("normalizes messages as whole-message context", () => {
@@ -268,7 +207,7 @@ test("rejects old message metadata fields", () => {
   );
 });
 
-test("rejects unknown fields on messages and attachments", () => {
+test("rejects unknown fields on messages and input", () => {
   assert.throws(
     () =>
       normalizeOpenClassifyInput({
@@ -280,36 +219,17 @@ test("rejects unknown fields on messages and attachments", () => {
     () =>
       normalizeOpenClassifyInput({
         messages: [message("hi")],
-        attachments: [{ filename: "a.txt", checksum: "abc" }],
+        attachments: [],
       }),
-    /checksum is not a supported field/,
+    /attachments is not a supported field/,
   );
   assert.throws(
     () =>
       normalizeOpenClassifyInput({
         messages: [message("hi")],
-        attachments: [{ filename: "a.txt", raw: { file_id: "F1" } }],
+        metadata: {},
       }),
-    /raw is not a supported field/,
-  );
-});
-
-test("rejects attachments with negative or non-integer size_bytes", () => {
-  assert.throws(
-    () =>
-      normalizeOpenClassifyInput({
-        messages: [message("hi")],
-        attachments: [{ filename: "a.txt", size_bytes: -1 }],
-      }),
-    /non-negative safe integer/,
-  );
-  assert.throws(
-    () =>
-      normalizeOpenClassifyInput({
-        messages: [message("hi")],
-        attachments: [{ filename: "a.txt", size_bytes: 1.5 }],
-      }),
-    /non-negative safe integer/,
+    /metadata is not a supported field/,
   );
 });
 

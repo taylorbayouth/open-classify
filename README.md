@@ -42,9 +42,6 @@ const result = await classifyWithOllama(
     messages: [
       { role: "user", text: "Can you review the attached contract?" },
     ],
-    attachments: [
-      { filename: "contract.pdf", mime_type: "application/pdf", size_bytes: 840_123 },
-    ],
   },
   { catalog: loadCatalog("downstream-models.json") },
 );
@@ -62,7 +59,7 @@ Every call returns a `PipelineResult` with one of four `action` values:
 
 | `action` | When | Key fields |
 |---|---|---|
-| `route` | Default — downstream work should continue | `downstream.{model_id, messages, target_message, tools, attachments}` |
+| `route` | Default — downstream work should continue | `downstream.{model_id, messages, target_message, tools}` |
 | `answer` | Preflight had a tiny terminal reply (`final_reply`) | `reply` |
 | `block` | Security flagged `decision: "block"` (with `high_risk`) | `reason.{risk_level, signals}` |
 | `needs_review` | Security flagged `decision: "needs_review"` | `reason.{risk_level, signals}` |
@@ -79,8 +76,7 @@ Example `route` result:
     "model_id": "gpt-5.3-codex",
     "tools": { "tools": ["workspace"] },
     "messages": [ /* normalized conversation */ ],
-    "target_message": { "role": "user", "text": "...", "hash": "b11d5268" },
-    "attachments": []
+    "target_message": { "role": "user", "text": "...", "hash": "b11d5268" }
   },
   "classifier_outputs": {
     "memory_retrieval_queries": { "queries": ["user code review preferences"] }
@@ -171,11 +167,10 @@ The resolver picks the cheapest model matching `specialization` and `tier`, rela
 
 ## Input contract
 
-`classifyWithOllama({ messages, attachments? })` — that's the whole input.
+`classifyWithOllama({ messages })` — that's the whole input.
 
 - `messages` is chronological, oldest to newest, and must end with the user message you want classified.
 - Open Classify keeps whole messages only, drops oldest first to fit a 5,000-char budget, and caps history at 20 messages.
-- `attachments` is metadata only: `filename`, `mime_type`, `size_bytes`. Open Classify never sees file contents.
 - Unknown fields are rejected, not passed through.
 
 ## Local workbench

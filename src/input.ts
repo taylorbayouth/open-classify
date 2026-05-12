@@ -5,7 +5,6 @@
 
 import { createHash } from "node:crypto";
 import type {
-  AttachmentInput,
   ClassifierInput,
   ConversationMessageInput,
   NormalizedOpenClassifyInput,
@@ -33,22 +32,14 @@ import type {
  */
 const CONVERSATION_TEXT_MAX_CHARS = 5_000;
 const MESSAGE_HISTORY_MAX_COUNT = 20;
-const METADATA_STRING_MAX_CHARS = 512;
 
 const INPUT_FIELDS = new Set([
   "messages",
-  "attachments",
 ]);
 
 const CONVERSATION_MESSAGE_FIELDS = new Set([
   "role",
   "text",
-]);
-
-const ATTACHMENT_FIELDS = new Set([
-  "filename",
-  "size_bytes",
-  "mime_type",
 ]);
 
 type JsonRecord = Record<string, unknown>;
@@ -90,7 +81,6 @@ export function normalizeOpenClassifyInput(
   const normalized: NormalizedOpenClassifyInput = {
     messages,
     text,
-    attachments: normalizeAttachments(input.attachments),
     target_message_hash: "",
   };
 
@@ -108,7 +98,6 @@ export function toClassifierInput(
   return {
     text: normalized.text,
     messages: normalized.messages,
-    attachments: normalized.attachments,
     target_message_hash: normalized.target_message_hash,
   };
 }
@@ -201,58 +190,6 @@ function takeNewestWholeMessagesThatFit(
   }
 
   return selected.reverse();
-}
-
-function normalizeAttachments(attachments: AttachmentInput[] | undefined): AttachmentInput[] {
-  if (attachments === undefined) {
-    return [];
-  }
-  if (!Array.isArray(attachments)) {
-    throw new TypeError("input.attachments must be an array");
-  }
-
-  return attachments.map((attachment, index) => {
-    const path = `input.attachments[${index}]`;
-    assertPlainObject(attachment, path);
-    rejectUnknownFields(attachment, ATTACHMENT_FIELDS, path);
-
-    const normalized: AttachmentInput = {};
-    copyAttachmentString(attachment, normalized, "filename", path, METADATA_STRING_MAX_CHARS);
-    copyAttachmentString(attachment, normalized, "mime_type", path, METADATA_STRING_MAX_CHARS);
-
-    if (attachment.size_bytes !== undefined) {
-      if (
-        typeof attachment.size_bytes !== "number" ||
-        !Number.isSafeInteger(attachment.size_bytes) ||
-        attachment.size_bytes < 0
-      ) {
-        throw new TypeError(`${path}.size_bytes must be a non-negative safe integer`);
-      }
-      normalized.size_bytes = attachment.size_bytes;
-    }
-
-    return normalized;
-  });
-}
-
-function copyAttachmentString(
-  source: AttachmentInput,
-  target: AttachmentInput,
-  key: "filename" | "mime_type",
-  path: string,
-  maxChars: number,
-): void {
-  const value = source[key];
-  if (value === undefined) {
-    return;
-  }
-  if (typeof value !== "string") {
-    throw new TypeError(`${path}.${key} must be a string`);
-  }
-  if (value.length > maxChars) {
-    throw new RangeError(`${path}.${key} must be ${maxChars} characters or fewer`);
-  }
-  target[key] = value;
 }
 
 // Reject class instances and prototype-tampered objects, not just non-objects.

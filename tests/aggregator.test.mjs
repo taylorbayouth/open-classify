@@ -183,7 +183,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
       memory: { output: { queries: ["alpha"] }, reason: "a", confidence: 0.9 },
     },
     catalog: CATALOG,
-    input: { text: "x", messages: [], attachments: [], target_message_hash: "abc12345" },
+    input: { text: "x", messages: [], target_message_hash: "abc12345" },
   });
 
   assert.deepEqual(envelope.ack_reply, { reply: "On it." });
@@ -207,7 +207,7 @@ test("composeEnvelope is pure: same inputs produce structurally equal outputs", 
     registry: [{ kind: "stock", name: "tools", order: 40 }],
     results: { tools: { tools: [], confidence: 0.9 } },
     catalog: CATALOG,
-    input: { text: "x", messages: [], attachments: [], target_message_hash: "abc12345" },
+    input: { text: "x", messages: [], target_message_hash: "abc12345" },
   };
   assert.deepEqual(composeEnvelope(args), composeEnvelope(args));
 });

@@ -55,11 +55,7 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   const signal = new AbortController().signal;
   const result = await runner(
     "preflight",
-    classifierInput({
-      attachments: [
-        { filename: "Welcome.md", mime_type: "text/markdown", size_bytes: 203 },
-      ],
-    }),
+    classifierInput(),
     signal,
   );
 
@@ -80,9 +76,6 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.match(body.messages[1].content, /The target user message is the final message in the window\./);
   assert.match(body.messages[1].content, /Message 1 \(target\):/);
   assert.match(body.messages[1].content, /text:\nhello/);
-  assert.match(body.messages[1].content, /filename: Welcome\.md/);
-  assert.match(body.messages[1].content, /mime_type: text\/markdown/);
-  assert.match(body.messages[1].content, /size_bytes: 203/);
   assert.doesNotMatch(body.messages[1].content, /target_message_hash/);
 });
 
