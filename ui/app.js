@@ -401,30 +401,81 @@ function pipelineState(result) {
 }
 
 function renderAggregate(result) {
-  const finalOutput = buildDisplayResult(result);
+  const stockOutputs = stockClassifierOutputs(result);
 
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
-    <header class="aggregate-head">
-      <span>Final output</span>
+    <header class="result-banner">
+      <span class="result-banner-label">Final output</span>
+      ${resultBannerItem("Model", selectedModel(result))}
+      ${resultBannerItem("Action", result.action)}
+      ${resultBannerItem("Security", securityDecision(result))}
     </header>
-    ${renderPipelineSummary(result)}
-    <div class="aggregate-grid">
-      ${Object.entries(finalOutput).map(([key, value]) => objectRow(key, value)).join("")}
-    </div>
+    ${stockOutputs.length === 0 ? "" : `
+      <section class="stock-output-list" aria-label="Stock classifier outputs">
+        ${stockOutputs.map(([name, output]) => renderStockOutput(name, output)).join("")}
+      </section>
+    `}
   `;
 }
 
 function buildDisplayResult(result) {
   return {
-    model: result.downstream?.model_id ?? result.audit?.model_recommendation?.id,
+    model: selectedModel(result),
     action: result.action,
     security: {
-      decision: result.audit?.safety?.decision,
+      decision: securityDecision(result),
     },
     hash: result.message_id,
-    custom_output: result.classifier_outputs ?? {},
+    classifiers: Object.fromEntries(stockClassifierOutputs(result)),
   };
+}
+
+function selectedModel(result) {
+  return result.downstream?.model_id ?? result.audit?.model_recommendation?.id;
+}
+
+function securityDecision(result) {
+  return result.audit?.meta?.classifiers?.security?.decision ?? result.audit?.safety?.decision;
+}
+
+function stockClassifierOutputs(result) {
+  const classifiers = result.audit?.meta?.classifiers;
+  if (!classifiers) return [];
+
+  return state.classifierNames
+    .filter((name) => CLASSIFIER_METADATA[name]?.kind === "stock" && classifiers[name])
+    .map((name) => [name, classifierDisplayOutput(classifiers[name])]);
+}
+
+function classifierDisplayOutput(output) {
+  return Object.fromEntries(
+    Object.entries(output).filter(([key]) => key !== "version" && key !== "status"),
+  );
+}
+
+function resultBannerItem(label, value) {
+  if (value === undefined || value === "") return "";
+  return `
+    <div class="result-banner-item">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value))}</strong>
+    </div>
+  `;
+}
+
+function renderStockOutput(name, output) {
+  return `
+    <details class="object-details stock-output" open>
+      <summary>
+        <span>${classifierLabel(name)}</span>
+        <strong>${escapeHtml(objectSummary(output))}</strong>
+      </summary>
+      <div class="object-grid classifier-output">
+        ${Object.entries(output).map(([key, value]) => objectRow(key, value)).join("")}
+      </div>
+    </details>
+  `;
 }
 
 function cancelClassifiersExcept(keptNames) {
@@ -632,27 +683,6 @@ function formatScalar(value) {
 
 function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function renderPipelineSummary(result) {
-  const items = [
-    ["Model", result.downstream?.model_id],
-    ["Action", result.action],
-    ["Security decision", result.audit?.safety?.decision],
-  ].filter(([, value]) => value !== undefined && value !== "");
-
-  if (items.length === 0) return "";
-
-  return `
-    <div class="summary-grid">
-      ${items.map(([label, value]) => `
-        <div class="summary-item">
-          <span>${escapeHtml(label)}</span>
-          <strong>${escapeHtml(String(value))}</strong>
-        </div>
-      `).join("")}
-    </div>
-  `;
 }
 
 function renderClassifierResult(result) {
