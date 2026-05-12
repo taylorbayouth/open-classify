@@ -769,6 +769,36 @@ button:disabled { cursor: wait; opacity: 0.55; }
   color: var(--ink);
 }
 
+.kind-label {
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.classifier-card[data-kind="custom"] {
+  border-top-color: rgba(251, 191, 36, 0.35);
+}
+
+.classifier-card[data-kind="custom"] .kind-label {
+  border-color: rgba(251, 191, 36, 0.3);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.classifier-card[data-kind="stock"] .kind-label {
+  border-color: rgba(96, 165, 250, 0.25);
+  background: var(--info-soft);
+  color: var(--info);
+}
 
 .status-block {
   display: flex;

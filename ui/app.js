@@ -155,14 +155,10 @@ async function init() {
 
 async function loadSamples() {
   try {
-    const response = await fetch("/scenarios.jsonl");
+    const response = await fetch("/test-cases.json");
     if (!response.ok) return [];
-    const text = await response.text();
-    return text
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+    const payload = await response.json();
+    return Array.isArray(payload) ? payload : [];
   } catch {
     sampleButton.disabled = true;
     sampleButton.title = "Sample data could not be loaded";
@@ -512,12 +508,14 @@ function renderClassifier(name) {
   const result = item.result;
   const detailHtml = renderDetails(name, item);
   const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
+  const kind = CLASSIFIER_METADATA[name]?.kind ?? "classifier";
 
   return `
-    <article class="classifier-card" data-status="${item.status}">
+    <article class="classifier-card" data-status="${item.status}" data-kind="${escapeHtml(kind)}">
       <div class="classifier-head">
         <div class="title-block">
           <h2 class="classifier-title">${classifierLabel(name)}</h2>
+          <span class="kind-label">${escapeHtml(kind)}</span>
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">
@@ -661,8 +659,11 @@ function renderPipelineSummary(result) {
 
 function renderClassifierResult(result) {
   const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
-  const primary = entries.filter(([, value]) => !isExpandableValue(value));
-  const nested = entries.filter(([, value]) => isExpandableValue(value));
+  const flattenedEntries = entries.map(([key, value]) =>
+    isReplySignal(value) ? [key, value.reply] : [key, value],
+  );
+  const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
+  const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
   const META_KEYS = new Set(["reason", "confidence"]);
   const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
@@ -678,7 +679,7 @@ function renderClassifierResult(result) {
       <div class="detail-stack">
         ${nested.map(([key, value]) => `
           <details class="object-details classifier-detail" open>
-            <summary><span>${escapeHtml(key)}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
+            <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
             <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
           </details>
         `).join("")}
@@ -711,7 +712,7 @@ function renderClassifierDetailBody(key, value) {
 function fieldRow(key, value) {
   return `
     <div class="field-row">
-      <span>${escapeHtml(key)}</span>
+      <span>${escapeHtml(formatKeyLabel(key))}</span>
       <strong>${escapeHtml(formatScalar(value))}</strong>
     </div>
   `;
@@ -719,6 +720,16 @@ function fieldRow(key, value) {
 
 function isExpandableValue(value) {
   return Array.isArray(value) || isPlainObject(value);
+}
+
+function isReplySignal(value) {
+  return isPlainObject(value) &&
+    typeof value.reply === "string" &&
+    Object.keys(value).length === 1;
+}
+
+function formatKeyLabel(key) {
+  return String(key).replaceAll("_", " ");
 }
 
 function objectSummary(value) {
