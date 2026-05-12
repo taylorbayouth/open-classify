@@ -6,6 +6,6 @@
   "order": 20,
   "fallback": {},
   "ui": {
-    "label": "Routing"
+    "label": "Model Tier"
   }
 }

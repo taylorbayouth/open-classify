@@ -406,7 +406,7 @@ function renderAggregate(result) {
     <span class="result-banner-label">Final output</span>
     ${resultBannerItem("Model", selectedModel(result))}
     ${resultToolsItem(selectedTools(result))}
-    ${resultBannerItem("Security", securityDecision(result))}
+    ${resultBannerItem(classifierLabelText("security"), securityDecision(result))}
   `;
 }
 
@@ -463,7 +463,7 @@ function resultToolsItem(tools) {
   const items = Array.isArray(tools) && tools.length > 0 ? tools : ["none"];
   return `
     <div class="result-banner-item result-tools-item">
-      <span>Tools</span>
+      <span>${escapeHtml(classifierLabelText("tools"))}</span>
       <div class="pill-list">
         ${items.map((tool) => `<strong class="tool-pill${tool === "none" ? " is-empty" : ""}">${escapeHtml(String(tool))}</strong>`).join("")}
       </div>
@@ -615,7 +615,11 @@ function renderDetails(name, item) {
 }
 
 function classifierLabel(name) {
-  return escapeHtml(CLASSIFIER_METADATA[name]?.ui?.label ?? name);
+  return escapeHtml(classifierLabelText(name));
+}
+
+function classifierLabelText(name) {
+  return CLASSIFIER_METADATA[name]?.ui?.label ?? name;
 }
 
 function emptyStateText(status) {
