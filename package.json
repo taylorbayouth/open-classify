@@ -1,7 +1,7 @@
 {
   "name": "open-classify",
   "version": "0.1.0",
-  "description": "Fixed classifier contract for downstream model handoff planning",
+  "description": "Manifest-driven classifier runtime for routing user messages to downstream AI models",
   "license": "MIT",
   "author": "Taylor Bayouth <taylorb@gmail.com>",
   "homepage": "https://github.com/taylorbayouth/open-classify#readme",
@@ -20,9 +20,7 @@
     "gemma",
     "ai",
     "agent",
-    "prompt-injection",
-    "preflight",
-    "handoff"
+    "prompt-injection"
   ],
   "type": "module",
   "exports": {
