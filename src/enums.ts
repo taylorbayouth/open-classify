@@ -24,9 +24,12 @@ export type DownstreamExecutionMode = (typeof DOWNSTREAM_EXECUTION_MODE_VALUES)[
 // onto concrete model names via `DownstreamModelConfig` (see types.ts).
 export const DOWNSTREAM_MODEL_TIER_VALUES = [
   "local_fast",
+  "local_small",
   "local_strong",
+  "local_coding",
   "frontier_fast",
   "frontier_strong",
+  "frontier_coding",
   "unable_to_determine",
 ] as const;
 export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
@@ -48,12 +51,24 @@ export type ToolFamily = (typeof TOOL_FAMILY_VALUES)[number];
 // Which kind of model/prompt specialization fits the request best. Combined
 // with the tier to look up a concrete model in `DownstreamModelConfig`.
 export const MODEL_SPECIALIZATION_VALUES = [
+  "agentic_coding",
+  "agentic_workflows",
   "chat",
+  "code_fixing",
+  "code_reasoning",
+  "code_review",
   "writing",
   "reasoning",
   "planning",
   "coding",
+  "computer_use",
+  "debugging",
   "instruction_following",
+  "question_answering",
+  "subagents",
+  "summarization",
+  "tool_assisted_coding",
+  "vision_input",
   "unclear",
 ] as const;
 export type ModelSpecialization = (typeof MODEL_SPECIALIZATION_VALUES)[number];

@@ -115,7 +115,7 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
       path,
     );
 
-    const params_in_billions = requirePositiveNumber(
+    const params_in_billions = requirePositiveNumberOrNull(
       entry.params_in_billions,
       `${where}.params_in_billions`,
       path,
@@ -131,11 +131,15 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
       entry,
       [
         "id",
+        "provider",
+        "runtime",
         "specializations",
         "execution_modes",
         "tier",
         "params_in_billions",
         "context_window",
+        "max_output_tokens",
+        "upstream_max_context_window",
         "input_tokens_cpm",
         "cached_tokens_cpm",
         "output_tokens_cpm",
@@ -163,7 +167,7 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
     );
   }
 
-  ensureExactKeysCatalog(value, ["models", "default"], "<root>", path);
+  ensureAllowedKeysCatalog(value, ["models", "default", "pricing_unit", "notes"], "<root>", path);
 
   return { models, default: defaultId };
 }
@@ -205,6 +209,13 @@ function requirePositiveNumber(value: unknown, where: string, path?: string): nu
     throw new CatalogError(`${where} must be a positive number`, path);
   }
   return value;
+}
+
+function requirePositiveNumberOrNull(value: unknown, where: string, path?: string): number | null {
+  if (value === null) {
+    return null;
+  }
+  return requirePositiveNumber(value, where, path);
 }
 
 function requireNonNegativeNumber(value: unknown, where: string, path?: string): number {
@@ -285,25 +296,6 @@ function requirePricing(
       path,
     ),
   };
-}
-
-function ensureExactKeysCatalog(
-  value: Record<string, unknown>,
-  keys: readonly string[],
-  where: string,
-  path?: string,
-): void {
-  const expected = new Set(keys);
-  for (const key of Object.keys(value)) {
-    if (!expected.has(key)) {
-      throw new CatalogError(`${where} has unsupported field "${key}"`, path);
-    }
-  }
-  for (const key of keys) {
-    if (!(key in value)) {
-      throw new CatalogError(`${where} is missing required field "${key}"`, path);
-    }
-  }
 }
 
 function ensureAllowedKeysCatalog(

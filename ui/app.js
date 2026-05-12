@@ -316,7 +316,9 @@ function focusLastMessage() {
 }
 
 function handleStreamEvent(event, data) {
-  if (event !== "pipeline_phase") appendEvent(event, data?.name ?? null);
+  if (event !== "pipeline_phase") {
+    appendEvent(event, data?.name ?? null, data?.error ?? data?.reason ?? null);
+  }
 
   switch (event) {
     case "pipeline_started":

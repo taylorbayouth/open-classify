@@ -44,7 +44,7 @@ export interface CatalogEntry {
   readonly specializations: ReadonlyArray<ConcreteModelSpecialization>;
   readonly execution_modes: ReadonlyArray<ConcreteDownstreamExecutionMode>;
   readonly tier: ConcreteDownstreamModelTier;
-  readonly params_in_billions: number;
+  readonly params_in_billions: number | null;
   readonly context_window: number;
   readonly input_tokens_cpm?: number;
   readonly cached_tokens_cpm?: number;
@@ -78,7 +78,7 @@ export interface ModelRecommendationResolution {
 
 export interface ModelRecommendation {
   readonly id: string;
-  readonly params_in_billions: number;
+  readonly params_in_billions: number | null;
   readonly context_window: number;
   readonly input_tokens_cpm?: number;
   readonly cached_tokens_cpm?: number;

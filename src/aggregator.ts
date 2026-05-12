@@ -413,7 +413,7 @@ function compareModels(
   const costDiff = priceIndex(a) - priceIndex(b);
   if (Math.abs(costDiff) > Number.EPSILON) return costDiff;
   if (a.params_in_billions !== b.params_in_billions) {
-    return b.params_in_billions - a.params_in_billions;
+    return comparableParams(b) - comparableParams(a);
   }
   if (a.context_window !== b.context_window) {
     return b.context_window - a.context_window;
@@ -426,6 +426,10 @@ function priceIndex(model: CatalogEntry): number {
     return 0;
   }
   return model.input_tokens_cpm + model.output_tokens_cpm;
+}
+
+function comparableParams(model: CatalogEntry): number {
+  return model.params_in_billions ?? 0;
 }
 
 function modelRecommendationFields(

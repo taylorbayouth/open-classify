@@ -220,6 +220,7 @@ async function classifyStream(
     });
     send("pipeline_completed", result);
   } catch (error) {
+    console.error("[pipeline] failed:", error);
     send("pipeline_failed", { error: errorMessage(error) });
   } finally {
     clearInterval(heartbeat);
