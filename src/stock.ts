@@ -44,6 +44,14 @@ export interface RoutingSignal {
   readonly specialization?: ModelSpecialization;
 }
 
+export interface TierSignal {
+  readonly model_tier?: DownstreamModelTier;
+}
+
+export interface SpecializationSignal {
+  readonly specialization?: ModelSpecialization;
+}
+
 export interface ToolsSignal {
   readonly tools: ReadonlyArray<string>;
 }
@@ -70,8 +78,8 @@ export interface PreflightClassifierOutput extends ClassifierOutputMetadata {
   readonly ack_reply?: AckReplySignal;
 }
 
-export type RoutingClassifierOutput = RoutingSignal & ClassifierOutputMetadata;
-export type ModelSpecializationClassifierOutput = RoutingSignal & ClassifierOutputMetadata;
+export type RoutingClassifierOutput = TierSignal & ClassifierOutputMetadata;
+export type ModelSpecializationClassifierOutput = SpecializationSignal & ClassifierOutputMetadata;
 export type ToolsClassifierOutput = ToolsSignal & ClassifierOutputMetadata;
 export type SecurityClassifierOutput = SafetySignal & ClassifierOutputMetadata;
 

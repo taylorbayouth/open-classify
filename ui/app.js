@@ -279,19 +279,18 @@ function renderMessage(message, index) {
   return `
     <article class="message-editor ${isFinal ? "target-message" : "context-message"}" data-message-id="${escapeHtml(message.id)}">
       <div class="message-editor-head">
-        <strong>Message ${index + 1}</strong>
-        <span>${isFinal ? "classified message" : "context"}</span>
-        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove message" aria-label="Remove message"${canRemove ? "" : " disabled"}>×</button>
-      </div>
-      <div class="message-meta-row">
-        <label class="field">
-          <span>Role</span>
-          <select data-field="role"${isFinal ? " disabled" : ""}>
+        <div class="message-editor-title">
+          <strong>Message ${index + 1}</strong>
+          <span>${isFinal ? "classified message" : "context"}</span>
+        </div>
+        <label class="message-role-select">
+          <select data-field="role" aria-label="Role"${isFinal ? " disabled" : ""}>
             ${["user", "assistant"]
               .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
               .join("")}
           </select>
         </label>
+        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove message" aria-label="Remove message"${canRemove ? "" : " disabled"}>×</button>
       </div>
       <label class="field">
         <span>Text</span>
@@ -611,7 +610,7 @@ function renderDetails(name, item) {
     return `<div class="detail muted">${emptyStateText(item.status)}</div>`;
   }
 
-  return renderClassifierResult(result);
+  return renderClassifierResult(name, result);
 }
 
 function classifierLabel(name) {
@@ -682,8 +681,8 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function renderClassifierResult(result) {
-  const entries = Object.entries(result)
+function renderClassifierResult(name, result) {
+  const entries = Object.entries(filterClassifierResult(name, result))
     .filter(([key, value]) => key !== "version" && key !== "status" && hasRenderableValue(value));
   const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(pruneEmptyArrays(value))]);
   const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
@@ -718,6 +717,20 @@ function renderClassifierResult(result) {
       </details>
     `}
   `;
+}
+
+function filterClassifierResult(name, result) {
+  if (name === "routing") {
+    const { specialization, ...rest } = result;
+    void specialization;
+    return rest;
+  }
+  if (name === "model_specialization") {
+    const { model_tier, ...rest } = result;
+    void model_tier;
+    return rest;
+  }
+  return result;
 }
 
 function renderClassifierDetailBody(key, value) {

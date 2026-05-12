@@ -13,6 +13,7 @@ import type {
   ClassifierOutput,
   CustomClassifierOutput,
   CustomClassifierOutputValue,
+  ModelSpecializationClassifierOutput,
   FinalReplySignal,
   PreflightClassifierOutput,
   RoutingClassifierOutput,
@@ -43,7 +44,7 @@ export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
   const stockByName = stockResultsByName(registry, results);
   const preflight = stockByName.preflight as PreflightClassifierOutput | undefined;
   const routing = stockByName.routing as RoutingClassifierOutput | undefined;
-  const modelSpec = stockByName.model_specialization as RoutingClassifierOutput | undefined;
+  const modelSpec = stockByName.model_specialization as ModelSpecializationClassifierOutput | undefined;
   const tools = stockByName.tools as ToolsClassifierOutput | undefined;
   const security = stockByName.security as SecurityClassifierOutput | undefined;
 
@@ -106,20 +107,18 @@ function isConfident(
 
 function mergeRouting(
   routing: RoutingClassifierOutput | undefined,
-  modelSpec: RoutingClassifierOutput | undefined,
+  modelSpec: ModelSpecializationClassifierOutput | undefined,
   threshold: number,
 ): RoutingSignal | undefined {
   const tier = pickConfidentAxis(
     [
       ["routing", routing, routing?.model_tier],
-      ["model_specialization", modelSpec, modelSpec?.model_tier],
     ],
     threshold,
   );
   const specialization = pickConfidentAxis(
     [
       ["model_specialization", modelSpec, modelSpec?.specialization],
-      ["routing", routing, routing?.specialization],
     ],
     threshold,
   );
@@ -148,7 +147,7 @@ function pickConfidentAxis<T>(
 
 function routingMaxConfidence(
   routing: RoutingClassifierOutput | undefined,
-  modelSpec: RoutingClassifierOutput | undefined,
+  modelSpec: ModelSpecializationClassifierOutput | undefined,
 ): number | undefined {
   const values = [routing?.confidence, modelSpec?.confidence].filter(
     (v): v is number => typeof v === "number",
@@ -192,7 +191,7 @@ function customOutputs(
 
 function lowConfidenceRoutingDrops(
   routing: RoutingClassifierOutput | undefined,
-  modelSpec: RoutingClassifierOutput | undefined,
+  modelSpec: ModelSpecializationClassifierOutput | undefined,
   merged: RoutingSignal | undefined,
   threshold: number,
 ): ModelRecommendationResolution["constraints_dropped"] {
@@ -213,7 +212,7 @@ function lowConfidenceRoutingDrops(
 }
 
 function hasLowConfidenceAxis(
-  result: RoutingClassifierOutput | undefined,
+  result: ({ confidence?: number } & RoutingSignal) | undefined,
   field: "model_tier" | "specialization",
   threshold: number,
 ): boolean {
@@ -292,7 +291,7 @@ export function resolveModelFromRouting(
 // results map and resolves a model. Mirrors `composeEnvelope` for callers
 // that want just the model recommendation without the rest of the envelope.
 export function resolveModel(
-  results: Readonly<{ routing?: RoutingClassifierOutput; model_specialization?: RoutingClassifierOutput }>,
+  results: Readonly<{ routing?: RoutingClassifierOutput; model_specialization?: ModelSpecializationClassifierOutput }>,
   catalog: Catalog,
   threshold: number,
 ): ModelRecommendation {

@@ -7,6 +7,7 @@ import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
 import type {
   CustomJsonManifest,
   JsonClassifierManifest,
+  ModelSpecializationClassifierOutput,
   PreflightClassifierOutput,
   RoutingClassifierOutput,
   SafetySignal,
@@ -226,9 +227,9 @@ function validateStockOutputForName<Name extends StockClassifierName>(
     case "preflight":
       return validatePreflightOutput(value, model) as StockClassifierOutputs[Name];
     case "routing":
-      return validateRoutingOutput(value, name, model) as StockClassifierOutputs[Name];
+      return validateTierRoutingOutput(value, model) as StockClassifierOutputs[Name];
     case "model_specialization":
-      return validateRoutingOutput(value, name, model) as StockClassifierOutputs[Name];
+      return validateModelSpecializationOutput(value, model) as StockClassifierOutputs[Name];
     case "tools":
       return validateToolsOutput(value, model, tools?.map((tool) => tool.id)) as StockClassifierOutputs[Name];
     case "security":
@@ -304,21 +305,31 @@ function validateReplySignal(
   return { reply };
 }
 
-function validateRoutingOutput(
+function validateTierRoutingOutput(
   value: Record<string, unknown>,
-  classifier: string,
   model: string,
 ): RoutingClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "model_tier", "specialization"], classifier, model, "output");
-  const meta = validateMetadata(value, classifier, model);
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "model_tier"], "routing", model, "output");
+  const meta = validateMetadata(value, "routing", model);
   return {
     ...meta,
     ...(value.model_tier === undefined
       ? {}
-      : { model_tier: requireEnum(value.model_tier, DOWNSTREAM_MODEL_TIER_VALUES, classifier, model, "model_tier") }),
+      : { model_tier: requireEnum(value.model_tier, DOWNSTREAM_MODEL_TIER_VALUES, "routing", model, "model_tier") }),
+  };
+}
+
+function validateModelSpecializationOutput(
+  value: Record<string, unknown>,
+  model: string,
+): ModelSpecializationClassifierOutput {
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "specialization"], "model_specialization", model, "output");
+  const meta = validateMetadata(value, "model_specialization", model);
+  return {
+    ...meta,
     ...(value.specialization === undefined
       ? {}
-      : { specialization: requireEnum(value.specialization, MODEL_SPECIALIZATION_VALUES, classifier, model, "specialization") }),
+      : { specialization: requireEnum(value.specialization, MODEL_SPECIALIZATION_VALUES, "model_specialization", model, "specialization") }),
   };
 }
 

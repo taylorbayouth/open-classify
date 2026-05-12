@@ -113,6 +113,48 @@ test("validates a routing classifier output", () => {
   assert.equal(output.model_tier, "frontier_fast");
 });
 
+test("routing rejects specialization output", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "routing",
+    version: "1.0.0",
+    purpose: "Pick a tier.",
+    order: 20,
+    fallback: {},
+  });
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "wrong axis", confidence: 0.9, specialization: "question_answering" },
+        { classifier: "routing", model: "test" },
+      ),
+    /specialization is not a supported field/,
+  );
+});
+
+test("model_specialization rejects tier output", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "model_specialization",
+    version: "1.0.0",
+    purpose: "Pick a specialization.",
+    order: 30,
+    fallback: {},
+  });
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "wrong axis", confidence: 0.9, model_tier: "frontier_fast" },
+        { classifier: "model_specialization", model: "test" },
+      ),
+    /model_tier is not a supported field/,
+  );
+});
+
 test("preflight rejects emitting final_reply and ack_reply together", () => {
   const manifest = validateJsonClassifierManifest({
     kind: "stock",
@@ -232,6 +274,13 @@ test("builds a prompt for a stock manifest", () => {
   const prompt = buildStockClassifierPrompt(manifest);
   assert.match(prompt, /Return one JSON object/);
   assert.match(prompt, /repo: Read and edit source repositories/);
+});
+
+test("security prompt scopes ordinary tool constraints as non-safety by default", () => {
+  const prompt = buildStockClassifierPrompt(security());
+  assert.match(prompt, /This classifier is only for safety and permission-boundary risk\./);
+  assert.match(prompt, /Treat ordinary user constraints such as "do not browse", "do not send", "cite the source", or "use\/avoid tool X" as normal task requirements/);
+  assert.match(prompt, /Do not classify a request as suspicious merely because it is contradictory, impossible, or asks for freshness without the required tool/);
 });
 
 test("custom manifest requires output_schema", () => {
