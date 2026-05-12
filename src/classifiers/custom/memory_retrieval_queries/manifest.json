@@ -2,7 +2,7 @@
   "kind": "custom",
   "name": "memory_retrieval_queries",
   "version": "1.0.0",
-  "purpose": "Generate short saved-memory query hints for caller-owned memory retrieval.",
+  "purpose": "Generate retrieval queries likely to surface helpful user-specific context for the downstream model.",
   "order": 60,
   "fallback": {
     "output": {

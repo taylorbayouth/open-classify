@@ -114,7 +114,7 @@ A custom classifier is two files in `src/classifiers/custom/<name>/`:
   "kind": "custom",
   "name": "memory_retrieval_queries",
   "version": "1.0.0",
-  "purpose": "Generate saved-memory query hints.",
+  "purpose": "Generate retrieval queries likely to surface helpful user-specific context for the downstream model.",
   "order": 60,
   "fallback": { "output": { "queries": [] } },
   "output_schema": {

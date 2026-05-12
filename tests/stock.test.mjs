@@ -273,6 +273,7 @@ test("builds a prompt for a stock manifest", () => {
   const manifest = tools();
   const prompt = buildStockClassifierPrompt(manifest);
   assert.match(prompt, /Return one JSON object/);
+  assert.match(prompt, /Treat the stated purpose as a hard scope boundary\./);
   assert.match(prompt, /repo: Read and edit source repositories/);
 });
 
