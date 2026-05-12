@@ -1,7 +1,5 @@
-Emit one or both of these optional fields:
+Emit this optional field:
 
 {{tier}}
 
-{{specialty}}
-
-Omit a field rather than guessing.
+Omit model_tier rather than guessing.
