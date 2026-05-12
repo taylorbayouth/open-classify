@@ -19,6 +19,14 @@ export const validClassifierOutputs = {
     confidence: 0.85,
     output: { queries: ["user review preferences"] },
   },
+  conversation_diegest: {
+    reason: "Conversation compression is useful downstream context.",
+    confidence: 0.9,
+    output: {
+      history_summary: "",
+      latest_user_message_summary: "User asks for code review.",
+    },
+  },
   tools: {
     reason: "The request requires code access.",
     confidence: 0.9,

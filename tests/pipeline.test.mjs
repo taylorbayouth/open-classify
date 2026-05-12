@@ -75,9 +75,22 @@ test("starts all classifiers concurrently and returns route result", async () =>
       confidence: 0.85,
       output: { queries: ["user review preferences"] },
     },
+    {
+      classifier: "conversation_diegest",
+      reason: "Conversation compression is useful downstream context.",
+      confidence: 0.9,
+      output: {
+        history_summary: "",
+        latest_user_message_summary: "User asks for code review.",
+      },
+    },
   ]);
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: ["user review preferences"] },
+    conversation_diegest: {
+      history_summary: "",
+      latest_user_message_summary: "User asks for code review.",
+    },
   });
 
   // reasoning + local_strong → gemma4 matches (qwen is coding-only).
@@ -451,9 +464,22 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
       classifier: "memory_retrieval_queries",
       output: { queries: [] },
     },
+    {
+      classifier: "conversation_diegest",
+      reason: "Conversation compression is useful downstream context.",
+      confidence: 0.9,
+      output: {
+        history_summary: "",
+        latest_user_message_summary: "User asks for code review.",
+      },
+    },
   ]);
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: [] },
+    conversation_diegest: {
+      history_summary: "",
+      latest_user_message_summary: "User asks for code review.",
+    },
   });
   const memEntry = result.audit.meta.classifiers.memory_retrieval_queries;
   assert.equal(memEntry.status.ok, false);
