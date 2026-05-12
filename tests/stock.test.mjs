@@ -199,6 +199,7 @@ test("builds stock prompt fragments from manifest emits", () => {
 
   const prompt = buildStockClassifierPrompt(manifest);
   assert.match(prompt, /Return one JSON object/);
+  assert.match(prompt, /confidence: JSON number float from 0\.0 to 1\.0 inclusive/);
   assert.match(prompt, /handoff:/);
   assert.match(prompt, /tools:/);
   assert.match(prompt, /repo: Read and edit source repositories/);

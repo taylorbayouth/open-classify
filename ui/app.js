@@ -198,8 +198,10 @@ function resetRunOutput() {
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   hashes.hidden = true;
+  hashes.innerHTML = "";
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
+  resetCopyJsonButton();
 }
 
 async function classify() {
@@ -211,8 +213,10 @@ async function classify() {
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   hashes.hidden = true;
+  hashes.innerHTML = "";
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
+  resetCopyJsonButton();
   form.querySelectorAll("button").forEach((button) => {
     button.disabled = true;
   });
@@ -397,13 +401,26 @@ function renderPipeline(result) {
     cancelClassifiersExcept([result.fired_by]);
   }
 
-  hashes.hidden = false;
-  hashes.innerHTML = `
-    <div><em>target_message_hash</em>${escapeHtml(result.target_message_hash)}</div>
-  `;
+  renderHashes(result);
 
   jsonToggle.hidden = false;
   jsonPanel.textContent = JSON.stringify(result, null, 2);
+}
+
+function renderHashes(result) {
+  const targetMessageHash =
+    typeof result?.target_message_hash === "string" ? result.target_message_hash.trim() : "";
+
+  if (!targetMessageHash) {
+    hashes.hidden = true;
+    hashes.innerHTML = "";
+    return;
+  }
+
+  hashes.hidden = false;
+  hashes.innerHTML = `
+    <div><em>target_message_hash</em>${escapeHtml(targetMessageHash)}</div>
+  `;
 }
 
 function renderAggregate(result) {
@@ -745,6 +762,10 @@ function renderEventLog() {
       `;
     })
     .join("");
+}
+
+function resetCopyJsonButton() {
+  copyJsonButton.textContent = "Copy";
 }
 
 function eventTag(name) {

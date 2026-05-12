@@ -8,6 +8,7 @@ import type {
   RunClassifier,
 } from "./manifest.js";
 import type { RuntimeClassifierManifest, StockClassifierOutput } from "./stock.js";
+import { buildStockClassifierPrompt } from "./stock-prompt.js";
 import {
   validateJsonClassifierManifest,
   validateStockClassifierOutput,
@@ -51,10 +52,11 @@ function loadClassifierManifest(classifierDir: string): RuntimeClassifierManifes
 
   const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
   const manifest = validateJsonClassifierManifest(parsed, manifestPath);
-  const systemPrompt = readFileSync(promptPath, "utf8").trim();
-  if (systemPrompt.length === 0) {
+  const classifierPrompt = readFileSync(promptPath, "utf8").trim();
+  if (classifierPrompt.length === 0) {
     throw new ClassifierManifestError(`prompt.md must not be empty: ${promptPath}`);
   }
+  const systemPrompt = `${buildStockClassifierPrompt(manifest)}\n\nClassifier guidance:\n${classifierPrompt}`;
 
   return { ...manifest, systemPrompt };
 }

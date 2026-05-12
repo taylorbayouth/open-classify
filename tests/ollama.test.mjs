@@ -131,6 +131,8 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
   assert.equal(body.options.temperature, 0);
   assert.equal(body.options.num_ctx, OLLAMA_CONTEXT_LENGTH);
   assert.equal(body.messages[0].role, "system");
+  assert.match(body.messages[0].content, /confidence: JSON number float from 0\.0 to 1\.0 inclusive/);
+  assert.match(body.messages[0].content, /Declared optional fields: handoff\./);
   assert.match(body.messages[0].content, /preflight classifier/);
   assert.equal(body.messages[1].role, "user");
   assert.match(body.messages[1].content, /The target user message is the final message in the window\./);
@@ -465,8 +467,8 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
         const body = JSON.parse(init.body);
         assert.ok(typeof body.model === "string" && body.model.length > 0);
         const systemPrompt = body.messages[0].content;
-        // Identify which classifier was invoked by matching system prompts
-        // back to the registered modules.
+        // Identify which classifier was invoked by matching generated system
+        // prompts back to the registered modules.
         const entries = Object.entries(MODULES_BY_NAME);
         const match = entries.find(([, module]) => module.systemPrompt === systemPrompt);
         assert.ok(match, "system prompt should match a registered module");
