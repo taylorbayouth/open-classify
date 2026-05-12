@@ -66,6 +66,32 @@ test("allows verbose reasons and numeric-string confidence", () => {
   assert.match(output.reason, /old 200 character limit/);
 });
 
+test("normalizes common local-model confidence formats", () => {
+  const options = {
+    classifier: "context",
+    model: "test",
+    emits: { context: true },
+  };
+
+  for (const [confidence, expected] of [
+    [95, 0.95],
+    ["95%", 0.95],
+    ["high", 0.9],
+  ]) {
+    assert.equal(
+      validateStockClassifierOutput(
+        {
+          reason: "Confidence format should normalize.",
+          confidence,
+          context: { status: "standalone" },
+        },
+        options,
+      ).confidence,
+      expected,
+    );
+  }
+});
+
 test("validates context as a discriminated union", () => {
   assert.deepEqual(
     validateStockClassifierOutput(

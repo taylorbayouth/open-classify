@@ -131,8 +131,7 @@ export function requireConfidence(
   model: string,
   path = "confidence",
 ): number {
-  const confidence =
-    typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  const confidence = normalizeConfidence(value);
   if (
     typeof confidence !== "number" ||
     !Number.isFinite(confidence) ||
@@ -142,6 +141,30 @@ export function requireConfidence(
     throwInvalid(classifier, model, `${path} must be a number between 0 and 1 inclusive`);
   }
   return confidence;
+}
+
+function normalizeConfidence(value: unknown): unknown {
+  if (typeof value === "number") {
+    return value > 1 && value <= 100 ? value / 100 : value;
+  }
+  if (typeof value !== "string") return value;
+
+  const text = value.trim().toLowerCase();
+  if (text === "") return value;
+  if (text.endsWith("%")) {
+    const percent = Number(text.slice(0, -1).trim());
+    return Number.isFinite(percent) ? percent / 100 : value;
+  }
+
+  const numeric = Number(text);
+  if (Number.isFinite(numeric)) {
+    return numeric > 1 && numeric <= 100 ? numeric / 100 : numeric;
+  }
+
+  if (text === "high") return 0.9;
+  if (text === "medium") return 0.5;
+  if (text === "low") return 0.2;
+  return value;
 }
 
 export function ensureExactKeys(
