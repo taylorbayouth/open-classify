@@ -533,7 +533,7 @@ function renderClassifier(name) {
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">
-            ${item.status === "running" ? '<span class="pulse"></span>' : ""}${item.status}
+            ${item.status === "running" ? '<span class="pulse"></span>' : ""}${escapeHtml(classifierStatusLabel(item))}
           </span>
           ${elapsedHtml}
         </div>
@@ -659,7 +659,7 @@ function renderClassifierResult(name, result) {
   const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
   const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
-  const META_KEYS = new Set(["reason", "confidence"]);
+  const META_KEYS = new Set(["reason"]);
   const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
   const metaPrimary = primary.filter(([key]) => META_KEYS.has(key));
 
@@ -681,13 +681,37 @@ function renderClassifierResult(name, result) {
     `}
     ${metaPrimary.length === 0 ? "" : `
       <details class="object-details classifier-detail meta-detail">
-        <summary><span>details</span></summary>
+        <summary><span>Reason text</span></summary>
         <div class="field-list meta-field-list">
           ${metaPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
         </div>
       </details>
     `}
   `;
+}
+
+function classifierStatusLabel(item) {
+  const base = {
+    pending: "Pending",
+    running: "Running",
+    done: "Done",
+    fallback: "Fallback",
+    timeout: "Timeout",
+    aborted: "Aborted",
+    failed: "Failed",
+    idle: "Idle",
+  }[item.status] ?? formatKeyLabel(item.status);
+
+  if (item.status !== "done") {
+    return base;
+  }
+
+  const confidence = item.result?.confidence;
+  if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
+    return base;
+  }
+
+  return `${base} (${(confidence * 100).toFixed(1)}% confident)`;
 }
 
 function filterClassifierResult(name, result) {
