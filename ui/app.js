@@ -669,12 +669,25 @@ function renderClassifierResult(result) {
         ${nested.map(([key, value]) => `
           <details class="object-details classifier-detail">
             <summary><span>${escapeHtml(key)}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
-            <div class="object-grid classifier-output">${objectRow(key, value)}</div>
+            <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
           </details>
         `).join("")}
       </div>
     `}
   `;
+}
+
+function renderClassifierDetailBody(key, value) {
+  if (!isPlainObject(value)) {
+    return objectRow(key, value);
+  }
+
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    return objectRow(key, value);
+  }
+
+  return entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("");
 }
 
 function fieldRow(key, value) {
