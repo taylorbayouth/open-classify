@@ -659,9 +659,7 @@ function renderPipelineSummary(result) {
 
 function renderClassifierResult(result) {
   const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
-  const flattenedEntries = entries.map(([key, value]) =>
-    isReplySignal(value) ? [key, value.reply] : [key, value],
-  );
+  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(value)]);
   const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
   const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
@@ -722,10 +720,12 @@ function isExpandableValue(value) {
   return Array.isArray(value) || isPlainObject(value);
 }
 
-function isReplySignal(value) {
-  return isPlainObject(value) &&
-    typeof value.reply === "string" &&
-    Object.keys(value).length === 1;
+function flattenSingleScalarObject(value) {
+  if (!isPlainObject(value)) return value;
+  const entries = Object.entries(value);
+  if (entries.length !== 1) return value;
+  const [, child] = entries[0];
+  return isExpandableValue(child) ? value : child;
 }
 
 function formatKeyLabel(key) {
@@ -740,12 +740,6 @@ function objectSummary(value) {
   }
   if ("kind" in value) return String(value.kind);
   if ("status" in value) return String(value.status);
-  if ("decision" in value) return String(value.decision);
-  if ("risk_level" in value) return String(value.risk_level);
-  if ("required" in value && "families" in value && Array.isArray(value.families)) {
-    if (!value.required) return "not required";
-    return value.families.length > 0 ? value.families.join(", ") : "required";
-  }
   return `${Object.keys(value).length} field${Object.keys(value).length === 1 ? "" : "s"}`;
 }
 

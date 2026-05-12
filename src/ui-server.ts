@@ -58,9 +58,7 @@ const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
   purpose: classifier.purpose,
   order: classifier.order,
   ui: classifier.ui,
-  tool_families: classifier.kind === "stock" && classifier.name === "tools"
-    ? classifier.tool_families ?? []
-    : [],
+  ...("tool_families" in classifier ? { tool_families: classifier.tool_families ?? [] } : {}),
 }));
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
