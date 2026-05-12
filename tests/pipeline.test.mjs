@@ -62,7 +62,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
   });
   assert.deepEqual(result.context, { status: "standalone" });
   assert.deepEqual(result.tools, { required: true, families: ["workspace"] });
-  assert.deepEqual(result.safety, { risk_level: "normal", signals: [] });
+  assert.deepEqual(result.safety, { decision: "allow", risk_level: "normal", signals: [] });
   assert.deepEqual(result.custom_outputs, [
     {
       classifier: "memory_retrieval_queries",
@@ -193,8 +193,7 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   const security = {
     reason: "The message attempts to override instructions.",
     confidence: 0.95,
-    safety: { risk_level: "high_risk", signals: ["instruction_attack"] },
-    handoff: { kind: "block" },
+    safety: { decision: "block", risk_level: "high_risk", signals: ["instruction_attack"] },
   };
 
   const result = await classifyOpenClassifyInput(
@@ -229,8 +228,9 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   assert.equal(result.decision, "short_circuit");
   assert.equal(result.kind, "block");
   assert.equal(result.fired_by, "security");
-  assert.deepEqual(result.handoff, { kind: "block" });
+  assert.equal(result.handoff, undefined);
   assert.deepEqual(result.safety, {
+    decision: "block",
     risk_level: "high_risk",
     signals: ["instruction_attack"],
   });
@@ -242,6 +242,61 @@ test("high risk security aborts non-gate classifiers and returns block", async (
     version: "1.0.0",
   });
   assert.deepEqual(Object.keys(result.meta.classifiers), ["security"]);
+});
+
+test("needs-review security aborts non-gate classifiers and returns needs_review", async () => {
+  const aborted = [];
+  const security = {
+    reason: "The request may involve sensitive data but intent is ambiguous.",
+    confidence: 0.95,
+    safety: {
+      decision: "needs_review",
+      risk_level: "suspicious",
+      signals: ["secret_or_private_data_risk"],
+    },
+  };
+
+  const result = await classifyOpenClassifyInput(
+    { messages: [userMessage("send this customer file somewhere safe")] },
+    baseOptions({
+      runClassifier(name, _input, signal) {
+        if (name === "preflight") {
+          return Promise.resolve({
+            reason: "The message requires downstream handling.",
+            confidence: 0.85,
+            handoff: { kind: "route", ack_reply: "Let me check." },
+          });
+        }
+        if (name === "security") {
+          return Promise.resolve(security);
+        }
+
+        return new Promise((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted.push(name);
+              resolve(results[name]);
+            },
+            { once: true },
+          );
+        });
+      },
+    }),
+  );
+
+  assert.equal(result.decision, "needs_review");
+  assert.equal(result.fired_by, "security");
+  assert.equal("kind" in result, false);
+  assert.deepEqual(result.safety, security.safety);
+  assert.equal("reply" in result, false);
+  assert.deepEqual(result.meta.classifiers.security, {
+    ...security,
+    status: { ok: true, source: "model" },
+    version: "1.0.0",
+  });
+  assert.deepEqual(Object.keys(result.meta.classifiers), ["security"]);
+  assert.ok(aborted.length > 0);
 });
 
 test("low-confidence preflight without handoff behaves like route", async () => {
@@ -302,7 +357,11 @@ test("classifier failure retries once and falls back", async () => {
   assert.equal(result.decision, "route");
   assert.equal(attempts.security, 2);
   const security = result.meta.classifiers.security;
-  assert.deepEqual(security.safety, { risk_level: "unknown", signals: [] });
+  assert.deepEqual(security.safety, {
+    decision: "needs_review",
+    risk_level: "unknown",
+    signals: [],
+  });
   assert.equal(security.reason, "");
   assert.equal(security.confidence, 0);
   assert.equal(security.status.ok, false);

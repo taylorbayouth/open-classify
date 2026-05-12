@@ -171,18 +171,33 @@ const SAFETY_RISK_ORDER: Record<SafetySignal["risk_level"], number> = {
   high_risk: 3,
 };
 
+const SAFETY_DECISION_ORDER: Record<NonNullable<SafetySignal["decision"]>, number> = {
+  allow: 0,
+  needs_review: 1,
+  block: 2,
+};
+
 function mergeSafety(
   entries: ReadonlyArray<[string, StockClassifierOutput]>,
 ): SafetySignal | undefined {
   const safetyEntries = entries.flatMap(([, result]) => result.safety ? [result.safety] : []);
   if (safetyEntries.length === 0) return undefined;
   let risk_level = safetyEntries[0].risk_level;
+  let decision = safetyEntries[0].decision;
   for (const safety of safetyEntries) {
     if (SAFETY_RISK_ORDER[safety.risk_level] > SAFETY_RISK_ORDER[risk_level]) {
       risk_level = safety.risk_level;
     }
+    if (
+      safety.decision !== undefined &&
+      (decision === undefined ||
+        SAFETY_DECISION_ORDER[safety.decision] > SAFETY_DECISION_ORDER[decision])
+    ) {
+      decision = safety.decision;
+    }
   }
   return {
+    ...(decision === undefined ? {} : { decision }),
     risk_level,
     signals: dedupeStrings(safetyEntries.flatMap((safety) => safety.signals)),
   };

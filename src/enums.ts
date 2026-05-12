@@ -58,8 +58,15 @@ export const MODEL_SPECIALIZATION_VALUES = [
 ] as const;
 export type ModelSpecialization = (typeof MODEL_SPECIALIZATION_VALUES)[number];
 
-// Overall safety verdict on the latest user message. `high_risk` triggers a
-// hard block in the pipeline; everything else still routes.
+export const SECURITY_DECISION_VALUES = [
+  "allow",
+  "block",
+  "needs_review",
+] as const;
+export type SecurityDecision = (typeof SECURITY_DECISION_VALUES)[number];
+
+// Overall safety posture on the latest user message. Security short-circuiting
+// is driven by safety.decision, not risk level alone.
 export const SECURITY_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
@@ -69,7 +76,7 @@ export const SECURITY_RISK_LEVEL_VALUES = [
 export type SecurityRiskLevel = (typeof SECURITY_RISK_LEVEL_VALUES)[number];
 
 // Specific safety concerns the security classifier can flag. These are
-// advisory; only `risk_level === "high_risk"` actually blocks.
+// advisory; safety.decision controls whether the pipeline blocks or needs review.
 export const SECURITY_SIGNAL_VALUES = [
   "instruction_attack",
   "secret_or_private_data_risk",

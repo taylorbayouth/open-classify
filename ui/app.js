@@ -696,6 +696,7 @@ function objectSummary(value) {
   }
   if ("kind" in value) return String(value.kind);
   if ("status" in value) return String(value.status);
+  if ("decision" in value) return String(value.decision);
   if ("risk_level" in value) return String(value.risk_level);
   if ("required" in value && "families" in value && Array.isArray(value.families)) {
     if (!value.required) return "not required";

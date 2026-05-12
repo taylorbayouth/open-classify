@@ -31,16 +31,19 @@ console.log(JSON.stringify(result, null, 2));
 if (result.decision === "short_circuit") {
   if (result.kind === "block") {
     const security = result.meta.classifiers.security;
-    console.error(`\nDecision: block — ${security.risk_level}: ${security.reason}`);
+    console.error(`\nDecision: block — ${security.safety?.risk_level}: ${security.reason}`);
   } else {
     console.error(`\nDecision: ${result.kind} — assistant should reply with: "${result.reply}"`);
   }
+} else if (result.decision === "needs_review") {
+  const security = result.meta.classifiers.security;
+  console.error(`\nDecision: needs_review — ${security.safety?.risk_level}: ${security.reason}`);
 } else {
-  const { routing, tools, security } = result.meta.classifiers;
+  const { security } = result.meta.classifiers;
   console.error(
-    `\nDecision: route → ${routing.execution_mode} on ${routing.model_tier}` +
-      ` | model: ${result.model_recommendation.id} (${result.model_recommendation.params_in_millions}M params)` +
-      ` | tools: ${tools.families.join(", ") || "none"}` +
-      ` | security: ${security.risk_level}`,
+    `\nDecision: route → ${result.routing?.execution_mode} on ${result.routing?.model_tier}` +
+      ` | model: ${result.model_recommendation.id} (${result.model_recommendation.params_in_billions}B params)` +
+      ` | tools: ${result.tools?.families.join(", ") || "none"}` +
+      ` | security: ${security.safety?.risk_level}`,
   );
 }

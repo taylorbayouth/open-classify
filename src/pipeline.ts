@@ -130,19 +130,31 @@ function shortCircuitVerdict(
   manifest: (typeof REGISTRY)[number],
   result: StockClassifierOutput,
   config: AggregatorConfig | undefined,
-): ({ kind: "final"; reply: string } | { kind: "block" }) | null {
+): ({ kind: "final"; reply: string } | { kind: "block" } | { kind: "needs_review" }) | null {
   const threshold = config?.confidenceThreshold ?? 0.6;
+  if (!manifest.short_circuit || result.confidence < threshold) return null;
+
   const handoff = result.handoff;
-  if (!manifest.short_circuit || !handoff || result.confidence < threshold) return null;
-  if (!manifest.short_circuit.kinds.includes(handoff.kind)) return null;
-  if (handoff.kind === "final") return { kind: "final", reply: handoff.reply };
-  if (handoff.kind === "block") return { kind: "block" };
+  if (handoff && manifest.short_circuit.kinds?.includes(handoff.kind)) {
+    if (handoff.kind === "final") return { kind: "final", reply: handoff.reply };
+    if (handoff.kind === "block") return { kind: "block" };
+  }
+
+  const safetyDecision = result.safety?.decision;
+  if (
+    safetyDecision &&
+    manifest.short_circuit.safety_decisions?.includes(safetyDecision)
+  ) {
+    if (safetyDecision === "block") return { kind: "block" };
+    if (safetyDecision === "needs_review") return { kind: "needs_review" };
+  }
+
   return null;
 }
 
 function buildShortCircuitResult(
   name: string,
-  verdict: { kind: "final"; reply: string } | { kind: "block" },
+  verdict: { kind: "final"; reply: string } | { kind: "block" } | { kind: "needs_review" },
   settled: SettledClassifierResult,
   target_message_hash: string,
 ): PipelineResult {
@@ -153,12 +165,21 @@ function buildShortCircuitResult(
     status: classifierRunStatus(settled),
     version: manifest.version,
   };
-  return {
-    decision: "short_circuit",
+  const base = {
     target_message_hash,
     fired_by: name,
     ...shortCircuitStockSignals(value),
     meta: { classifiers: { [name]: entry } },
+  };
+  if (verdict.kind === "needs_review") {
+    return {
+      decision: "needs_review",
+      ...base,
+    };
+  }
+  return {
+    decision: "short_circuit",
+    ...base,
     ...verdict,
   };
 }

@@ -3,6 +3,7 @@ import type {
   ConcreteDownstreamModelTier,
   ConcreteModelSpecialization,
 } from "./manifest.js";
+import type { SecurityDecision } from "./enums.js";
 
 export const HISTORY_OLDER_MESSAGES_VALUES = [
   "none",
@@ -61,6 +62,7 @@ export interface ResponseSignal {
 }
 
 export interface SafetySignal<TSafetySignal extends string = string> {
+  readonly decision?: SecurityDecision;
   readonly risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
   readonly signals: ReadonlyArray<TSafetySignal>;
 }
@@ -115,7 +117,8 @@ export interface JsonClassifierManifest {
   readonly fallback: StockClassifierOutput;
   readonly short_circuit?: {
     readonly priority: number;
-    readonly kinds: ReadonlyArray<HandoffSignal["kind"]>;
+    readonly kinds?: ReadonlyArray<HandoffSignal["kind"]>;
+    readonly safety_decisions?: ReadonlyArray<NonNullable<SafetySignal["decision"]>>;
   };
   readonly tool_families?: ReadonlyArray<ToolFamilyDefinition>;
   readonly output_schema?: unknown;

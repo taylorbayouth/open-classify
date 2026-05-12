@@ -119,13 +119,24 @@ export type ShortCircuitPipelineResult = {
   | { readonly kind: "block" }
 );
 
+export type NeedsReviewPipelineResult = {
+  readonly decision: "needs_review";
+  readonly target_message_hash: string;
+  readonly fired_by: string;
+  readonly safety?: SafetySignal;
+  readonly meta: PipelineMeta;
+};
+
 export type RoutePipelineResult = {
   readonly decision: "route";
   readonly target_message_hash: string;
   readonly meta: PipelineMeta;
 } & Envelope;
 
-export type PipelineResult = ShortCircuitPipelineResult | RoutePipelineResult;
+export type PipelineResult =
+  | ShortCircuitPipelineResult
+  | NeedsReviewPipelineResult
+  | RoutePipelineResult;
 
 export interface AggregatorConfig {
   readonly confidenceThreshold?: number;

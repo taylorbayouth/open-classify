@@ -11,13 +11,13 @@ Always emit `reason` and `confidence`.
 Emit safety:
 
 ```json
-{"reason":"...","confidence":0.9,"safety":{"risk_level":"suspicious","signals":["instruction_attack"]}}
+{"reason":"...","confidence":0.9,"safety":{"decision":"needs_review","risk_level":"suspicious","signals":["instruction_attack"]}}
 ```
 
-When the request should be blocked, also emit:
+When the request should be blocked, emit:
 
 ```json
-{"reason":"...","confidence":0.9,"safety":{"risk_level":"high_risk","signals":["unsafe_tool_or_action"]},"handoff":{"kind":"block","reason_code":"high_risk"}}
+{"reason":"...","confidence":0.9,"safety":{"decision":"block","risk_level":"high_risk","signals":["unsafe_tool_or_action"]}}
 ```
 
 ## Risk Levels
@@ -28,3 +28,5 @@ When the request should be blocked, also emit:
 - `unknown`: classifier cannot assess.
 
 `normal` and `unknown` must have no signals. `suspicious` and `high_risk` must include at least one signal.
+
+Use `decision: "allow"` for normal routing, `decision: "needs_review"` when the caller should clarify, escalate, or fail closed, and `decision: "block"` for high-risk requests that should not continue downstream.

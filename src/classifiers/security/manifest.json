@@ -4,20 +4,20 @@
   "purpose": "Assess prompt injection, exfiltration, and permission boundary risk.",
   "order": 70,
   "emits": {
-    "safety": true,
-    "handoff": true
+    "safety": true
   },
   "fallback": {
     "reason": "",
     "confidence": 0,
     "safety": {
+      "decision": "needs_review",
       "risk_level": "unknown",
       "signals": []
     }
   },
   "short_circuit": {
     "priority": 10,
-    "kinds": ["block"]
+    "safety_decisions": ["block", "needs_review"]
   },
   "ui": {
     "label": "Security",

@@ -2,6 +2,7 @@ import {
   DOWNSTREAM_EXECUTION_MODE_VALUES,
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
+  SECURITY_DECISION_VALUES,
 } from "./enums.js";
 import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
 import type { JsonClassifierManifest, StockClassifierOutput } from "./stock.js";
@@ -380,7 +381,16 @@ function validateResponse(value: unknown, classifier: string, model: string) {
 
 function validateSafety(value: unknown, classifier: string, model: string) {
   if (!isRecord(value)) throwInvalid(classifier, model, "safety must be an object");
-  ensureAllowedObjectKeys(value, ["risk_level", "signals"], classifier, model, "safety");
+  ensureAllowedObjectKeys(value, ["decision", "risk_level", "signals"], classifier, model, "safety");
+  const decision = value.decision === undefined
+    ? undefined
+    : requireEnum(
+        value.decision,
+        SECURITY_DECISION_VALUES,
+        classifier,
+        model,
+        "safety.decision",
+      );
   const riskLevel = requireEnum(
     value.risk_level,
     STOCK_SAFETY_RISK_LEVEL_VALUES,
@@ -396,7 +406,17 @@ function validateSafety(value: unknown, classifier: string, model: string) {
   if (riskLevel !== "normal" && riskLevel !== "unknown" && signals.length === 0) {
     throwInvalid(classifier, model, "elevated safety.risk_level must include at least one signal");
   }
-  return { risk_level: riskLevel, signals };
+  if (decision === "block" && riskLevel !== "high_risk") {
+    throwInvalid(classifier, model, "safety.decision block requires high_risk risk_level");
+  }
+  if (decision === "allow" && riskLevel === "high_risk") {
+    throwInvalid(classifier, model, "safety.decision allow must not use high_risk risk_level");
+  }
+  return {
+    ...(decision === undefined ? {} : { decision }),
+    risk_level: riskLevel,
+    signals,
+  };
 }
 
 function validateSummary(value: unknown, classifier: string, model: string) {
@@ -467,20 +487,28 @@ function validateShortCircuit(value: unknown, model: string) {
   if (!isRecord(value)) {
     throwInvalid("manifest", model, "short_circuit must be an object");
   }
-  ensureAllowedObjectKeys(value, ["priority", "kinds"], "manifest", model, "short_circuit");
-  if (!Array.isArray(value.kinds)) {
-    throwInvalid("manifest", model, "short_circuit.kinds must be an array");
-  }
-  const kinds = value.kinds.map((kind, index) =>
-    requireEnum(
-      kind,
-      STOCK_HANDOFF_KIND_VALUES,
-      "manifest",
-      model,
-      `short_circuit.kinds[${index}]`,
-    ),
+  ensureAllowedObjectKeys(
+    value,
+    ["priority", "kinds", "safety_decisions"],
+    "manifest",
+    model,
+    "short_circuit",
   );
-  ensureNoDuplicates(kinds, "manifest", model, "short_circuit.kinds");
+  if (value.kinds === undefined && value.safety_decisions === undefined) {
+    throwInvalid("manifest", model, "short_circuit requires kinds or safety_decisions");
+  }
+  const kinds = value.kinds === undefined ? undefined : validateShortCircuitValues(
+    value.kinds,
+    STOCK_HANDOFF_KIND_VALUES,
+    model,
+    "short_circuit.kinds",
+  );
+  const safetyDecisions = value.safety_decisions === undefined ? undefined : validateShortCircuitValues(
+    value.safety_decisions,
+    SECURITY_DECISION_VALUES,
+    model,
+    "short_circuit.safety_decisions",
+  );
   return {
     priority: requireNonNegativeSafeInteger(
       value.priority,
@@ -488,8 +516,25 @@ function validateShortCircuit(value: unknown, model: string) {
       model,
       "short_circuit.priority",
     ),
-    kinds,
+    ...(kinds === undefined ? {} : { kinds }),
+    ...(safetyDecisions === undefined ? {} : { safety_decisions: safetyDecisions }),
   };
+}
+
+function validateShortCircuitValues<T extends string>(
+  value: unknown,
+  allowed: ReadonlyArray<T>,
+  model: string,
+  path: string,
+): T[] {
+  if (!Array.isArray(value)) {
+    throwInvalid("manifest", model, `${path} must be an array`);
+  }
+  const out = value.map((item, index) =>
+    requireEnum(item, allowed, "manifest", model, `${path}[${index}]`),
+  );
+  ensureNoDuplicates(out, "manifest", model, path);
+  return out;
 }
 
 function validateBackend(value: unknown, model: string) {

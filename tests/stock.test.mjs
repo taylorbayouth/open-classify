@@ -161,6 +161,44 @@ test("validates configurable tool families", () => {
   );
 });
 
+test("validates safety decisions", () => {
+  const output = validateStockClassifierOutput(
+    {
+      reason: "Security can continue.",
+      confidence: 0.9,
+      safety: { decision: "allow", risk_level: "normal", signals: [] },
+    },
+    {
+      classifier: "security",
+      model: "test",
+      emits: { safety: true },
+    },
+  );
+
+  assert.deepEqual(output.safety, { decision: "allow", risk_level: "normal", signals: [] });
+
+  assert.throws(
+    () =>
+      validateStockClassifierOutput(
+        {
+          reason: "Inconsistent safety decision.",
+          confidence: 0.9,
+          safety: {
+            decision: "block",
+            risk_level: "suspicious",
+            signals: ["instruction_attack"],
+          },
+        },
+        {
+          classifier: "security",
+          model: "test",
+          emits: { safety: true },
+        },
+      ),
+    /block requires high_risk/,
+  );
+});
+
 test("normalizes common tool family aliases", () => {
   assert.deepEqual(
     validateStockClassifierOutput(

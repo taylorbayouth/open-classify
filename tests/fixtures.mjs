@@ -38,7 +38,7 @@ export const validClassifierOutputs = {
   security: {
     reason: "No notable risk.",
     confidence: 0.95,
-    safety: { risk_level: "normal", signals: [] },
+    safety: { decision: "allow", risk_level: "normal", signals: [] },
   },
 };
 

@@ -38,7 +38,7 @@ The built-in classifiers are examples of this pattern, not special cases in the 
 | `conversation_history` | `context` |
 | `tools` | `tools` |
 | `memory_retrieval_queries` | custom `output: { queries: string[] }` |
-| `security` | `safety`, optionally `handoff` |
+| `security` | `safety` |
 
 ## Install
 
@@ -128,7 +128,6 @@ How it is used:
 Built-in usage:
 
 - `preflight` emits `handoff.kind: "route"` or `handoff.kind: "final"`.
-- `security` emits `handoff.kind: "block"` for blocking safety cases.
 
 ### `routing`
 
@@ -231,6 +230,7 @@ Use `safety` for security and policy posture.
 
 ```ts
 interface SafetySignal {
+  decision?: "allow" | "block" | "needs_review";
   risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
   signals: string[];
 }
@@ -240,9 +240,11 @@ How it is used:
 
 - `normal` and `unknown` must have an empty `signals` array.
 - `suspicious` and `high_risk` must include at least one signal.
+- `decision: "allow"` continues normal routing.
+- `decision: "block"` short-circuits when declared in `short_circuit.safety_decisions`; it must use `high_risk`.
+- `decision: "needs_review"` short-circuits when declared in `short_circuit.safety_decisions`; the caller should clarify, escalate, or fail closed.
 - The aggregator keeps the highest risk level across confident classifier outputs.
 - Safety signals are unioned and deduped.
-- A classifier may pair `safety.risk_level: "high_risk"` with `handoff.kind: "block"` when its manifest declares block short-circuiting.
 
 The built-in security signal values are:
 
@@ -359,11 +361,12 @@ Confidence behavior:
 Short-circuit behavior:
 
 - Short-circuiting is declarative and narrow.
-- A manifest may declare `short_circuit: { "priority": number, "kinds": [...] }`.
-- The pipeline short-circuits only when that classifier emits a matching `handoff.kind` at or above the confidence threshold.
+- A manifest may declare `short_circuit: { "priority": number, "kinds": [...] }` for handoff kinds.
+- A manifest may declare `short_circuit: { "priority": number, "safety_decisions": [...] }` for safety decisions.
+- The pipeline short-circuits only when that classifier emits a matching confident handoff kind or safety decision.
 - Lower `priority` runs first among short-circuit gates.
 - Built-in `preflight` short-circuits on `final`.
-- Built-in `security` short-circuits on `block`.
+- Built-in `security` short-circuits on `block` and `needs_review`.
 
 ## Example Route Result
 
@@ -379,7 +382,7 @@ Short-circuit behavior:
   },
   "context": { "status": "sufficient", "include_prior_messages": 2 },
   "tools": { "required": true, "families": ["workspace"] },
-  "safety": { "risk_level": "normal", "signals": [] },
+  "safety": { "decision": "allow", "risk_level": "normal", "signals": [] },
   "custom_outputs": [
     {
       "classifier": "memory_retrieval_queries",

@@ -4,6 +4,7 @@ const BASE_PROMPT = `Return one JSON object and no other text.
 The object must always include:
 - reason: brief string, 120 characters or fewer
 - confidence: JSON number float from 0.0 to 1.0 inclusive; do not use a percent, string, or label
+The reason must justify this classifier's own signal, not repeat a generic summary of the user request.
 Only include optional fields declared for this classifier.`;
 
 const HANDOFF_PROMPT = `handoff:
@@ -29,9 +30,11 @@ const RESPONSE_PROMPT = `response:
 - locale: optional BCP-47 locale when region matters, such as "en-US" or "es-MX"`;
 
 const SAFETY_PROMPT = `safety:
+- decision: optional "allow", "block", or "needs_review"
 - risk_level: "normal", "suspicious", "high_risk", or "unknown"
 - signals: short string identifiers for the concrete safety signals
-normal and unknown must use an empty signals array. suspicious and high_risk must include at least one signal.`;
+normal and unknown must use an empty signals array. suspicious and high_risk must include at least one signal.
+Use decision "block" only with high_risk. Use "needs_review" when the caller should clarify, escalate, or fail closed.`;
 
 const SUMMARY_PROMPT = `summary:
 - target_message: compact summary of the target message, 200 characters or fewer
