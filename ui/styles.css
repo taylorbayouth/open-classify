@@ -524,6 +524,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   margin-bottom: 22px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
+  outline: 2px solid var(--accent-2);
   background: var(--bg);
   padding: 16px 18px;
 }
@@ -1174,7 +1175,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
     grid-template-rows: minmax(0, 0.9fr) minmax(0, 1.1fr);
   }
   .composer { position: static; }
-  .result-banner {
+  .aggregate-panel {
     align-items: flex-start;
     flex-direction: column;
   }
