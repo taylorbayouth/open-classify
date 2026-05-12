@@ -660,25 +660,37 @@ function renderPipelineSummary(result) {
 }
 
 function renderClassifierResult(result) {
-  const entries = Object.entries(result).filter(([key]) => key !== "version");
+  const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
   const primary = entries.filter(([, value]) => !isExpandableValue(value));
   const nested = entries.filter(([, value]) => isExpandableValue(value));
 
+  const META_KEYS = new Set(["reason", "confidence"]);
+  const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
+  const metaPrimary = primary.filter(([key]) => META_KEYS.has(key));
+
   return `
-    ${primary.length === 0 ? "" : `
+    ${mainPrimary.length === 0 ? "" : `
       <div class="field-list">
-        ${primary.map(([key, value]) => fieldRow(key, value)).join("")}
+        ${mainPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
       </div>
     `}
     ${nested.length === 0 ? "" : `
       <div class="detail-stack">
         ${nested.map(([key, value]) => `
-          <details class="object-details classifier-detail">
+          <details class="object-details classifier-detail" open>
             <summary><span>${escapeHtml(key)}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
             <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
           </details>
         `).join("")}
       </div>
+    `}
+    ${metaPrimary.length === 0 ? "" : `
+      <details class="object-details classifier-detail meta-detail">
+        <summary><span>details</span></summary>
+        <div class="field-list meta-field-list">
+          ${metaPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
+        </div>
+      </details>
     `}
   `;
 }
