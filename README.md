@@ -1,8 +1,16 @@
-# Open Classify
+<p align="center">
+  <img src="open-classify-logo.png" alt="Open Classify" width="220">
+</p>
 
-<img src="open-classify-logo.png" alt="Open Classify logo" width="180">
+<p align="center">
+  A manifest-driven classifier runtime for deciding what should happen before a user message reaches a downstream assistant model.
+</p>
 
-Open Classify is a manifest-driven classifier runtime for deciding what should happen before a user message reaches a downstream assistant model.
+<p align="center">
+  <a href="https://www.npmjs.com/package/open-classify"><img alt="npm" src="https://img.shields.io/npm/v/open-classify.svg"></a>
+  <a href="./LICENSE"><img alt="license" src="https://img.shields.io/npm/l/open-classify.svg"></a>
+  <img alt="node" src="https://img.shields.io/node/v/open-classify.svg">
+</p>
 
 The core idea is deliberately small:
 
@@ -604,7 +612,9 @@ Required manifest fields:
 
 Optional manifest fields:
 
-- `short_circuit`: declarative gate config: `{ "priority": number, "kinds": ["final" | "block" | "route"] }`.
+- `short_circuit`: declarative gate config for handoff kinds, safety decisions, or both.
+- `short_circuit.kinds`: handoff kinds that can short-circuit, such as `["final"]` or `["block"]`.
+- `short_circuit.safety_decisions`: safety decisions that can short-circuit, such as `["block", "needs_review"]`.
 - `tool_families`: allowed tool-family ids and descriptions when emitting `tools`.
 - `output_schema`: required when `emits.output` is true.
 - `backend.ollama.base_model`: base model for this classifier.
