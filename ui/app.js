@@ -518,7 +518,21 @@ function renderClassifier(name) {
   const result = item.result;
   const detailHtml = renderDetails(name, item);
   const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
-  const kind = CLASSIFIER_METADATA[name]?.kind ?? "classifier";
+  const metadata = CLASSIFIER_METADATA[name] ?? {};
+  const kind = metadata.kind ?? "classifier";
+  const purpose = metadata.purpose ? escapeHtml(metadata.purpose) : "";
+  const purposeHtml = purpose
+    ? `
+        <div class="classifier-purpose">
+          <button
+            class="purpose-trigger"
+            type="button"
+            aria-label="Show classifier purpose for ${classifierLabel(name)}"
+          >?</button>
+          <span class="purpose-tooltip" role="tooltip">${purpose}</span>
+        </div>
+      `
+    : "";
   const shortCircuitHtml = item.shortCircuited
     ? `<div class="short-circuit-note">Short-circuited pipeline</div>`
     : "";
@@ -527,7 +541,10 @@ function renderClassifier(name) {
     <article class="classifier-card" data-status="${item.status}" data-kind="${escapeHtml(kind)}">
       <div class="classifier-head">
         <div class="title-block">
-          <h2 class="classifier-title">${classifierLabel(name)}</h2>
+          <div class="classifier-title-row">
+            <h2 class="classifier-title">${classifierLabel(name)}</h2>
+            ${purposeHtml}
+          </div>
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">

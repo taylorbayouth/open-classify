@@ -121,7 +121,6 @@ interface ManifestCommon {
   };
   readonly ui?: {
     readonly label?: string;
-    readonly renderer?: "enum" | "list" | "object" | "boolean";
   };
 }
 

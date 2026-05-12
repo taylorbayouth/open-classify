@@ -47,7 +47,6 @@ const STOCK_SAFETY_RISK_LEVEL_VALUES = [
   "high_risk",
   "unknown",
 ] as const;
-const STOCK_UI_RENDERER_VALUES = ["enum", "list", "object", "boolean"] as const;
 const MANIFEST_KIND_VALUES = ["stock", "custom"] as const;
 
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -444,22 +443,11 @@ function validateBackend(value: unknown, model: string) {
 
 function validateUi(value: unknown, model: string) {
   if (!isRecord(value)) throwInvalid("manifest", model, "ui must be an object");
-  ensureAllowedObjectKeys(value, ["label", "renderer"], "manifest", model, "ui");
+  ensureAllowedObjectKeys(value, ["label"], "manifest", model, "ui");
   return {
     ...(value.label === undefined
       ? {}
       : { label: requireString(value.label, "manifest", model, "ui.label") }),
-    ...(value.renderer === undefined
-      ? {}
-      : {
-          renderer: requireEnum(
-            value.renderer,
-            STOCK_UI_RENDERER_VALUES,
-            "manifest",
-            model,
-            "ui.renderer",
-          ),
-        }),
   };
 }
 

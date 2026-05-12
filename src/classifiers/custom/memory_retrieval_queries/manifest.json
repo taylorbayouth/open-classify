@@ -27,7 +27,6 @@
     }
   },
   "ui": {
-    "label": "Memory queries",
-    "renderer": "object"
+    "label": "Memory queries"
   }
 }

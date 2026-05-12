@@ -6,7 +6,6 @@
   "order": 10,
   "fallback": {},
   "ui": {
-    "label": "Preflight",
-    "renderer": "object"
+    "label": "Preflight"
   }
 }

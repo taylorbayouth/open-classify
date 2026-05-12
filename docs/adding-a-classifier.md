@@ -35,7 +35,7 @@ Stock classifier names are closed (`preflight`, `routing`, `model_specialization
       }
     }
   },
-  "ui": { "label": "Topic tags", "renderer": "list" }
+  "ui": { "label": "Topic tags" }
 }
 ```
 

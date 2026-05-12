@@ -177,7 +177,7 @@ npm run setup
 npm run start
 ```
 
-UI opens at `http://127.0.0.1:4317/`. Classifier cards and field renderers are discovered from manifests via the runtime — nothing about the UI is hardcoded per classifier.
+UI opens at `http://127.0.0.1:4317/`. Classifier cards pick up manifest labels and purposes from the runtime; result rendering remains generic.
 
 ## Bring your own backend
 

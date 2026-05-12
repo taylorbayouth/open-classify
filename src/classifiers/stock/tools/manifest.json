@@ -17,7 +17,6 @@
     "tools": []
   },
   "ui": {
-    "label": "Tools",
-    "renderer": "object"
+    "label": "Tools"
   }
 }

@@ -10,7 +10,6 @@
     "signals": []
   },
   "ui": {
-    "label": "Security",
-    "renderer": "object"
+    "label": "Security"
   }
 }

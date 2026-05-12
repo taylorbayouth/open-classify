@@ -28,7 +28,6 @@ The `kind` field in the manifest must match the parent directory (`stock` or `cu
 | `fallback` | yes | Output emitted when the classifier errors or times out. Must validate against the kind's output contract. |
 | `backend.ollama.base_model` | no | Override the default base model for this classifier. |
 | `ui.label` | no | Display label for the workbench. |
-| `ui.renderer` | no | One of `enum`, `list`, `object`, `boolean`. |
 
 ## Stock manifests
 

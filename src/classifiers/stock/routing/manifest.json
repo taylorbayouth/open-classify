@@ -6,7 +6,6 @@
   "order": 20,
   "fallback": {},
   "ui": {
-    "label": "Routing",
-    "renderer": "object"
+    "label": "Routing"
   }
 }
