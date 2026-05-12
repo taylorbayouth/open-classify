@@ -336,10 +336,14 @@ function validateToolsOutput(
       }
     }
   }
-  const required =
-    families.length > 0
-      ? true
-      : requireBoolean(value.required, "tools", model, "required");
+  const required = requireBoolean(value.required, "tools", model, "required");
+  if (required !== (families.length > 0)) {
+    throwInvalid(
+      "tools",
+      model,
+      "required must be true exactly when families is non-empty",
+    );
+  }
   return { ...meta, required, families };
 }
 

@@ -67,7 +67,7 @@ Every call returns a `PipelineResult` with one of four `action` values:
 | `block` | Security flagged `decision: "block"` (with `high_risk`) | `reason.{risk_level, signals}` |
 | `needs_review` | Security flagged `decision: "needs_review"` | `reason.{risk_level, signals}` |
 
-All four also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block with the full envelope and per-classifier metadata.
+All four also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the full envelope and per-classifier metadata; short-circuit results include the firing classifier's audit context.
 
 Example `route` result:
 

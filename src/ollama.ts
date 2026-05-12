@@ -34,7 +34,7 @@ import {
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
-export const OLLAMA_REQUIRED_PARALLELISM = 7;
+export const OLLAMA_REQUIRED_PARALLELISM = CLASSIFIER_NAMES.length;
 export const OLLAMA_DEFAULT_CATALOG_PATH = "downstream-models.json";
 
 /*

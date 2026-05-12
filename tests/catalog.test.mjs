@@ -89,7 +89,7 @@ test("validateCatalog rejects unsupported specialization value", () => {
 
 test("validateCatalog rejects unsupported tier value", () => {
   const bad = {
-    models: [{ ...VALID_MODEL, tier: "unable_to_determine" }],
+    models: [{ ...VALID_MODEL, tier: "not_a_real_tier" }],
     default: VALID_MODEL.id,
   };
   assert.throws(

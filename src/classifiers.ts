@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ClassifierInput } from "./types.js";
 import type {
@@ -67,6 +67,12 @@ function loadClassifierManifest(
   if (manifest.kind !== expectedKind) {
     throw new ClassifierManifestError(
       `${manifestPath}: manifest kind "${manifest.kind}" does not match parent directory "${expectedKind}"`,
+    );
+  }
+  const directoryName = basename(classifierDir);
+  if (manifest.name !== directoryName) {
+    throw new ClassifierManifestError(
+      `${manifestPath}: manifest name "${manifest.name}" does not match directory "${directoryName}"`,
     );
   }
   const classifierPrompt = readFileSync(promptPath, "utf8").trim();

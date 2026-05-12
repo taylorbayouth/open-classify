@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MODULES_BY_NAME } from "../dist/src/classifiers.js";
+import { CLASSIFIER_NAMES, MODULES_BY_NAME } from "../dist/src/classifiers.js";
 import {
   classifyWithOllama,
   createOllamaClassifierRunner,
@@ -24,7 +24,7 @@ test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_DEFAULT_HOST, "http://localhost:11434");
   assert.equal(OLLAMA_BASE_MODEL, "gemma4:e4b-it-q4_K_M");
   assert.equal(OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH, 131_072);
-  assert.equal(OLLAMA_REQUIRED_PARALLELISM, 7);
+  assert.equal(OLLAMA_REQUIRED_PARALLELISM, CLASSIFIER_NAMES.length);
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
   assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
   assert.equal(OLLAMA_CLASSIFIER_MODELS.model_specialization, null);

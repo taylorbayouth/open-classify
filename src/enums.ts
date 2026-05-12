@@ -70,7 +70,7 @@ export const SECURITY_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
   "high_risk",
-  "unable_to_determine",
+  "unknown",
 ] as const;
 export type SecurityRiskLevel = (typeof SECURITY_RISK_LEVEL_VALUES)[number];
 

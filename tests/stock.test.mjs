@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import {
+  ClassifierManifestError,
+  loadClassifierRegistry,
+} from "../dist/src/classifiers.js";
+import { SECURITY_RISK_LEVEL_VALUES } from "../dist/src/enums.js";
 import {
   buildStockClassifierPrompt,
   validateJsonClassifierManifest,
@@ -125,9 +133,31 @@ test("validates tools output and family allow-list", () => {
       ),
     /unsupported family email/,
   );
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "Contradictory.", confidence: 0.88, required: false, families: ["repo"] },
+        { classifier: "tools", model: "test" },
+      ),
+    /required must be true exactly when families is non-empty/,
+  );
+
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "Contradictory.", confidence: 0.88, required: true, families: [] },
+        { classifier: "tools", model: "test" },
+      ),
+    /required must be true exactly when families is non-empty/,
+  );
 });
 
 test("validates safety risk_level / signals / decision consistency", () => {
+  assert.ok(SECURITY_RISK_LEVEL_VALUES.includes("unknown"));
+
   const manifest = security();
   const output = validateOutputForManifest(
     manifest,
@@ -144,6 +174,31 @@ test("validates safety risk_level / signals / decision consistency", () => {
         { classifier: "security", model: "test" },
       ),
     /block requires high_risk/,
+  );
+});
+
+test("loadClassifierRegistry rejects manifest names that do not match directories", () => {
+  const root = mkdtempSync(join(tmpdir(), "open-classify-classifiers-"));
+  const classifierDir = join(root, "stock", "wrong_name");
+  mkdirSync(classifierDir, { recursive: true });
+  writeFileSync(
+    join(classifierDir, "manifest.json"),
+    JSON.stringify({
+      kind: "stock",
+      name: "preflight",
+      version: "1.0.0",
+      purpose: "Preflight test.",
+      order: 10,
+      fallback: {},
+    }),
+  );
+  writeFileSync(join(classifierDir, "prompt.md"), "Classify preflight.");
+
+  assert.throws(
+    () => loadClassifierRegistry(root),
+    (error) =>
+      error instanceof ClassifierManifestError &&
+      /manifest name "preflight" does not match directory "wrong_name"/.test(error.message),
   );
 });
 
