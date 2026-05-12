@@ -22,7 +22,6 @@ const classifierGrid = document.querySelector("#classifierGrid");
 const aggregatePanel = document.querySelector("#aggregatePanel");
 const runState = document.querySelector("#runState");
 const liveDot = document.querySelector("#liveDot");
-const hashes = document.querySelector("#hashes");
 const jsonPanel = document.querySelector("#jsonPanel");
 const jsonToggle = document.querySelector("#jsonToggle");
 const clearButton = document.querySelector("#clearButton");
@@ -193,8 +192,6 @@ function resetRunOutput() {
   setRunState("idle");
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
-  hashes.hidden = true;
-  hashes.innerHTML = "";
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
@@ -208,8 +205,6 @@ async function classify() {
   setRunState("running");
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
-  hashes.hidden = true;
-  hashes.innerHTML = "";
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
@@ -395,11 +390,8 @@ function renderPipeline(result) {
     updateClassifier(result.audit.fired_by, { shortCircuited: true });
     cancelClassifiersExcept([result.audit.fired_by]);
   }
-
-  renderHashes(result);
-
   jsonToggle.hidden = false;
-  jsonPanel.textContent = JSON.stringify(result, null, 2);
+  jsonPanel.textContent = JSON.stringify(buildDisplayResult(result), null, 2);
 }
 
 function pipelineState(result) {
@@ -408,24 +400,8 @@ function pipelineState(result) {
   return "complete";
 }
 
-function renderHashes(result) {
-  const messageId = typeof result?.message_id === "string" ? result.message_id.trim() : "";
-
-  if (!messageId) {
-    hashes.hidden = true;
-    hashes.innerHTML = "";
-    return;
-  }
-
-  hashes.hidden = false;
-  hashes.innerHTML = `
-    <div><em>message_id</em>${escapeHtml(messageId)}</div>
-  `;
-}
-
 function renderAggregate(result) {
-  const finalOutput = withoutAudit(result);
-  const rows = Object.entries(finalOutput);
+  const finalOutput = buildDisplayResult(result);
 
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
@@ -433,27 +409,22 @@ function renderAggregate(result) {
       <span>Final output</span>
     </header>
     ${renderPipelineSummary(result)}
-    <details class="object-details">
-      <summary>Output shape</summary>
-      <div class="aggregate-grid">
-        ${rows.map(([key, value]) => objectRow(key, value)).join("")}
-      </div>
-    </details>
-    ${result.audit ? `
-      <details class="object-details">
-        <summary>Audit</summary>
-        <div class="aggregate-grid">
-          ${Object.entries(result.audit).map(([key, value]) => objectRow(key, value)).join("")}
-        </div>
-      </details>
-    ` : ""}
+    <div class="aggregate-grid">
+      ${Object.entries(finalOutput).map(([key, value]) => objectRow(key, value)).join("")}
+    </div>
   `;
 }
 
-function withoutAudit(result) {
-  if (!isPlainObject(result) || !("audit" in result)) return result;
-  const { audit: _audit, ...finalOutput } = result;
-  return finalOutput;
+function buildDisplayResult(result) {
+  return {
+    model: result.downstream?.model_id ?? result.audit?.model_recommendation?.id,
+    action: result.action,
+    security: {
+      decision: result.audit?.safety?.decision,
+    },
+    hash: result.message_id,
+    custom_output: result.classifier_outputs ?? {},
+  };
 }
 
 function cancelClassifiersExcept(keptNames) {
@@ -628,7 +599,7 @@ function renderValue(value, key = "") {
       <div class="object-list">
         ${value.map((item, index) => `
           <div class="object-list-item">
-            <span class="object-index">${index}</span>
+            <span class="object-index">${index + 1}</span>
             ${renderValue(item)}
           </div>
         `).join("")}
@@ -665,12 +636,9 @@ function isPlainObject(value) {
 
 function renderPipelineSummary(result) {
   const items = [
-    ["Action", result.action],
     ["Model", result.downstream?.model_id],
-    ["Reply", result.reply],
-    ["Tools", result.downstream?.tools?.tools?.join(", ") || undefined],
-    ["Fired by", result.audit?.fired_by],
-    ["Hash", result.message_id],
+    ["Action", result.action],
+    ["Security decision", result.audit?.safety?.decision],
   ].filter(([, value]) => value !== undefined && value !== "");
 
   if (items.length === 0) return "";

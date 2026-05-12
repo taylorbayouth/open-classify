@@ -700,8 +700,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .classifier-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
-  grid-auto-rows: 1fr;
-  align-items: stretch;
+  align-items: start;
   gap: 12px;
 }
 
@@ -710,7 +709,6 @@ button:disabled { cursor: wait; opacity: 0.55; }
   display: grid;
   gap: 10px;
   align-content: start;
-  height: 100%;
   border: 1px solid var(--line);
   border-left: 3px solid var(--muted-2);
   border-radius: var(--radius-sm);
