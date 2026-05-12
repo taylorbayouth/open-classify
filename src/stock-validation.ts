@@ -59,7 +59,6 @@ const COMMON_MANIFEST_KEYS = [
   "order",
   "fallback",
   "backend",
-  "ui",
 ] as const;
 
 const STOCK_MANIFEST_KEYS = [
@@ -166,7 +165,6 @@ function validateManifestCommon(
   purpose: string;
   order: number;
   backend?: JsonClassifierManifest["backend"];
-  ui?: JsonClassifierManifest["ui"];
 } {
   const version = requireNonEmptyStringMaxLength(
     value.version,
@@ -189,7 +187,6 @@ function validateManifestCommon(
     purpose,
     order,
     ...(value.backend === undefined ? {} : { backend: validateBackend(value.backend, model) }),
-    ...(value.ui === undefined ? {} : { ui: validateUi(value.ui, model) }),
   };
 }
 
@@ -445,16 +442,6 @@ function validateBackend(value: unknown, model: string) {
         ? {}
         : { base_model: requireString(value.ollama.base_model, "manifest", model, "backend.ollama.base_model") }),
     },
-  };
-}
-
-function validateUi(value: unknown, model: string) {
-  if (!isRecord(value)) throwInvalid("manifest", model, "ui must be an object");
-  ensureAllowedObjectKeys(value, ["label"], "manifest", model, "ui");
-  return {
-    ...(value.label === undefined
-      ? {}
-      : { label: requireString(value.label, "manifest", model, "ui.label") }),
   };
 }
 

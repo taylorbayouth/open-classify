@@ -25,8 +25,5 @@
         "uniqueItems": true
       }
     }
-  },
-  "ui": {
-    "label": "Memory Queries"
   }
 }

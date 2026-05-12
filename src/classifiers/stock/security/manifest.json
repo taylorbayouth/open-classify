@@ -8,8 +8,5 @@
     "decision": "needs_review",
     "risk_level": "unknown",
     "signals": []
-  },
-  "ui": {
-    "label": "Security"
   }
 }

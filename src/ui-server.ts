@@ -55,7 +55,6 @@ const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
   version: classifier.version,
   purpose: classifier.purpose,
   order: classifier.order,
-  ui: classifier.ui,
   ...("tools" in classifier ? { tools: classifier.tools ?? [] } : {}),
 }));
 

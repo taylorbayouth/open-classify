@@ -15,8 +15,5 @@
   ],
   "fallback": {
     "tools": []
-  },
-  "ui": {
-    "label": "Tools"
   }
 }

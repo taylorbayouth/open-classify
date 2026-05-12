@@ -619,7 +619,7 @@ function classifierLabel(name) {
 }
 
 function classifierLabelText(name) {
-  return CLASSIFIER_METADATA[name]?.ui?.label ?? name;
+  return formatKeyLabel(name);
 }
 
 function emptyStateText(status) {

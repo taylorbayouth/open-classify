@@ -119,9 +119,6 @@ interface ManifestCommon {
       readonly base_model?: string;
     };
   };
-  readonly ui?: {
-    readonly label?: string;
-  };
 }
 
 export interface StockJsonManifest<Name extends StockClassifierName = StockClassifierName>
