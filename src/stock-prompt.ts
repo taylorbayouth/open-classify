@@ -5,10 +5,11 @@ import type {
 } from "./stock.js";
 
 const BASE_PROMPT = `Return one JSON object and no other text.
-You may include:
-- reason: brief string, 120 characters or fewer, justifying the emitted signal
-- confidence: JSON number float from 0.0 to 1.0 inclusive (do not use percent, string, or label)
-Omit reason or confidence rather than emitting a vague placeholder.`;
+Always include:
+- reason: brief string, 120 characters or fewer, justifying your decision
+- confidence: JSON number float from 0.0 to 1.0 inclusive (do not use percent, string, or label).
+  Use 0.9 when you are confident, 0.7 when you are reasonably sure, 0.5 when uncertain, 0.2 when guessing.
+  A missing or zero confidence causes the runtime to drop your signal, so always emit a real value.`;
 
 const PREFLIGHT_PROMPT = `Emit one of these optional fields when applicable:
 - final_reply: {"reply":"..."} only for tiny terminal answers that need no downstream work.
