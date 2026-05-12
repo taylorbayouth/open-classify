@@ -21,16 +21,6 @@ import type {
   ModelSpecialization,
 } from "./enums.js";
 
-export type ConcreteDownstreamModelTier = Exclude<
-  DownstreamModelTier,
-  "unable_to_determine"
->;
-export type ConcreteModelSpecialization = Exclude<ModelSpecialization, "unclear">;
-export type ConcreteDownstreamExecutionMode = Exclude<
-  DownstreamExecutionMode,
-  "unable_to_determine"
->;
-
 export type ClassifierResultBase = Pick<StockClassifierOutput, "reason" | "confidence">;
 export type ClassifierName = string;
 export type ClassifierResults = Record<ClassifierName, StockClassifierOutput>;
@@ -42,9 +32,9 @@ export type RunClassifier = (
 
 export interface CatalogEntry {
   readonly id: string;
-  readonly specializations: ReadonlyArray<ConcreteModelSpecialization>;
-  readonly execution_modes: ReadonlyArray<ConcreteDownstreamExecutionMode>;
-  readonly tier: ConcreteDownstreamModelTier;
+  readonly specializations: ReadonlyArray<ModelSpecialization>;
+  readonly execution_modes: ReadonlyArray<DownstreamExecutionMode>;
+  readonly tier: DownstreamModelTier;
   readonly params_in_billions: number | null;
   readonly context_window: number;
   readonly input_tokens_cpm?: number;
@@ -59,9 +49,9 @@ export interface Catalog {
 
 export interface ModelRecommendationResolution {
   readonly constraints_used: Partial<{
-    specialization: ConcreteModelSpecialization;
-    execution_mode: ConcreteDownstreamExecutionMode;
-    tier: ConcreteDownstreamModelTier;
+    specialization: ModelSpecialization;
+    execution_mode: DownstreamExecutionMode;
+    tier: DownstreamModelTier;
   }>;
   readonly constraints_dropped: ReadonlyArray<{
     readonly axis: "specialization" | "execution_mode" | "tier";

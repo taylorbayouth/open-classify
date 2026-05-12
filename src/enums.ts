@@ -5,18 +5,13 @@
 // string-literal union type. Keep the array and the type in sync — the type
 // is derived from the array via `(typeof X)[number]`.
 //
-// Some catalog-facing enums still include an `unable_to_determine` escape
-// hatch for older config validation; stock classifier outputs omit uncertain
-// optional fields instead of emitting escape-hatch values.
+// Classifier outputs omit uncertain optional fields rather than emitting an
+// escape-hatch value, so these enums list only concrete choices.
 
-// How the downstream model should be invoked. `direct` is a plain chat call;
-// `tool_assisted` expects tool/function calling; `workflow` implies a multi-
-// step plan.
 export const DOWNSTREAM_EXECUTION_MODE_VALUES = [
   "direct",
   "tool_assisted",
   "workflow",
-  "unable_to_determine",
 ] as const;
 export type DownstreamExecutionMode = (typeof DOWNSTREAM_EXECUTION_MODE_VALUES)[number];
 
@@ -30,7 +25,6 @@ export const DOWNSTREAM_MODEL_TIER_VALUES = [
   "frontier_fast",
   "frontier_strong",
   "frontier_coding",
-  "unable_to_determine",
 ] as const;
 export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 
@@ -69,7 +63,6 @@ export const MODEL_SPECIALIZATION_VALUES = [
   "summarization",
   "tool_assisted_coding",
   "vision_input",
-  "unclear",
 ] as const;
 export type ModelSpecialization = (typeof MODEL_SPECIALIZATION_VALUES)[number];
 

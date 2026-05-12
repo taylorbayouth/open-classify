@@ -460,7 +460,7 @@ test("external abort signal cancels in-flight classifiers", async () => {
   assert.equal(result.audit.meta.classifiers.security.status.ok, false);
 });
 
-test("preflight failure falls back to unable_to_determine and still routes", async () => {
+test("preflight failure falls back and still routes", async () => {
   const attempts = {};
 
   const result = await classifyOpenClassifyInput(

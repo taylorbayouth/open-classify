@@ -15,13 +15,7 @@ import {
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
 } from "./enums.js";
-import type {
-  Catalog,
-  CatalogEntry,
-  ConcreteDownstreamExecutionMode,
-  ConcreteDownstreamModelTier,
-  ConcreteModelSpecialization,
-} from "./manifest.js";
+import type { Catalog, CatalogEntry } from "./manifest.js";
 
 export class CatalogError extends Error {
   readonly path?: string;
@@ -31,21 +25,6 @@ export class CatalogError extends Error {
     this.path = path;
   }
 }
-
-// Enums minus their escape-hatch values. A catalog entry that advertised
-// "unclear" specialization wouldn't be matchable by anything — strip those
-// values out at load so the validator rejects them up front.
-const CONCRETE_SPECIALIZATIONS = MODEL_SPECIALIZATION_VALUES.filter(
-  (value): value is ConcreteModelSpecialization => value !== "unclear",
-);
-const CONCRETE_EXECUTION_MODES = DOWNSTREAM_EXECUTION_MODE_VALUES.filter(
-  (value): value is ConcreteDownstreamExecutionMode =>
-    value !== "unable_to_determine",
-);
-const CONCRETE_TIERS = DOWNSTREAM_MODEL_TIER_VALUES.filter(
-  (value): value is ConcreteDownstreamModelTier =>
-    value !== "unable_to_determine",
-);
 
 // Top-level entry point: read the file, parse, validate. Throws CatalogError
 // on every failure path.
@@ -96,21 +75,21 @@ export function validateCatalog(value: unknown, path?: string): Catalog {
     }
     seenIds.add(id);
 
-    const specializations = requireConcreteArray(
+    const specializations = requireEnumArray(
       entry.specializations,
-      CONCRETE_SPECIALIZATIONS,
+      MODEL_SPECIALIZATION_VALUES,
       `${where}.specializations`,
       path,
     );
-    const execution_modes = requireConcreteArray(
+    const execution_modes = requireEnumArray(
       entry.execution_modes,
-      CONCRETE_EXECUTION_MODES,
+      DOWNSTREAM_EXECUTION_MODE_VALUES,
       `${where}.execution_modes`,
       path,
     );
-    const tier = requireConcreteValue(
+    const tier = requireEnumValue(
       entry.tier,
-      CONCRETE_TIERS,
+      DOWNSTREAM_MODEL_TIER_VALUES,
       `${where}.tier`,
       path,
     );
@@ -225,7 +204,7 @@ function requireNonNegativeNumber(value: unknown, where: string, path?: string):
   return value;
 }
 
-function requireConcreteValue<T extends string>(
+function requireEnumValue<T extends string>(
   value: unknown,
   allowed: readonly T[],
   where: string,
@@ -237,7 +216,7 @@ function requireConcreteValue<T extends string>(
   return value as T;
 }
 
-function requireConcreteArray<T extends string>(
+function requireEnumArray<T extends string>(
   value: unknown,
   allowed: readonly T[],
   where: string,
