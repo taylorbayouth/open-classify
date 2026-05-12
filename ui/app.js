@@ -401,8 +401,6 @@ function pipelineState(result) {
 }
 
 function renderAggregate(result) {
-  const stockOutputs = stockClassifierOutputs(result);
-
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
     <header class="result-banner">
@@ -411,11 +409,6 @@ function renderAggregate(result) {
       ${resultBannerItem("Action", result.action)}
       ${resultBannerItem("Security", securityDecision(result))}
     </header>
-    ${stockOutputs.length === 0 ? "" : `
-      <section class="stock-output-list" aria-label="Stock classifier outputs">
-        ${stockOutputs.map(([name, output]) => renderStockOutput(name, output)).join("")}
-      </section>
-    `}
   `;
 }
 
@@ -461,20 +454,6 @@ function resultBannerItem(label, value) {
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(String(value))}</strong>
     </div>
-  `;
-}
-
-function renderStockOutput(name, output) {
-  return `
-    <details class="object-details stock-output" open>
-      <summary>
-        <span>${classifierLabel(name)}</span>
-        <strong>${escapeHtml(objectSummary(output))}</strong>
-      </summary>
-      <div class="object-grid classifier-output">
-        ${Object.entries(output).map(([key, value]) => objectRow(key, value)).join("")}
-      </div>
-    </details>
   `;
 }
 
@@ -686,8 +665,9 @@ function isPlainObject(value) {
 }
 
 function renderClassifierResult(result) {
-  const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
-  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(value)]);
+  const entries = Object.entries(result)
+    .filter(([key, value]) => key !== "version" && key !== "status" && hasRenderableValue(value));
+  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(pruneEmptyArrays(value))]);
   const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
   const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
@@ -727,7 +707,7 @@ function renderClassifierDetailBody(key, value) {
     return objectRow(key, value);
   }
 
-  const entries = Object.entries(value);
+  const entries = Object.entries(value).filter(([, item]) => hasRenderableValue(item));
   if (entries.length === 0) {
     return objectRow(key, value);
   }
@@ -746,6 +726,21 @@ function fieldRow(key, value) {
 
 function isExpandableValue(value) {
   return Array.isArray(value) || isPlainObject(value);
+}
+
+function hasRenderableValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (isPlainObject(value)) return Object.values(value).some(hasRenderableValue);
+  return true;
+}
+
+function pruneEmptyArrays(value) {
+  if (!isPlainObject(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => hasRenderableValue(item))
+      .map(([key, item]) => [key, pruneEmptyArrays(item)]),
+  );
 }
 
 function flattenSingleScalarObject(value) {
