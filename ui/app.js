@@ -466,13 +466,13 @@ function resultBannerItem(label, value) {
 
 function renderStockOutput(name, output) {
   return `
-    <details class="object-details stock-output" open>
+    <details class="kv-details stock-output" open>
       <summary>
-        <span>${classifierLabel(name)}</span>
-        <strong>${escapeHtml(objectSummary(output))}</strong>
+        <span class="kv-key">${classifierLabel(name)}</span>
+        <span class="kv-summary-value">${escapeHtml(objectSummary(output))}</span>
       </summary>
-      <div class="object-grid classifier-output">
-        ${Object.entries(output).map(([key, value]) => objectRow(key, value)).join("")}
+      <div class="kv-list">
+        ${Object.entries(output).map(([key, value]) => renderKvRow(key, value)).join("")}
       </div>
     </details>
   `;
@@ -634,46 +634,81 @@ function emptyStateText(status) {
   return "Awaiting run";
 }
 
-function objectRow(key, value) {
-  return `
-    <div class="object-row">
-      <span class="object-key">${escapeHtml(key)}</span>
-      ${renderValue(value, key)}
-    </div>
-  `;
-}
+function renderKvRow(key, value, options = {}) {
+  const keyLabel = options.rawKey ? String(key) : formatKeyLabel(key);
 
-function renderValue(value, key = "") {
-  if (Array.isArray(value)) {
-    if (value.length === 0) return `<code class="object-scalar">[]</code>`;
+  if (!isExpandableValue(value)) {
+    return scalarKvRow(keyLabel, formatScalar(value));
+  }
+
+  if (Array.isArray(value) && value.length === 0) {
+    return scalarKvRow(keyLabel, "[]");
+  }
+
+  if (isPlainObject(value) && Object.keys(value).length === 0) {
+    return scalarKvRow(keyLabel, "{}");
+  }
+
+  const allowInline = key !== "status";
+
+  if (
+    allowInline
+    && isPlainObject(value)
+    && Object.keys(value).length <= 2
+    && Object.values(value).every((v) => !isExpandableValue(v))
+  ) {
     return `
-      <div class="object-list">
-        ${value.map((item, index) => `
-          <div class="object-list-item">
-            <span class="object-index">${index + 1}</span>
-            ${renderValue(item)}
-          </div>
-        `).join("")}
+      <div class="kv-row" data-stacked="true">
+        <span class="kv-key">${escapeHtml(keyLabel)}</span>
+        <div class="kv-list">
+          ${Object.entries(value).map(([k, v]) => renderKvRow(k, v)).join("")}
+        </div>
       </div>
     `;
   }
 
-  if (isPlainObject(value)) {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return `<code class="object-scalar">{}</code>`;
-    const content = `<div class="object-nested">${entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("")}</div>`;
-    if (key === "status" || entries.length > 2) {
-      return `
-        <details class="object-details nested-details">
-          <summary>${escapeHtml(objectSummary(value))}</summary>
-          ${content}
-        </details>
-      `;
-    }
-    return content;
+  if (
+    allowInline
+    && Array.isArray(value)
+    && value.length <= 6
+    && value.every((v) => !isExpandableValue(v))
+  ) {
+    return `
+      <div class="kv-row" data-stacked="true">
+        <span class="kv-key">${escapeHtml(keyLabel)}</span>
+        <div class="kv-list">
+          ${value.map((v, i) => renderKvRow(String(i + 1), v, { rawKey: true })).join("")}
+        </div>
+      </div>
+    `;
   }
 
-  return `<code class="object-scalar">${escapeHtml(formatScalar(value))}</code>`;
+  const summary = objectSummary(value);
+  const entries = Array.isArray(value)
+    ? value.map((v, i) => [String(i + 1), v])
+    : Object.entries(value);
+  const childOptions = Array.isArray(value) ? { rawKey: true } : {};
+
+  return `
+    <details class="kv-details">
+      <summary>
+        <span class="kv-key">${escapeHtml(keyLabel)}</span>
+        <span class="kv-summary-value">${escapeHtml(summary)}</span>
+      </summary>
+      <div class="kv-list">
+        ${entries.map(([k, v]) => renderKvRow(k, v, childOptions)).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function scalarKvRow(keyLabel, value) {
+  return `
+    <div class="kv-row">
+      <span class="kv-key">${escapeHtml(keyLabel)}</span>
+      <div class="kv-value">${escapeHtml(value)}</div>
+    </div>
+  `;
 }
 
 function formatScalar(value) {
@@ -686,61 +721,30 @@ function isPlainObject(value) {
 }
 
 function renderClassifierResult(result) {
-  const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
-  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(value)]);
-  const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
-  const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
+  const entries = Object.entries(result)
+    .filter(([key]) => key !== "version" && key !== "status")
+    .map(([key, value]) => [key, flattenSingleScalarObject(value)]);
 
   const META_KEYS = new Set(["reason", "confidence"]);
-  const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
-  const metaPrimary = primary.filter(([key]) => META_KEYS.has(key));
+  const main = entries.filter(([key]) => !META_KEYS.has(key));
+  const meta = entries.filter(([key]) => META_KEYS.has(key));
 
   return `
-    ${mainPrimary.length === 0 ? "" : `
-      <div class="field-list">
-        ${mainPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
+    ${main.length === 0 ? "" : `
+      <div class="kv-list">
+        ${main.map(([key, value]) => renderKvRow(key, value)).join("")}
       </div>
     `}
-    ${nested.length === 0 ? "" : `
-      <div class="detail-stack">
-        ${nested.map(([key, value]) => `
-          <details class="object-details classifier-detail" open>
-            <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
-            <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
-          </details>
-        `).join("")}
-      </div>
-    `}
-    ${metaPrimary.length === 0 ? "" : `
-      <details class="object-details classifier-detail meta-detail">
-        <summary><span>details</span></summary>
-        <div class="field-list meta-field-list">
-          ${metaPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
+    ${meta.length === 0 ? "" : `
+      <details class="kv-details kv-meta">
+        <summary>
+          <span class="kv-key">details</span>
+        </summary>
+        <div class="kv-list">
+          ${meta.map(([key, value]) => renderKvRow(key, value)).join("")}
         </div>
       </details>
     `}
-  `;
-}
-
-function renderClassifierDetailBody(key, value) {
-  if (!isPlainObject(value)) {
-    return objectRow(key, value);
-  }
-
-  const entries = Object.entries(value);
-  if (entries.length === 0) {
-    return objectRow(key, value);
-  }
-
-  return entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("");
-}
-
-function fieldRow(key, value) {
-  return `
-    <div class="field-row">
-      <span>${escapeHtml(formatKeyLabel(key))}</span>
-      <strong>${escapeHtml(formatScalar(value))}</strong>
-    </div>
   `;
 }
 
