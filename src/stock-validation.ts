@@ -23,6 +23,7 @@ import {
   throwInvalid,
 } from "./validation.js";
 
+export const STOCK_REASON_MAX_CHARS = 120;
 export const STOCK_REPLY_MAX_CHARS = 200;
 export const STOCK_SUMMARY_TARGET_MAX_CHARS = 200;
 export const STOCK_SUMMARY_WINDOW_MAX_CHARS = 800;
@@ -179,7 +180,10 @@ export function validateStockClassifierOutput(
   }
 
   const output: StockClassifierOutput = {
-    reason: requireString(value.reason, classifier, model, "reason"),
+    reason: truncateText(
+      requireString(value.reason, classifier, model, "reason"),
+      STOCK_REASON_MAX_CHARS,
+    ),
     confidence: requireConfidence(value.confidence, classifier, model),
   };
 
@@ -317,14 +321,7 @@ function validateContext(value: unknown, classifier: string, model: string) {
       ),
     };
   }
-  if ("include_prior_messages" in value) {
-    throwInvalid(
-      classifier,
-      model,
-      "context.include_prior_messages is only valid when context.status is sufficient",
-    );
-  }
-  ensureAllowedObjectKeys(value, ["status"], classifier, model, "context");
+  ensureAllowedObjectKeys(value, ["status", "include_prior_messages"], classifier, model, "context");
   return { status };
 }
 
@@ -336,12 +333,12 @@ function validateTools(
 ) {
   if (!isRecord(value)) throwInvalid(classifier, model, "tools must be an object");
   ensureAllowedObjectKeys(value, ["required", "families"], classifier, model, "tools");
-  const required = requireBoolean(value.required, classifier, model, "tools.required");
-  const families = requireStringArray(value.families, classifier, model, "tools.families");
+  const families = requireStringArray(value.families, classifier, model, "tools.families")
+    .map(normalizeToolFamily);
+  const required = families.length > 0
+    ? true
+    : requireBoolean(value.required, classifier, model, "tools.required");
   ensureNoDuplicates(families, classifier, model, "tools.families");
-  if (required !== (families.length > 0)) {
-    throwInvalid(classifier, model, "tools.required must match whether tools.families is non-empty");
-  }
   if (toolFamilies) {
     const allowed = new Set(toolFamilies);
     for (const family of families) {
@@ -351,6 +348,21 @@ function validateTools(
     }
   }
   return { required, families };
+}
+
+function normalizeToolFamily(family: string): string {
+  const aliases: Record<string, string> = {
+    browser: "web",
+    browsing: "web",
+    internet: "web",
+    web_browsing: "web",
+    web_search: "web",
+  };
+  return aliases[family] ?? family;
+}
+
+function truncateText(text: string, maxChars: number): string {
+  return text.length <= maxChars ? text : text.slice(0, maxChars).trimEnd();
 }
 
 function validateResponse(value: unknown, classifier: string, model: string) {

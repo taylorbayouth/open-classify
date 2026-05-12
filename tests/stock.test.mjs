@@ -63,6 +63,7 @@ test("allows verbose reasons and numeric-string confidence", () => {
   );
 
   assert.equal(output.confidence, 0.9);
+  assert.ok(output.reason.length <= 120);
   assert.match(output.reason, /old 200 character limit/);
 });
 
@@ -109,21 +110,20 @@ test("validates context as a discriminated union", () => {
     { status: "sufficient", include_prior_messages: 2 },
   );
 
-  assert.throws(
-    () =>
-      validateStockClassifierOutput(
-        {
-          reason: "bad",
-          confidence: 0.9,
-          context: { status: "insufficient", include_prior_messages: 2 },
-        },
-        {
-          classifier: "context",
-          model: "test",
-          emits: { context: true },
-        },
-      ),
-    /include_prior_messages is only valid/,
+  assert.deepEqual(
+    validateStockClassifierOutput(
+      {
+        reason: "The target cannot be resolved from visible context.",
+        confidence: 0.9,
+        context: { status: "insufficient", include_prior_messages: 2 },
+      },
+      {
+        classifier: "context",
+        model: "test",
+        emits: { context: true },
+      },
+    ).context,
+    { status: "insufficient" },
   );
 });
 
@@ -158,6 +158,25 @@ test("validates configurable tool families", () => {
         options,
       ),
     /unsupported family email/,
+  );
+});
+
+test("normalizes common tool family aliases", () => {
+  assert.deepEqual(
+    validateStockClassifierOutput(
+      {
+        reason: "Needs current public data.",
+        confidence: 0.88,
+        tools: { required: true, families: ["web_browsing"] },
+      },
+      {
+        classifier: "tools",
+        model: "test",
+        emits: { tools: true },
+        toolFamilies: ["web"],
+      },
+    ).tools,
+    { required: true, families: ["web"] },
   );
 });
 

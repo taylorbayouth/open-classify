@@ -318,19 +318,20 @@ test("createOllamaClassifierRunner validates conversation_history exact keys", a
   );
 });
 
-test("createOllamaClassifierRunner validates context discriminated union", async () => {
+test("createOllamaClassifierRunner drops irrelevant include_prior_messages", async () => {
   const runner = runnerReturning({
     reason: "The latest message refers to visible history.",
     confidence: 0.5,
     context: { status: "standalone", include_prior_messages: 1 },
   });
 
-  await assert.rejects(
-    runner("conversation_history", classifierInput(), new AbortController().signal),
-    (error) =>
-      error instanceof OllamaClassifierError &&
-      error.classifier === "conversation_history" &&
-      /only valid/.test(error.message),
+  assert.deepEqual(
+    await runner("conversation_history", classifierInput(), new AbortController().signal),
+    {
+      reason: "The latest message refers to visible history.",
+      confidence: 0.5,
+      context: { status: "standalone" },
+    },
   );
 });
 
