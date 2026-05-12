@@ -237,12 +237,11 @@ test("createOllamaClassifierRunner validates memory custom output schema", async
   );
 });
 
-test("createOllamaClassifierRunner rejects duplicate tool families", async () => {
+test("createOllamaClassifierRunner rejects duplicate tools", async () => {
   const runner = runnerReturning({
     reason: "Duplicate.",
     confidence: 0.5,
-    required: true,
-    families: ["workspace", "workspace"],
+    tools: ["workspace", "workspace"],
   });
 
   await assert.rejects(
@@ -254,10 +253,10 @@ test("createOllamaClassifierRunner rejects duplicate tool families", async () =>
   );
 });
 
-test("tools system prompt keeps required aligned with families", () => {
+test("tools system prompt describes empty tools as no tools required", () => {
   assert.match(
     MODULES_BY_NAME.tools.systemPrompt,
-    /required must be true exactly when families is non-empty/,
+    /An empty tools array means no downstream tools are required/,
   );
 });
 

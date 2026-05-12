@@ -38,7 +38,7 @@ The `tools` classifier additionally takes:
 
 | Field | Required | Description |
 |---|---|---|
-| `tool_families` | no | Array of `{ id, description }`. Restricts which family ids the classifier may emit. |
+| `tools` | no | Array of `{ id, description }`. Restricts which tool ids the classifier may emit. |
 
 Example (`src/classifiers/stock/security/manifest.json`):
 
@@ -107,4 +107,4 @@ The loader rejects manifests that:
 - declare `kind` that doesn't match the parent directory
 - have a `fallback` that doesn't satisfy the signal or `output_schema`
 - are missing `output_schema` on a custom classifier
-- declare `tool_families` on any classifier other than `tools`
+- declare `tools` on any classifier other than the `tools` stock classifier

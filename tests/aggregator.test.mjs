@@ -178,7 +178,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
       preflight: { ack_reply: { reply: "On it." }, confidence: 0.9 },
       routing: { model_tier: "frontier_fast", confidence: 0.9 },
       model_specialization: { specialization: "reasoning", confidence: 0.9 },
-      tools: { required: true, families: ["web", "workspace"], confidence: 0.9 },
+      tools: { tools: ["web", "workspace"], confidence: 0.9 },
       security: { risk_level: "suspicious", signals: ["instruction_attack"], confidence: 0.9 },
       memory: { output: { queries: ["alpha"] }, reason: "a", confidence: 0.9 },
     },
@@ -188,7 +188,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
 
   assert.deepEqual(envelope.ack_reply, { reply: "On it." });
   assert.equal(envelope.final_reply, undefined);
-  assert.deepEqual(envelope.tools, { required: true, families: ["web", "workspace"] });
+  assert.deepEqual(envelope.tools, { tools: ["web", "workspace"] });
   assert.deepEqual(envelope.safety, {
     risk_level: "suspicious",
     signals: ["instruction_attack"],
@@ -205,7 +205,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
 test("composeEnvelope is pure: same inputs produce structurally equal outputs", () => {
   const args = {
     registry: [{ kind: "stock", name: "tools", order: 40 }],
-    results: { tools: { required: false, families: [], confidence: 0.9 } },
+    results: { tools: { tools: [], confidence: 0.9 } },
     catalog: CATALOG,
     input: { text: "x", messages: [], attachments: [], target_message_hash: "abc12345" },
   };

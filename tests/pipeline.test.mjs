@@ -42,7 +42,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
     text: "review this",
     hash: result.message_id,
   });
-  assert.deepEqual(result.downstream.tools, { required: true, families: ["workspace"] });
+  assert.deepEqual(result.downstream.tools, { tools: ["workspace"] });
 
   for (const name of Object.keys(results)) {
     const entry = result.audit.meta.classifiers[name];
@@ -66,7 +66,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
     model_tier: "local_strong",
     specialization: "reasoning",
   });
-  assert.deepEqual(result.audit.tools, { required: true, families: ["workspace"] });
+  assert.deepEqual(result.audit.tools, { tools: ["workspace"] });
   assert.deepEqual(result.audit.safety, { decision: "allow", risk_level: "normal", signals: [] });
   assert.deepEqual(result.audit.custom_outputs, [
     {

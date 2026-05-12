@@ -1,7 +1,7 @@
 import type {
   JsonClassifierManifest,
   StockJsonManifest,
-  ToolFamilyDefinition,
+  ToolDefinition,
 } from "./stock.js";
 
 const BASE_PROMPT = `Return one JSON object and no other text.
@@ -57,22 +57,20 @@ function stockSection(manifest: StockJsonManifest): string {
     case "model_specialization":
       return ROUTING_PROMPT;
     case "tools":
-      return toolsPrompt(manifest.tool_families);
+      return toolsPrompt(manifest.tools);
     case "security":
       return SAFETY_PROMPT;
   }
 }
 
-function toolsPrompt(families: ReadonlyArray<ToolFamilyDefinition> | undefined): string {
-  if (!families || families.length === 0) {
+function toolsPrompt(tools: ReadonlyArray<ToolDefinition> | undefined): string {
+  if (!tools || tools.length === 0) {
     return `Emit the tools verdict as top-level fields:
-- required: boolean
-- families: array of caller-defined tool family ids
-required must be true exactly when families is non-empty.`;
+- tools: array of caller-defined tool ids
+An empty tools array means no downstream tools are required.`;
   }
   return `Emit the tools verdict as top-level fields:
-- required: boolean
-- families: array of these allowed ids
-${families.map((family) => `  - ${family.id}: ${family.description}`).join("\n")}
-required must be true exactly when families is non-empty.`;
+- tools: array of these allowed ids
+${tools.map((tool) => `  - ${tool.id}: ${tool.description}`).join("\n")}
+An empty tools array means no downstream tools are required.`;
 }

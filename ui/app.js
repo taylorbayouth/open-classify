@@ -392,6 +392,7 @@ function renderPipeline(result) {
   }
 
   if (result.action !== "route" && result.audit?.fired_by) {
+    updateClassifier(result.audit.fired_by, { shortCircuited: true });
     cancelClassifiersExcept([result.audit.fired_by]);
   }
 
@@ -469,6 +470,7 @@ function cancelClassifiersExcept(keptNames) {
       result: null,
       error: null,
       finishedAt: performance.now(),
+      shortCircuited: false,
     };
   }
   renderClassifiers();
@@ -478,7 +480,14 @@ function resetClassifiers(status = "pending") {
   state.classifiers = Object.fromEntries(
     state.classifierNames.map((name) => [
       name,
-      { status, result: null, error: null, startedAt: null, finishedAt: null },
+      {
+        status,
+        result: null,
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+        shortCircuited: false,
+      },
     ]),
   );
   renderClassifiers();
@@ -492,6 +501,7 @@ function updateClassifier(name, patch) {
       error: null,
       startedAt: null,
       finishedAt: null,
+      shortCircuited: false,
     };
   }
   state.classifiers[name] = { ...state.classifiers[name], ...patch };
@@ -509,13 +519,15 @@ function renderClassifier(name) {
   const detailHtml = renderDetails(name, item);
   const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
   const kind = CLASSIFIER_METADATA[name]?.kind ?? "classifier";
+  const shortCircuitHtml = item.shortCircuited
+    ? `<div class="short-circuit-note">Short-circuited pipeline</div>`
+    : "";
 
   return `
     <article class="classifier-card" data-status="${item.status}" data-kind="${escapeHtml(kind)}">
       <div class="classifier-head">
         <div class="title-block">
           <h2 class="classifier-title">${classifierLabel(name)}</h2>
-          <span class="kind-label">${escapeHtml(kind)}</span>
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">
@@ -524,6 +536,7 @@ function renderClassifier(name) {
           ${elapsedHtml}
         </div>
       </div>
+      ${shortCircuitHtml}
       ${detailHtml}
     </article>
   `;
@@ -638,7 +651,7 @@ function renderPipelineSummary(result) {
     ["Action", result.action],
     ["Model", result.downstream?.model_id],
     ["Reply", result.reply],
-    ["Tools", result.downstream?.tools?.families?.join(", ") || undefined],
+    ["Tools", result.downstream?.tools?.tools?.join(", ") || undefined],
     ["Fired by", result.audit?.fired_by],
     ["Hash", result.message_id],
   ].filter(([, value]) => value !== undefined && value !== "");

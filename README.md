@@ -14,7 +14,7 @@ Open Classify runs a small set of fast classifiers in parallel against the lates
                 ├──────────────┤
                 │  routing     │ ─► model_tier?
    message ──►  │  model_spec  │ ─► specialization?      ──►  aggregator ──►  { action, model_id?, ... }
-                │  tools       │ ─► tool families?
+                │  tools       │ ─► tools?
                 │  security    │ ─► safety verdict
                 ├──────────────┤
                 │  …custom…    │ ─► your own JSON-Schema output
@@ -77,7 +77,7 @@ Example `route` result:
   "message_id": "b11d5268",
   "downstream": {
     "model_id": "gpt-5.3-codex",
-    "tools": { "required": true, "families": ["workspace"] },
+    "tools": { "tools": ["workspace"] },
     "messages": [ /* normalized conversation */ ],
     "target_message": { "role": "user", "text": "...", "hash": "b11d5268" },
     "attachments": []
@@ -98,7 +98,7 @@ Stock classifiers are built in and have fixed, typed output shapes. Each one own
 | `preflight` | `final_reply?` / `ack_reply?` | `final_reply` → `answer` |
 | `routing` | `model_tier?` | no |
 | `model_specialization` | `specialization?` | no |
-| `tools` | `{ required, families[] }` | no |
+| `tools` | `{ tools[] }` | no |
 | `security` | `{ decision?, risk_level, signals[] }` | `decision: "block"` → `block`, `"needs_review"` → `needs_review` |
 
 Each output may also carry optional `reason` (≤120 chars) and `confidence` (0–1). Below-threshold signals are dropped from aggregation; the default threshold is `0.6`.

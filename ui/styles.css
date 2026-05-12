@@ -22,6 +22,8 @@
   --warn-soft: rgba(251, 191, 36, 0.14);
   --err: #f87171;
   --err-soft: rgba(248, 113, 113, 0.14);
+  --custom: #c084fc;
+  --custom-soft: rgba(192, 132, 252, 0.14);
 
   --radius: 10px;
   --radius-sm: 6px;
@@ -698,6 +700,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .classifier-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  grid-auto-rows: 1fr;
+  align-items: stretch;
   gap: 12px;
 }
 
@@ -706,6 +710,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   display: grid;
   gap: 10px;
   align-content: start;
+  height: 100%;
   border: 1px solid var(--line);
   border-left: 3px solid var(--muted-2);
   border-radius: var(--radius-sm);
@@ -769,35 +774,23 @@ button:disabled { cursor: wait; opacity: 0.55; }
   color: var(--ink);
 }
 
-.kind-label {
-  width: max-content;
-  max-width: 100%;
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
-  padding: 2px 7px;
-  color: var(--muted);
-  background: var(--panel);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
 .classifier-card[data-kind="custom"] {
-  border-top-color: rgba(251, 191, 36, 0.35);
+  border-color: rgba(192, 132, 252, 0.34);
+  border-left-color: var(--custom);
 }
 
-.classifier-card[data-kind="custom"] .kind-label {
-  border-color: rgba(251, 191, 36, 0.3);
-  background: var(--warn-soft);
+.classifier-card[data-kind="custom"] .classifier-title {
+  color: var(--custom);
+}
+
+.short-circuit-note {
+  width: fit-content;
+  max-width: 100%;
+  border-left: 2px solid var(--warn);
+  padding-left: 8px;
   color: var(--warn);
-}
-
-.classifier-card[data-kind="stock"] .kind-label {
-  border-color: rgba(96, 165, 250, 0.25);
-  background: var(--info-soft);
-  color: var(--info);
+  font-size: 11.5px;
+  font-weight: 650;
 }
 
 .status-block {
@@ -925,7 +918,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .field-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.28fr) minmax(0, 1fr);
+  grid-template-columns: 116px minmax(0, 1fr);
+  align-items: start;
   gap: 12px;
   min-width: 0;
   padding: 9px 10px;
@@ -935,6 +929,11 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .field-row:last-child {
   border-bottom: none;
+}
+
+.field-row span,
+.field-row strong {
+  line-height: 1.45;
 }
 
 .detail-stack {

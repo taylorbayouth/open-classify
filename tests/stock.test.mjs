@@ -31,12 +31,12 @@ function tools(overrides = {}) {
     kind: "stock",
     name: "tools",
     version: "1.0.0",
-    purpose: "Pick tool families.",
+    purpose: "Pick tools.",
     order: 40,
-    tool_families: [
+    tools: [
       { id: "repo", description: "Read and edit source repositories." },
     ],
-    fallback: { required: false, families: [] },
+    fallback: { tools: [] },
     ...overrides,
   });
 }
@@ -113,45 +113,25 @@ test("validates a routing classifier output", () => {
   assert.equal(output.model_tier, "frontier_fast");
 });
 
-test("validates tools output and family allow-list", () => {
+test("validates tools output and allow-list", () => {
   const manifest = tools();
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "Needs repo.", confidence: 0.88, required: true, families: ["repo"] },
+      { reason: "Needs repo.", confidence: 0.88, tools: ["repo"] },
       { classifier: "tools", model: "test" },
     ),
-    { reason: "Needs repo.", confidence: 0.88, required: true, families: ["repo"] },
+    { reason: "Needs repo.", confidence: 0.88, tools: ["repo"] },
   );
 
   assert.throws(
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "Needs mail.", confidence: 0.88, required: true, families: ["email"] },
+        { reason: "Needs mail.", confidence: 0.88, tools: ["email"] },
         { classifier: "tools", model: "test" },
       ),
-    /unsupported family email/,
-  );
-
-  assert.throws(
-    () =>
-      validateOutputForManifest(
-        manifest,
-        { reason: "Contradictory.", confidence: 0.88, required: false, families: ["repo"] },
-        { classifier: "tools", model: "test" },
-      ),
-    /required must be true exactly when families is non-empty/,
-  );
-
-  assert.throws(
-    () =>
-      validateOutputForManifest(
-        manifest,
-        { reason: "Contradictory.", confidence: 0.88, required: true, families: [] },
-        { classifier: "tools", model: "test" },
-      ),
-    /required must be true exactly when families is non-empty/,
+    /unsupported tool email/,
   );
 });
 
@@ -202,24 +182,24 @@ test("loadClassifierRegistry rejects manifest names that do not match directorie
   );
 });
 
-test("normalizes tool family aliases", () => {
+test("normalizes tool aliases", () => {
   const manifest = validateJsonClassifierManifest({
     kind: "stock",
     name: "tools",
     version: "1.0.0",
-    purpose: "Pick tool families.",
+    purpose: "Pick tools.",
     order: 40,
-    tool_families: [
+    tools: [
       { id: "web", description: "Public web browsing." },
     ],
-    fallback: { required: false, families: [] },
+    fallback: { tools: [] },
   });
   const output = validateOutputForManifest(
     manifest,
-    { reason: "Needs current data.", confidence: 0.88, required: true, families: ["web_browsing"] },
+    { reason: "Needs current data.", confidence: 0.88, tools: ["web_browsing"] },
     { classifier: "tools", model: "test" },
   );
-  assert.deepEqual(output.families, ["web"]);
+  assert.deepEqual(output.tools, ["web"]);
 });
 
 test("builds a prompt for a stock manifest", () => {

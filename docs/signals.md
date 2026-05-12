@@ -47,16 +47,15 @@ Tier feeds the catalog resolver as a soft constraint.
 
 ```ts
 {
-  required: boolean;
-  families: string[];
+  tools: string[];
   reason?: string;
   confidence?: number;
 }
 ```
 
-- `required` must be `true` exactly when `families` is non-empty.
-- `families` must not contain duplicates.
-- Allowed ids are declared per-manifest in `tool_families`. The built-in tools classifier ships with `workspace`, `web`, `communications`, `documents`, `spreadsheets`, `project_management`, `developer_platforms`.
+- An empty `tools` array means no downstream tools are required.
+- `tools` must not contain duplicates.
+- Allowed ids are declared per-manifest in `tools`. The built-in tools classifier ships with `workspace`, `web`, `communications`, `documents`, `spreadsheets`, `project_management`, `developer_platforms`.
 
 ## `security` — `SafetySignal`
 

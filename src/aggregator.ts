@@ -158,7 +158,7 @@ function routingMaxConfidence(
 }
 
 function extractToolsSignal(result: ToolsClassifierOutput): ToolsSignal {
-  return { required: result.required, families: result.families };
+  return { tools: result.tools };
 }
 
 function extractSafetySignal(result: SecurityClassifierOutput): SafetySignal {

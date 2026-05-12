@@ -28,7 +28,6 @@ import {
   SECURITY_DECISION_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
-  TOOL_FAMILY_VALUES,
 } from "./enums.js";
 import {
   createOllamaClassifierRunner,
@@ -45,7 +44,6 @@ import type { OpenClassifyInput } from "./types.js";
 const CLASSIFIER_ENUMS = {
   downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
   model_specialization: [...MODEL_SPECIALIZATION_VALUES],
-  tool_family: [...TOOL_FAMILY_VALUES],
   security_decision: [...SECURITY_DECISION_VALUES],
   security_risk_level: [...SECURITY_RISK_LEVEL_VALUES],
   security_signal: [...SECURITY_SIGNAL_VALUES],
@@ -58,7 +56,7 @@ const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
   purpose: classifier.purpose,
   order: classifier.order,
   ui: classifier.ui,
-  ...("tool_families" in classifier ? { tool_families: classifier.tool_families ?? [] } : {}),
+  ...("tools" in classifier ? { tools: classifier.tools ?? [] } : {}),
 }));
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);

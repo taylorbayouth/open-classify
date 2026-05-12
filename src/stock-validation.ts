@@ -17,7 +17,7 @@ import type {
   ToolsClassifierOutput,
   CustomClassifierOutputValue,
   ClassifierOutput,
-  ToolFamilyDefinition,
+  ToolDefinition,
 } from "./stock.js";
 import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import {
@@ -35,8 +35,8 @@ import {
 
 export const STOCK_REASON_MAX_CHARS = 120;
 export const STOCK_REPLY_MAX_CHARS = 200;
-export const STOCK_TOOL_FAMILY_ID_MAX_CHARS = 64;
-export const STOCK_TOOL_FAMILY_DESCRIPTION_MAX_CHARS = 240;
+export const STOCK_TOOL_ID_MAX_CHARS = 64;
+export const STOCK_TOOL_DESCRIPTION_MAX_CHARS = 240;
 export const STOCK_MANIFEST_NAME_MAX_CHARS = 80;
 export const STOCK_MANIFEST_VERSION_MAX_CHARS = 40;
 export const STOCK_MANIFEST_PURPOSE_MAX_CHARS = 400;
@@ -65,7 +65,7 @@ const COMMON_MANIFEST_KEYS = [
 
 const STOCK_MANIFEST_KEYS = [
   ...COMMON_MANIFEST_KEYS,
-  "tool_families",
+  "tools",
 ] as const;
 
 const CUSTOM_MANIFEST_KEYS = [
@@ -99,27 +99,27 @@ function validateStockManifest(
     "name",
   );
   const base = validateManifestCommon(value, model);
-  const toolFamilies =
-    value.tool_families === undefined
+  const tools =
+    value.tools === undefined
       ? undefined
-      : validateToolFamilies(value.tool_families, model);
+      : validateTools(value.tools, model);
 
-  if (name !== "tools" && toolFamilies !== undefined) {
+  if (name !== "tools" && tools !== undefined) {
     throwInvalid(
       "manifest",
       model,
-      "tool_families is only supported on the tools classifier",
+      "tools is only supported on the tools classifier",
     );
   }
 
-  const fallback = validateStockOutputForName(name, value.fallback, model, toolFamilies);
+  const fallback = validateStockOutputForName(name, value.fallback, model, tools);
 
   return {
     kind: "stock",
     name,
     ...base,
     fallback,
-    ...(toolFamilies === undefined ? {} : { tool_families: toolFamilies }),
+    ...(tools === undefined ? {} : { tools }),
   };
 }
 
@@ -211,7 +211,7 @@ export function validateOutputForManifest(
       manifest.name,
       value,
       context.model,
-      manifest.tool_families,
+      manifest.tools,
     );
   }
   return validateCustomOutput(value, context.classifier, context.model, manifest.output_schema);
@@ -221,7 +221,7 @@ function validateStockOutputForName<Name extends StockClassifierName>(
   name: Name,
   value: unknown,
   model: string,
-  toolFamilies: ReadonlyArray<ToolFamilyDefinition> | undefined,
+  tools: ReadonlyArray<ToolDefinition> | undefined,
 ): StockClassifierOutputs[Name] {
   if (!isRecord(value)) {
     throwInvalid(name, model, "output must be a JSON object");
@@ -234,7 +234,7 @@ function validateStockOutputForName<Name extends StockClassifierName>(
     case "model_specialization":
       return validateRoutingOutput(value, name, model) as StockClassifierOutputs[Name];
     case "tools":
-      return validateToolsOutput(value, model, toolFamilies?.map((f) => f.id)) as StockClassifierOutputs[Name];
+      return validateToolsOutput(value, model, tools?.map((tool) => tool.id)) as StockClassifierOutputs[Name];
     case "security":
       return validateSecurityOutput(value, model) as StockClassifierOutputs[Name];
     default: {
@@ -322,29 +322,21 @@ function validateRoutingOutput(
 function validateToolsOutput(
   value: Record<string, unknown>,
   model: string,
-  toolFamilies: ReadonlyArray<string> | undefined,
+  configuredTools: ReadonlyArray<string> | undefined,
 ): ToolsClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "required", "families"], "tools", model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "confidence", "tools"], "tools", model, "output");
   const meta = validateMetadata(value, "tools", model);
-  const families = requireStringArray(value.families, "tools", model, "families").map(normalizeToolFamily);
-  ensureNoDuplicates(families, "tools", model, "families");
-  if (toolFamilies) {
-    const allowed = new Set(toolFamilies);
-    for (const family of families) {
-      if (!allowed.has(family)) {
-        throwInvalid("tools", model, `families includes unsupported family ${family}`);
+  const tools = requireStringArray(value.tools, "tools", model, "tools").map(normalizeTool);
+  ensureNoDuplicates(tools, "tools", model, "tools");
+  if (configuredTools) {
+    const allowed = new Set(configuredTools);
+    for (const tool of tools) {
+      if (!allowed.has(tool)) {
+        throwInvalid("tools", model, `tools includes unsupported tool ${tool}`);
       }
     }
   }
-  const required = requireBoolean(value.required, "tools", model, "required");
-  if (required !== (families.length > 0)) {
-    throwInvalid(
-      "tools",
-      model,
-      "required must be true exactly when families is non-empty",
-    );
-  }
-  return { ...meta, required, families };
+  return { ...meta, tools };
 }
 
 function validateSecurityOutput(
@@ -404,32 +396,32 @@ function validateCustomOutput(
   return { ...meta, output: value.output };
 }
 
-function validateToolFamilies(value: unknown, model: string): ToolFamilyDefinition[] {
+function validateTools(value: unknown, model: string): ToolDefinition[] {
   if (!Array.isArray(value)) {
-    throwInvalid("manifest", model, "tool_families must be an array");
+    throwInvalid("manifest", model, "tools must be an array");
   }
   const out = value.map((item, index) => {
     if (!isRecord(item)) {
-      throwInvalid("manifest", model, `tool_families[${index}] must be an object`);
+      throwInvalid("manifest", model, `tools[${index}] must be an object`);
     }
     return {
       id: requireNonEmptyStringMaxLength(
         item.id,
         "manifest",
         model,
-        `tool_families[${index}].id`,
-        STOCK_TOOL_FAMILY_ID_MAX_CHARS,
+        `tools[${index}].id`,
+        STOCK_TOOL_ID_MAX_CHARS,
       ),
       description: requireNonEmptyStringMaxLength(
         item.description,
         "manifest",
         model,
-        `tool_families[${index}].description`,
-        STOCK_TOOL_FAMILY_DESCRIPTION_MAX_CHARS,
+        `tools[${index}].description`,
+        STOCK_TOOL_DESCRIPTION_MAX_CHARS,
       ),
     };
   });
-  ensureNoDuplicates(out.map((item) => item.id), "manifest", model, "tool_families[].id");
+  ensureNoDuplicates(out.map((item) => item.id), "manifest", model, "tools[].id");
   return out;
 }
 
@@ -508,7 +500,7 @@ export function validateWithSchema(
   }
 }
 
-function normalizeToolFamily(family: string): string {
+function normalizeTool(tool: string): string {
   const aliases: Record<string, string> = {
     browser: "web",
     browsing: "web",
@@ -516,7 +508,7 @@ function normalizeToolFamily(family: string): string {
     web_browsing: "web",
     web_search: "web",
   };
-  return aliases[family] ?? family;
+  return aliases[tool] ?? tool;
 }
 
 function truncateText(text: string, maxChars: number): string {

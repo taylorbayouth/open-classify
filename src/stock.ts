@@ -45,8 +45,7 @@ export interface RoutingSignal {
 }
 
 export interface ToolsSignal {
-  readonly required: boolean;
-  readonly families: ReadonlyArray<string>;
+  readonly tools: ReadonlyArray<string>;
 }
 
 export interface SafetySignal {
@@ -106,7 +105,7 @@ export type ClassifierOutput = StockClassifierOutput | CustomClassifierOutputVal
 
 // ─── Manifest types ─────────────────────────────────────────────────────────
 
-export interface ToolFamilyDefinition {
+export interface ToolDefinition {
   readonly id: string;
   readonly description: string;
 }
@@ -131,7 +130,7 @@ export interface StockJsonManifest<Name extends StockClassifierName = StockClass
   readonly kind: "stock";
   readonly name: Name;
   readonly fallback: StockClassifierOutputs[Name];
-  readonly tool_families?: ReadonlyArray<ToolFamilyDefinition>;
+  readonly tools?: ReadonlyArray<ToolDefinition>;
 }
 
 export interface CustomJsonManifest extends ManifestCommon {

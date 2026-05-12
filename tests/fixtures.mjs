@@ -22,8 +22,7 @@ export const validClassifierOutputs = {
   tools: {
     reason: "The request requires code access.",
     confidence: 0.9,
-    required: true,
-    families: ["workspace"],
+    tools: ["workspace"],
   },
   model_specialization: {
     reason: "The request asks for evaluative review.",

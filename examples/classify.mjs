@@ -39,6 +39,6 @@ if (result.action === "answer") {
     `\nAction: route` +
       ` | model: ${result.downstream.model_id}` +
       ` | messages: ${result.downstream.messages.length}` +
-      ` | tools: ${result.downstream.tools.families.join(", ") || "none"}`,
+      ` | tools: ${result.downstream.tools.tools.join(", ") || "none"}`,
   );
 }
