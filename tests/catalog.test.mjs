@@ -88,7 +88,7 @@ test("validateCatalog rejects unsupported specialization value", () => {
   );
 });
 
-test("validateCatalog rejects escape-hatch values in axes", () => {
+test("validateCatalog rejects unsupported tier value", () => {
   const bad = {
     models: [{ ...VALID_MODEL, tier: "unable_to_determine" }],
     default: VALID_MODEL.id,

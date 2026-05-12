@@ -1,16 +1,9 @@
 import type {
-  ConcreteDownstreamExecutionMode,
-  ConcreteDownstreamModelTier,
-  ConcreteModelSpecialization,
-} from "./manifest.js";
-import type { SecurityDecision } from "./enums.js";
-
-export const HISTORY_OLDER_MESSAGES_VALUES = [
-  "none",
-  "available",
-  "unknown",
-] as const;
-export type HistoryOlderMessages = (typeof HISTORY_OLDER_MESSAGES_VALUES)[number];
+  DownstreamExecutionMode,
+  DownstreamModelTier,
+  ModelSpecialization,
+  SecurityDecision,
+} from "./enums.js";
 
 export interface StockClassifierMessageInput {
   readonly role: "user" | "assistant";
@@ -28,9 +21,6 @@ export interface StockClassifierAttachmentInput {
 
 export interface StockClassifierInput {
   readonly messages: ReadonlyArray<StockClassifierMessageInput>;
-  readonly history?: {
-    readonly older_messages?: HistoryOlderMessages;
-  };
   readonly attachments?: ReadonlyArray<StockClassifierAttachmentInput>;
 }
 
@@ -40,9 +30,9 @@ export type HandoffSignal =
   | { readonly kind: "block"; readonly reason_code?: string };
 
 export interface RoutingSignal {
-  readonly execution_mode?: ConcreteDownstreamExecutionMode;
-  readonly model_tier?: ConcreteDownstreamModelTier;
-  readonly specialization?: ConcreteModelSpecialization;
+  readonly execution_mode?: DownstreamExecutionMode;
+  readonly model_tier?: DownstreamModelTier;
+  readonly specialization?: ModelSpecialization;
 }
 
 export type ContextSignal =
@@ -51,9 +41,9 @@ export type ContextSignal =
   | { readonly status: "insufficient" }
   | { readonly status: "unknown" };
 
-export interface ToolsSignal<TToolFamily extends string = string> {
+export interface ToolsSignal {
   readonly required: boolean;
-  readonly families: ReadonlyArray<TToolFamily>;
+  readonly families: ReadonlyArray<string>;
 }
 
 export interface ResponseSignal {
@@ -61,10 +51,10 @@ export interface ResponseSignal {
   readonly locale?: string;
 }
 
-export interface SafetySignal<TSafetySignal extends string = string> {
+export interface SafetySignal {
   readonly decision?: SecurityDecision;
   readonly risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
-  readonly signals: ReadonlyArray<TSafetySignal>;
+  readonly signals: ReadonlyArray<string>;
 }
 
 export interface SummarySignal {
@@ -72,21 +62,17 @@ export interface SummarySignal {
   readonly conversation_window?: string;
 }
 
-export interface StockClassifierOutput<
-  TCustom = unknown,
-  TToolFamily extends string = string,
-  TSafetySignal extends string = string,
-> {
+export interface StockClassifierOutput {
   readonly reason: string;
   readonly confidence: number;
   readonly handoff?: HandoffSignal;
   readonly routing?: RoutingSignal;
   readonly context?: ContextSignal;
-  readonly tools?: ToolsSignal<TToolFamily>;
+  readonly tools?: ToolsSignal;
   readonly response?: ResponseSignal;
-  readonly safety?: SafetySignal<TSafetySignal>;
+  readonly safety?: SafetySignal;
   readonly summary?: SummarySignal;
-  readonly output?: TCustom;
+  readonly output?: unknown;
 }
 
 export const STOCK_SIGNAL_KEYS = [

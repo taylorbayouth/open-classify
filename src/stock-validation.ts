@@ -6,10 +6,7 @@ import {
 } from "./enums.js";
 import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
 import type { JsonClassifierManifest, StockClassifierOutput } from "./stock.js";
-import {
-  HISTORY_OLDER_MESSAGES_VALUES,
-  STOCK_SIGNAL_KEYS,
-} from "./stock.js";
+import { STOCK_SIGNAL_KEYS } from "./stock.js";
 import {
   ensureNoDuplicates,
   isRecord,
@@ -268,7 +265,7 @@ function validateRouting(value: unknown, classifier: string, model: string) {
       : {
           execution_mode: requireEnum(
             value.execution_mode,
-            withoutEscapeHatch(DOWNSTREAM_EXECUTION_MODE_VALUES, "unable_to_determine"),
+            DOWNSTREAM_EXECUTION_MODE_VALUES,
             classifier,
             model,
             "routing.execution_mode",
@@ -279,7 +276,7 @@ function validateRouting(value: unknown, classifier: string, model: string) {
       : {
           model_tier: requireEnum(
             value.model_tier,
-            withoutEscapeHatch(DOWNSTREAM_MODEL_TIER_VALUES, "unable_to_determine"),
+            DOWNSTREAM_MODEL_TIER_VALUES,
             classifier,
             model,
             "routing.model_tier",
@@ -290,7 +287,7 @@ function validateRouting(value: unknown, classifier: string, model: string) {
       : {
           specialization: requireEnum(
             value.specialization,
-            withoutEscapeHatch(MODEL_SPECIALIZATION_VALUES, "unclear"),
+            MODEL_SPECIALIZATION_VALUES,
             classifier,
             model,
             "routing.specialization",
@@ -636,11 +633,3 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function withoutEscapeHatch<const Values extends readonly string[], Escape extends Values[number]>(
-  values: Values,
-  escape: Escape,
-): Exclude<Values[number], Escape>[] {
-  return values.filter((value): value is Exclude<Values[number], Escape> => value !== escape);
-}
-
-export { HISTORY_OLDER_MESSAGES_VALUES };
