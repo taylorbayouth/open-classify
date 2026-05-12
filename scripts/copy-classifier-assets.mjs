@@ -13,7 +13,12 @@ for (const kind of readdirSync(srcDir)) {
   if (!statSync(kindSrc).isDirectory()) continue;
   const kindOut = join(outDir, kind);
   mkdirSync(kindOut, { recursive: true });
+  const promptsDir = join(kindSrc, "prompts");
+  if (existsSync(promptsDir)) {
+    cpSync(promptsDir, join(kindOut, "prompts"), { recursive: true });
+  }
   for (const entry of readdirSync(kindSrc)) {
+    if (entry === "prompts") continue;
     const classifierDir = join(kindSrc, entry);
     if (!statSync(classifierDir).isDirectory()) continue;
     const outClassifierDir = join(kindOut, entry);

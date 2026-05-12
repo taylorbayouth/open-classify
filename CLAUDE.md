@@ -34,9 +34,10 @@ OpenClassifyInput
 
 ### Classifiers
 
-Each classifier lives in `src/classifiers/<name>/` with two files:
-- `manifest.json` — declares `order`, `emits`, `fallback`, optional `output_schema`
-- `prompt.md` — the system prompt sent to the model
+Each classifier lives under `src/classifiers/`:
+- `manifest.json` - declares `order`, `emits`, `fallback`, optional `output_schema`
+- custom classifiers also have `prompt.md`
+- stock prompt markdown lives in `src/classifiers/stock/prompts/`
 
 The 7 built-in classifiers (by order):
 

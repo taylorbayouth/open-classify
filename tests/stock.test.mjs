@@ -198,7 +198,6 @@ test("loadClassifierRegistry rejects manifest names that do not match directorie
       fallback: {},
     }),
   );
-  writeFileSync(join(classifierDir, "prompt.md"), "Classify preflight.");
 
   assert.throws(
     () => loadClassifierRegistry(root),

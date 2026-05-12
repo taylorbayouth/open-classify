@@ -41,6 +41,7 @@ export function loadClassifierRegistry(
     if (!existsSync(kindDir)) continue;
     for (const entry of readdirSync(kindDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
+      if (kind === "stock" && entry.name === "prompts") continue;
       manifests.push(loadClassifierManifest(join(kindDir, entry.name), kind));
     }
   }
@@ -58,7 +59,7 @@ function loadClassifierManifest(
   if (!existsSync(manifestPath)) {
     throw new ClassifierManifestError(`missing manifest.json in ${classifierDir}`);
   }
-  if (!existsSync(promptPath)) {
+  if (expectedKind === "custom" && !existsSync(promptPath)) {
     throw new ClassifierManifestError(`missing prompt.md in ${classifierDir}`);
   }
 
@@ -75,11 +76,14 @@ function loadClassifierManifest(
       `${manifestPath}: manifest name "${manifest.name}" does not match directory "${directoryName}"`,
     );
   }
-  const classifierPrompt = readFileSync(promptPath, "utf8").trim();
-  if (classifierPrompt.length === 0) {
-    throw new ClassifierManifestError(`prompt.md must not be empty: ${promptPath}`);
+  let systemPrompt = buildStockClassifierPrompt(manifest);
+  if (manifest.kind === "custom") {
+    const classifierPrompt = readFileSync(promptPath, "utf8").trim();
+    if (classifierPrompt.length === 0) {
+      throw new ClassifierManifestError(`prompt.md must not be empty: ${promptPath}`);
+    }
+    systemPrompt = `${systemPrompt}\n\nClassifier guidance:\n${classifierPrompt}`;
   }
-  const systemPrompt = `${buildStockClassifierPrompt(manifest)}\n\nClassifier guidance:\n${classifierPrompt}`;
 
   return { ...manifest, systemPrompt } as RuntimeClassifierManifest;
 }

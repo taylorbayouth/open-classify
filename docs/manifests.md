@@ -1,14 +1,21 @@
 # Manifest reference
 
-Every classifier directory contains a `manifest.json` and a `prompt.md`. The runtime auto-discovers manifests, sorts by `order`, validates everything, and rejects duplicates.
+Every classifier directory contains a `manifest.json`. Custom classifiers also contain a `prompt.md`. Stock prompt markdown lives in `src/classifiers/stock/prompts/` and is assembled at runtime.
 
 ## Layout
 
 ```
 src/classifiers/
+  stock/prompts/              # built-in prompt markdown
+    base.md
+    confidence.md
+    reason.md
+    tier.md
+    specialty.md
+    tools-output.md
+    tools.md
   stock/<name>/                # built-in classifier
     manifest.json
-    prompt.md
   custom/<name>/               # caller-defined classifier
     manifest.json
     prompt.md
@@ -85,7 +92,11 @@ Example:
 
 ## Prompt files
 
-`prompt.md` is the classifier-specific instruction text. The runtime composes it with a small auto-generated preamble describing the output shape, so prompts can stay focused on classifier behavior:
+Stock prompt files live together in `src/classifiers/stock/prompts/`. The runtime assembles shared markdown (`base.md`, `reason.md`, `confidence.md`, `classifier-header.md`) with focused stock sections such as `tier.md`, `specialty.md`, `tools-output.md`, and the stock classifier file (`preflight.md`, `routing.md`, `model_specialization.md`, `tools.md`, or `security.md`).
+
+Dynamic prompt sections use small markdown slots. For example, `tools.md` contains `{{allowed_tools}}`, and the runtime renders the allowed tool list from the tools manifest.
+
+Custom `prompt.md` is the classifier-specific instruction text. The runtime composes it with the shared JSON output envelope, so prompts can stay focused on classifier behavior:
 
 - what the classifier decides
 - when to emit each declared field
@@ -100,7 +111,7 @@ The loader rejects manifests that:
 
 - declare unsupported fields
 - collide on `name` or `order`
-- have an empty `prompt.md`
+- have an empty custom `prompt.md`
 - declare a custom name that matches a stock classifier
 - declare `kind` that doesn't match the parent directory
 - have a `fallback` that doesn't satisfy the signal or `output_schema`
