@@ -93,6 +93,12 @@ Example `route` result:
 
 Stock classifiers are built in and have fixed, typed output shapes. Each one owns exactly one signal. Its manifest lives in `src/classifiers/stock/<name>/manifest.json`; the shared stock prompt building blocks live in `src/classifiers/stock/prompts/`.
 
+Every classifier prompt includes a shared header with its `Classifier` name, `Purpose`, and an instruction to treat that purpose as a hard scope boundary. In practice:
+
+- `routing` chooses only `model_tier`
+- `model_specialization` chooses only `specialization`
+- `security` is only for safety and permission-boundary risk, not contradiction, feasibility, or freshness checks
+
 | Name | Signal | Short-circuits? |
 |---|---|---|
 | `preflight` | `final_reply?` / `ack_reply?` | `final_reply` → `answer` |
@@ -132,6 +138,8 @@ A custom classifier is two files in `src/classifiers/custom/<name>/`:
 ```
 
 `prompt.md`: your classifier-specific instructions.
+
+Custom classifiers receive the same shared `Classifier` + `Purpose` header and the same scope-boundary instruction, so keep the manifest `purpose` specific and operational.
 
 The runtime auto-discovers it, validates outputs against your schema, and surfaces them on `result.classifier_outputs.<name>`. No TypeScript edits required.
 
