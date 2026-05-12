@@ -2,53 +2,79 @@
   "models": [
     {
       "id": "gpt-5.5",
-      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "instruction_following"],
+      "provider": "openai",
+      "runtime": "api",
+      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "instruction_following", "agentic_workflows"],
       "execution_modes": ["direct", "tool_assisted", "workflow"],
       "tier": "frontier_strong",
-      "params_in_billions": 800,
-      "context_window": 1000000,
-      "input_tokens_cpm": 5.00,
-      "cached_tokens_cpm": 0.50,
-      "output_tokens_cpm": 25.00
+      "params_in_billions": null,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "input_tokens_cpm": 5.0,
+      "cached_tokens_cpm": 0.5,
+      "output_tokens_cpm": 30.0
     },
     {
       "id": "gpt-5.4-mini",
-      "specializations": ["chat", "writing", "reasoning", "planning", "instruction_following"],
+      "provider": "openai",
+      "runtime": "api",
+      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "computer_use", "subagents", "instruction_following"],
       "execution_modes": ["direct", "tool_assisted", "workflow"],
       "tier": "frontier_fast",
-      "params_in_billions": 15,
-      "context_window": 200000,
-      "input_tokens_cpm": 0.25,
-      "cached_tokens_cpm": 0.03,
-      "output_tokens_cpm": 1.25
+      "params_in_billions": null,
+      "context_window": 400000,
+      "max_output_tokens": 128000,
+      "input_tokens_cpm": 0.75,
+      "cached_tokens_cpm": 0.075,
+      "output_tokens_cpm": 4.5
     },
     {
       "id": "gpt-5.3-codex",
-      "specializations": ["coding"],
-      "execution_modes": ["direct", "tool_assisted"],
-      "tier": "frontier_fast",
-      "params_in_billions": 30,
-      "context_window": 500000,
-      "input_tokens_cpm": 0.40,
-      "cached_tokens_cpm": 0.05,
-      "output_tokens_cpm": 2.00
-    },
-    {
-      "id": "qwen2.5-coder:14b",
-      "specializations": ["coding"],
-      "execution_modes": ["direct", "tool_assisted"],
-      "tier": "local_strong",
-      "params_in_billions": 14,
-      "context_window": 128000
-    },
-    {
-      "id": "gemma4:e4b-it-q4_K_M",
-      "specializations": ["chat", "writing", "reasoning", "planning", "instruction_following"],
+      "provider": "openai",
+      "runtime": "api",
+      "specializations": ["coding", "code_review", "debugging", "agentic_coding"],
       "execution_modes": ["direct", "tool_assisted", "workflow"],
-      "tier": "local_strong",
+      "tier": "frontier_coding",
+      "params_in_billions": null,
+      "context_window": 400000,
+      "max_output_tokens": 128000,
+      "input_tokens_cpm": 1.75,
+      "cached_tokens_cpm": 0.175,
+      "output_tokens_cpm": 14.0
+    },
+    {
+      "id": "qwen2.5-coder:14b-instruct-q4_K_M",
+      "provider": "ollama",
+      "runtime": "local",
+      "specializations": ["coding", "code_reasoning", "code_fixing", "tool_assisted_coding"],
+      "execution_modes": ["direct", "tool_assisted"],
+      "tier": "local_coding",
+      "params_in_billions": 14.7,
+      "context_window": 32768,
+      "upstream_max_context_window": 131072,
+      "input_tokens_cpm": 0,
+      "cached_tokens_cpm": 0,
+      "output_tokens_cpm": 0
+    },
+    {
+      "id": "gemma3:4b",
+      "provider": "ollama",
+      "runtime": "local",
+      "specializations": ["chat", "writing", "summarization", "question_answering", "reasoning", "vision_input"],
+      "execution_modes": ["direct", "tool_assisted"],
+      "tier": "local_small",
       "params_in_billions": 4,
-      "context_window": 131072
+      "context_window": 128000,
+      "input_tokens_cpm": 0,
+      "cached_tokens_cpm": 0,
+      "output_tokens_cpm": 0
     }
   ],
-  "default": "gpt-5.4-mini"
+  "default": "gpt-5.4-mini",
+  "pricing_unit": "USD per 1M tokens",
+  "notes": [
+    "OpenAI model parameter counts are not publicly disclosed, so params_in_billions is null for frontier models.",
+    "Local Ollama models have no API token price, but they still have local compute, memory, electricity, and latency costs.",
+    "For qwen2.5-coder:14b, Ollama lists 32K context for the 14B instruct tags, while the upstream model card lists 131,072 tokens as the full supported context."
+  ]
 }
