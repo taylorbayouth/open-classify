@@ -13,6 +13,7 @@ import type {
 import type {
   ClassifierInput,
   ClassifierRunStatus,
+  ConversationMessageInput,
 } from "./types.js";
 import type {
   DownstreamExecutionMode,
@@ -98,6 +99,25 @@ export interface Envelope {
   readonly model_recommendation: ModelRecommendation;
 }
 
+export type ClassifierCustomOutputs = Record<string, unknown>;
+
+export interface DownstreamTargetMessage {
+  readonly role: "user";
+  readonly text: string;
+  readonly hash: string;
+  readonly summary?: string;
+}
+
+export interface DownstreamPayload {
+  readonly model_id: string;
+  readonly messages: ReadonlyArray<ConversationMessageInput>;
+  readonly target_message: DownstreamTargetMessage;
+  readonly tools: ToolsSignal;
+  readonly context?: ContextSignal;
+  readonly context_summary?: string;
+  readonly attachments: ClassifierInput["attachments"];
+}
+
 export type ClassifierEntry = StockClassifierOutput & {
   readonly status: ClassifierRunStatus;
   readonly version: string;
@@ -107,34 +127,55 @@ export interface PipelineMeta {
   readonly classifiers: Record<string, ClassifierEntry>;
 }
 
-export type ShortCircuitPipelineResult = {
-  readonly decision: "short_circuit";
-  readonly target_message_hash: string;
-  readonly fired_by: string;
-  readonly handoff?: HandoffSignal;
-  readonly safety?: SafetySignal;
+export interface PipelineAudit extends Envelope {
   readonly meta: PipelineMeta;
-} & (
-  | { readonly kind: "final"; readonly reply: string }
-  | { readonly kind: "block" }
-);
+  readonly fired_by?: string;
+}
+
+export type AnswerPipelineResult = {
+  readonly action: "answer";
+  readonly message_id: string;
+  readonly reply: string;
+  readonly reason: "already_answered";
+  readonly classifier_outputs: ClassifierCustomOutputs;
+  readonly audit: Pick<PipelineAudit, "handoff" | "meta" | "fired_by">;
+};
+
+export type BlockPipelineResult = {
+  readonly action: "block";
+  readonly message_id: string;
+  readonly reason: {
+    readonly code?: string;
+    readonly risk_level?: SafetySignal["risk_level"];
+    readonly signals?: ReadonlyArray<string>;
+  };
+  readonly classifier_outputs: ClassifierCustomOutputs;
+  readonly audit: Pick<PipelineAudit, "handoff" | "safety" | "meta" | "fired_by">;
+};
 
 export type NeedsReviewPipelineResult = {
-  readonly decision: "needs_review";
-  readonly target_message_hash: string;
+  readonly action: "needs_review";
+  readonly message_id: string;
   readonly fired_by: string;
-  readonly safety?: SafetySignal;
-  readonly meta: PipelineMeta;
+  readonly reason: {
+    readonly risk_level?: SafetySignal["risk_level"];
+    readonly signals?: ReadonlyArray<string>;
+  };
+  readonly classifier_outputs: ClassifierCustomOutputs;
+  readonly audit: Pick<PipelineAudit, "safety" | "meta" | "fired_by">;
 };
 
 export type RoutePipelineResult = {
-  readonly decision: "route";
-  readonly target_message_hash: string;
-  readonly meta: PipelineMeta;
-} & Envelope;
+  readonly action: "route";
+  readonly message_id: string;
+  readonly downstream: DownstreamPayload;
+  readonly classifier_outputs: ClassifierCustomOutputs;
+  readonly audit: PipelineAudit;
+};
 
 export type PipelineResult =
-  | ShortCircuitPipelineResult
+  | AnswerPipelineResult
+  | BlockPipelineResult
   | NeedsReviewPipelineResult
   | RoutePipelineResult;
 

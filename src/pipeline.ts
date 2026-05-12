@@ -10,7 +10,10 @@ import type {
   AggregatorConfig,
   Catalog,
   ClassifierEntry,
+  ClassifierCustomOutputs,
   ClassifierResults,
+  DownstreamPayload,
+  Envelope,
   PipelineMeta,
   PipelineResult,
 } from "./manifest.js";
@@ -115,12 +118,7 @@ export async function classifyOpenClassifyInput(
       config: options.aggregator,
     });
 
-    return {
-      decision: "route",
-      target_message_hash: request.target_message_hash,
-      meta,
-      ...envelope,
-    };
+    return buildRouteResult(request, envelope, results, meta);
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
   }
@@ -166,21 +164,45 @@ function buildShortCircuitResult(
     version: manifest.version,
   };
   const base = {
-    target_message_hash,
     fired_by: name,
     ...shortCircuitStockSignals(value),
     meta: { classifiers: { [name]: entry } },
   };
+  const audit = { ...base };
+  const classifier_outputs = classifierCustomOutputs({ [name]: value });
   if (verdict.kind === "needs_review") {
     return {
-      decision: "needs_review",
-      ...base,
+      action: "needs_review",
+      message_id: target_message_hash,
+      fired_by: name,
+      reason: {
+        risk_level: value.safety?.risk_level,
+        signals: value.safety?.signals,
+      },
+      classifier_outputs,
+      audit,
+    };
+  }
+  if (verdict.kind === "final") {
+    return {
+      action: "answer",
+      message_id: target_message_hash,
+      reply: verdict.reply,
+      reason: "already_answered",
+      classifier_outputs,
+      audit,
     };
   }
   return {
-    decision: "short_circuit",
-    ...base,
-    ...verdict,
+    action: "block",
+    message_id: target_message_hash,
+    reason: {
+      code: value.handoff?.kind === "block" ? value.handoff.reason_code : undefined,
+      risk_level: value.safety?.risk_level,
+      signals: value.safety?.signals,
+    },
+    classifier_outputs,
+    audit,
   };
 }
 
@@ -210,6 +232,66 @@ function collectFullEntries(settled: SettledClassifierResult[]): {
     };
   }
   return { results, meta: { classifiers } };
+}
+
+function buildRouteResult(
+  request: NormalizedOpenClassifyInput,
+  envelope: Envelope,
+  results: ClassifierResults,
+  meta: PipelineMeta,
+): PipelineResult {
+  const target = {
+    role: "user" as const,
+    text: request.text,
+    hash: request.target_message_hash,
+    ...(envelope.summary?.target_message === undefined
+      ? {}
+      : { summary: envelope.summary.target_message }),
+  };
+  const downstream: DownstreamPayload = {
+    model_id: envelope.model_recommendation.id,
+    messages: downstreamMessages(request.messages, envelope.context),
+    target_message: target,
+    tools: envelope.tools ?? { required: false, families: [] },
+    ...(envelope.context === undefined ? {} : { context: envelope.context }),
+    ...(envelope.summary?.conversation_window === undefined
+      ? {}
+      : { context_summary: envelope.summary.conversation_window }),
+    attachments: request.attachments,
+  };
+
+  return {
+    action: "route",
+    message_id: request.target_message_hash,
+    downstream,
+    classifier_outputs: classifierCustomOutputs(results),
+    audit: {
+      ...envelope,
+      meta,
+    },
+  };
+}
+
+function downstreamMessages(
+  messages: NormalizedOpenClassifyInput["messages"],
+  context: Envelope["context"],
+): NormalizedOpenClassifyInput["messages"] {
+  if (messages.length <= 1 || context?.status === "standalone") {
+    return [messages[messages.length - 1]];
+  }
+  if (context?.status === "sufficient") {
+    const count = context.include_prior_messages;
+    return messages.slice(Math.max(0, messages.length - count - 1));
+  }
+  return messages;
+}
+
+function classifierCustomOutputs(results: ClassifierResults): ClassifierCustomOutputs {
+  return Object.fromEntries(
+    Object.entries(results)
+      .filter(([, result]) => result.output !== undefined)
+      .map(([name, result]) => [name, result.output]),
+  );
 }
 
 async function runClassifierWithRetry(

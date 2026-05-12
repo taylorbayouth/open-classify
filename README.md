@@ -150,7 +150,7 @@ How it is used:
 - `specialization` is a soft resolver preference.
 - Multiple classifiers may contribute different `routing` subfields.
 - For each subfield, the aggregator picks the confident value from the lowest-order classifier that emitted that subfield; equal order breaks by higher confidence.
-- Low-confidence routing fields are ignored and recorded in `model_recommendation.resolution.constraints_dropped`.
+- Low-confidence routing fields are ignored and recorded in `audit.model_recommendation.resolution.constraints_dropped`.
 
 The resolver never accepts concrete model ids from classifiers. Classifiers describe the work; the catalog maps that description to a model id.
 
@@ -295,27 +295,40 @@ Rules:
 - `emits.output` must be `true`.
 - `output_schema` is required.
 - `output_schema` is JSON Schema validated by Ajv.
-- The aggregator does not merge, transform, or read `output`.
-- Route results expose custom outputs as:
+- The aggregator does not read `output` when making stock routing decisions.
+- Final results expose custom outputs by classifier name:
 
 ```ts
-custom_outputs: Array<{
-  classifier: string;
-  reason: string;
-  confidence: number;
-  output: unknown;
-}>
+classifier_outputs: Record<string, unknown>
 ```
 
 Built-in usage:
 
 ```json
 {
-  "classifier": "memory_retrieval_queries",
-  "reason": "The user refers to saved preferences.",
-  "confidence": 0.9,
-  "output": {
-    "queries": ["user client update style"]
+  "classifier_outputs": {
+    "memory_retrieval_queries": {
+      "queries": ["user client update style"]
+    }
+  }
+}
+```
+
+The audit payload still keeps classifier reasons, confidence, fallback status, and the older detailed `custom_outputs` array when you need to debug why a route was chosen.
+
+```json
+{
+  "audit": {
+    "custom_outputs": [
+      {
+        "classifier": "memory_retrieval_queries",
+        "reason": "The user refers to saved preferences.",
+        "confidence": 0.9,
+        "output": {
+          "queries": ["user client update style"]
+        }
+      }
+    ]
   }
 }
 ```
@@ -324,40 +337,56 @@ Built-in usage:
 
 The aggregator is generic. It does not know about `preflight`, `routing`, `security`, or any other classifier by name.
 
-On route results it outputs:
+The public result is intentionally shaped around the caller's next action:
 
 ```ts
-{
-  decision: "route";
-  target_message_hash: string;
-  handoff?: HandoffSignal;
-  routing?: RoutingSignal;
-  context?: ContextSignal;
-  tools?: ToolsSignal;
-  response?: ResponseSignal;
-  safety?: SafetySignal;
-  summary?: SummarySignal;
-  custom_outputs: CustomClassifierOutput[];
-  model_recommendation: ModelRecommendation;
-  meta: {
-    classifiers: Record<string, ClassifierOutput & {
-      status: {
-        ok: boolean;
-        source: "model" | "fallback";
-        reason?: "error" | "timeout";
-        error?: string;
+type PipelineResult =
+  | {
+      action: "route";
+      message_id: string;
+      downstream: {
+        model_id: string;
+        messages: ConversationMessageInput[];
+        target_message: {
+          role: "user";
+          text: string;
+          hash: string;
+          summary?: string;
+        };
+        tools: ToolsSignal;
+        context?: ContextSignal;
+        context_summary?: string;
+        attachments: AttachmentInput[];
       };
-      version: string;
-    }>;
-  };
-}
+      classifier_outputs: Record<string, unknown>;
+      audit: PipelineAudit;
+    }
+  | {
+      action: "answer";
+      message_id: string;
+      reply: string;
+      reason: "already_answered";
+      classifier_outputs: Record<string, unknown>;
+      audit: PipelineAudit;
+    }
+  | {
+      action: "block" | "needs_review";
+      message_id: string;
+      reason: {
+        code?: string;
+        risk_level?: string;
+        signals?: string[];
+      };
+      classifier_outputs: Record<string, unknown>;
+      audit: PipelineAudit;
+    };
 ```
 
 Confidence behavior:
 
 - Default confidence threshold is `0.6`.
 - Stock fields from results below the threshold are ignored by aggregation.
-- Custom `output` values are still included in `custom_outputs` after validation so callers can inspect what a classifier produced.
+- Custom `output` values are still included in `classifier_outputs` after validation so callers can inspect what a classifier produced.
 - Fallbacks use `confidence: 0`, `status.source: "fallback"`, and include `status.error` when available.
 
 Short-circuit behavior:
@@ -374,61 +403,64 @@ Short-circuit behavior:
 
 ```json
 {
-  "decision": "route",
-  "target_message_hash": "b11d5268",
-  "handoff": { "kind": "route", "ack_reply": "I'll investigate." },
-  "routing": {
-    "specialization": "coding",
-    "execution_mode": "tool_assisted",
-    "model_tier": "frontier_fast"
+  "action": "route",
+  "message_id": "b11d5268",
+  "downstream": {
+    "model_id": "gpt-5.3-codex",
+    "messages": [
+      { "role": "assistant", "text": "Which repo should I use?" },
+      { "role": "user", "text": "Use open-classify. Please review the routing code." }
+    ],
+    "target_message": {
+      "role": "user",
+      "text": "Use open-classify. Please review the routing code.",
+      "summary": "User asks for a code review of routing logic.",
+      "hash": "b11d5268"
+    },
+    "tools": { "required": true, "families": ["workspace"] },
+    "context": { "status": "sufficient", "include_prior_messages": 1 },
+    "attachments": []
   },
-  "context": { "status": "sufficient", "include_prior_messages": 2 },
-  "tools": { "required": true, "families": ["workspace"] },
-  "safety": { "decision": "allow", "risk_level": "normal", "signals": [] },
-  "custom_outputs": [
-    {
-      "classifier": "memory_retrieval_queries",
-      "reason": "The user refers to their saved preferences.",
-      "confidence": 0.87,
-      "output": { "queries": ["user code review preferences"] }
+  "classifier_outputs": {
+    "memory_retrieval_queries": {
+      "queries": ["user code review preferences"]
     }
-  ],
-  "model_recommendation": {
-    "id": "gpt-5.3-codex",
-    "params_in_billions": 30,
-    "context_window": 500000,
-    "input_tokens_cpm": 0.4,
-    "cached_tokens_cpm": 0.05,
-    "output_tokens_cpm": 2,
-    "resolution": {
-      "constraints_used": {
-        "specialization": "coding",
-        "execution_mode": "tool_assisted",
-        "tier": "frontier_fast"
+  },
+  "audit": {
+    "routing": {
+      "specialization": "coding",
+      "execution_mode": "tool_assisted",
+      "model_tier": "frontier_fast"
+    },
+    "model_recommendation": {
+      "id": "gpt-5.3-codex",
+      "resolution": {
+        "constraints_dropped": [],
+        "fell_back_to_default": false
       },
-      "constraints_dropped": [],
-      "confidences": { "routing": 0.9 },
-      "fell_back_to_default": false
+      "params_in_billions": 30,
+      "context_window": 500000
+    },
+    "meta": {
+      "classifiers": {}
     }
-  },
-  "meta": {
-    "classifiers": {}
   }
 }
 ```
 
-Short-circuit results look like:
+Non-route results explain why there is no downstream model:
 
 ```json
 {
-  "decision": "short_circuit",
-  "kind": "final",
+  "action": "answer",
+  "message_id": "b11d5268",
   "reply": "Anytime.",
-  "fired_by": "preflight",
-  "target_message_hash": "b11d5268",
-  "handoff": { "kind": "final", "reply": "Anytime." },
-  "meta": {
-    "classifiers": {}
+  "reason": "already_answered",
+  "classifier_outputs": {},
+  "audit": {
+    "fired_by": "preflight",
+    "handoff": { "kind": "final", "reply": "Anytime." },
+    "meta": { "classifiers": {} }
   }
 }
 ```

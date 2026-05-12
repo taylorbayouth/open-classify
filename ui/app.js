@@ -378,17 +378,13 @@ function handleStreamEvent(event, data) {
 }
 
 function renderPipeline(result) {
-  let finalState = "complete";
-  if (result.decision === "short_circuit") {
-    finalState = result.kind === "block" ? "block" : "terminal";
-  }
-  setRunState(finalState);
+  setRunState(pipelineState(result));
 
   renderAggregate(result);
 
-  if (result.meta?.classifiers) {
-    for (const name of Object.keys(result.meta.classifiers)) {
-      const entry = result.meta.classifiers[name];
+  if (result.audit?.meta?.classifiers) {
+    for (const name of Object.keys(result.audit.meta.classifiers)) {
+      const entry = result.audit.meta.classifiers[name];
       const status = entry.status;
       updateClassifier(name, {
         status: status?.ok === false ? "fallback" : "done",
@@ -399,8 +395,8 @@ function renderPipeline(result) {
     }
   }
 
-  if (result.decision === "short_circuit") {
-    cancelClassifiersExcept([result.fired_by]);
+  if (result.action !== "route" && result.audit?.fired_by) {
+    cancelClassifiersExcept([result.audit.fired_by]);
   }
 
   renderHashes(result);
@@ -409,11 +405,16 @@ function renderPipeline(result) {
   jsonPanel.textContent = JSON.stringify(result, null, 2);
 }
 
-function renderHashes(result) {
-  const targetMessageHash =
-    typeof result?.target_message_hash === "string" ? result.target_message_hash.trim() : "";
+function pipelineState(result) {
+  if (result.action === "block") return "block";
+  if (result.action === "answer") return "terminal";
+  return "complete";
+}
 
-  if (!targetMessageHash) {
+function renderHashes(result) {
+  const messageId = typeof result?.message_id === "string" ? result.message_id.trim() : "";
+
+  if (!messageId) {
     hashes.hidden = true;
     hashes.innerHTML = "";
     return;
@@ -421,35 +422,41 @@ function renderHashes(result) {
 
   hashes.hidden = false;
   hashes.innerHTML = `
-    <div><em>target_message_hash</em>${escapeHtml(targetMessageHash)}</div>
+    <div><em>message_id</em>${escapeHtml(messageId)}</div>
   `;
 }
 
 function renderAggregate(result) {
-  const visibleResult = withoutClassifierMeta(result);
-  const rows = Object.entries(visibleResult);
+  const finalOutput = withoutAudit(result);
+  const rows = Object.entries(finalOutput);
 
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
     <header class="aggregate-head">
-      <span>Pipeline output</span>
+      <span>Final output</span>
     </header>
     ${renderPipelineSummary(result)}
     <details class="object-details">
-      <summary>Fields</summary>
+      <summary>Output shape</summary>
       <div class="aggregate-grid">
         ${rows.map(([key, value]) => objectRow(key, value)).join("")}
       </div>
     </details>
+    ${result.audit ? `
+      <details class="object-details">
+        <summary>Audit</summary>
+        <div class="aggregate-grid">
+          ${Object.entries(result.audit).map(([key, value]) => objectRow(key, value)).join("")}
+        </div>
+      </details>
+    ` : ""}
   `;
 }
 
-function withoutClassifierMeta(result) {
-  if (!result?.meta?.classifiers) return result;
-  const { meta, ...rest } = result;
-  const { classifiers: _classifiers, ...otherMeta } = meta;
-  if (Object.keys(otherMeta).length === 0) return rest;
-  return { ...rest, meta: otherMeta };
+function withoutAudit(result) {
+  if (!isPlainObject(result) || !("audit" in result)) return result;
+  const { audit: _audit, ...finalOutput } = result;
+  return finalOutput;
 }
 
 function cancelClassifiersExcept(keptNames) {
@@ -630,13 +637,12 @@ function isPlainObject(value) {
 
 function renderPipelineSummary(result) {
   const items = [
-    ["Decision", result.decision],
-    ["Kind", result.kind],
-    ["Fired by", result.fired_by],
+    ["Action", result.action],
+    ["Model", result.downstream?.model_id],
     ["Reply", result.reply],
-    ["Ack", result.handoff?.ack_reply],
-    ["Model", result.model_recommendation?.id],
-    ["Hash", result.target_message_hash],
+    ["Tools", result.downstream?.tools?.families?.join(", ") || undefined],
+    ["Fired by", result.audit?.fired_by],
+    ["Hash", result.message_id],
   ].filter(([, value]) => value !== undefined && value !== "");
 
   if (items.length === 0) return "";
@@ -654,7 +660,7 @@ function renderPipelineSummary(result) {
 }
 
 function renderClassifierResult(result) {
-  const entries = Object.entries(result);
+  const entries = Object.entries(result).filter(([key]) => key !== "version");
   const primary = entries.filter(([, value]) => !isExpandableValue(value));
   const nested = entries.filter(([, value]) => isExpandableValue(value));
 

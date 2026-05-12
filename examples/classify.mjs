@@ -28,22 +28,17 @@ const result = await classifyWithOllama(
 
 console.log(JSON.stringify(result, null, 2));
 
-if (result.decision === "short_circuit") {
-  if (result.kind === "block") {
-    const security = result.meta.classifiers.security;
-    console.error(`\nDecision: block — ${security.safety?.risk_level}: ${security.reason}`);
-  } else {
-    console.error(`\nDecision: ${result.kind} — assistant should reply with: "${result.reply}"`);
-  }
-} else if (result.decision === "needs_review") {
-  const security = result.meta.classifiers.security;
-  console.error(`\nDecision: needs_review — ${security.safety?.risk_level}: ${security.reason}`);
+if (result.action === "answer") {
+  console.error(`\nAction: answer — assistant should reply with: "${result.reply}"`);
+} else if (result.action === "block") {
+  console.error(`\nAction: block — ${result.reason.risk_level ?? result.reason.code ?? "blocked"}`);
+} else if (result.action === "needs_review") {
+  console.error(`\nAction: needs_review — ${result.reason.risk_level ?? "review required"}`);
 } else {
-  const { security } = result.meta.classifiers;
   console.error(
-    `\nDecision: route → ${result.routing?.execution_mode} on ${result.routing?.model_tier}` +
-      ` | model: ${result.model_recommendation.id} (${result.model_recommendation.params_in_billions}B params)` +
-      ` | tools: ${result.tools?.families.join(", ") || "none"}` +
-      ` | security: ${security.safety?.risk_level}`,
+    `\nAction: route` +
+      ` | model: ${result.downstream.model_id}` +
+      ` | messages: ${result.downstream.messages.length}` +
+      ` | tools: ${result.downstream.tools.families.join(", ") || "none"}`,
   );
 }

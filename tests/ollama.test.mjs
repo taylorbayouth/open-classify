@@ -503,10 +503,10 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
     },
   );
 
-  assert.equal(result.decision, "route");
-  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
+  assert.equal(result.action, "route");
+  assert.match(result.message_id, /^[a-f0-9]{8}$/);
   for (const [name, expected] of Object.entries(validOutputs)) {
-    const entry = result.meta.classifiers[name];
+    const entry = result.audit.meta.classifiers[name];
     for (const [field, value] of Object.entries(expected)) {
       assert.deepEqual(entry[field], value, `meta.classifiers.${name}.${field}`);
     }
@@ -514,7 +514,7 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
   }
   // model_specialization "reasoning" + tier "local_strong" → gemma matches
   // (qwen is coding-only). gemma > nothing else local_strong+reasoning.
-  assert.equal(result.model_recommendation.id, "gemma4:e4b-it-q4_K_M");
+  assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
 });
 
 test("resource check can fail before fetch is called", async () => {
