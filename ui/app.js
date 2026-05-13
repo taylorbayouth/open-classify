@@ -28,15 +28,6 @@ const eventLogList = document.querySelector("#eventLogList");
 const eventLogCount = document.querySelector("#eventLogCount");
 const phaseTrail = document.querySelector("#phaseTrail");
 
-const TOOL_PILL_COLORS = [
-  "rgb(229 203 94)",
-  "rgb(100 175 22)",
-  "rgb(223 124 209)",
-  "rgb(227 141 141)",
-  "rgb(182 129 235)",
-  "rgb(129 235 154)",
-];
-
 init();
 
 async function init() {
@@ -259,22 +250,23 @@ function renderMessage(message, index) {
   return `
     <article class="message-editor ${isFinal ? "target-message" : "context-message"}" data-message-id="${escapeHtml(message.id)}">
       <div class="message-editor-head">
-        <div class="message-editor-title">
-          <strong>Message ${index + 1}</strong>
-          <span>${isFinal ? "classified message" : "context"}</span>
-        </div>
-        <label class="message-role-select">
-          <select data-field="role" aria-label="Role"${isFinal ? " disabled" : ""}>
+        <strong>Message ${index + 1}</strong>
+        <span>${isFinal ? "classified message" : "context"}</span>
+        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove message" aria-label="Remove message"${canRemove ? "" : " disabled"}>×</button>
+      </div>
+      <div class="message-meta-row">
+        <label class="field">
+          <span>Role</span>
+          <select data-field="role"${isFinal ? " disabled" : ""}>
             ${["user", "assistant"]
               .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
               .join("")}
           </select>
         </label>
-        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove message" aria-label="Remove message"${canRemove ? "" : " disabled"}>×</button>
       </div>
       <label class="field">
         <span>Text</span>
-        <textarea data-field="text" rows="2" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
+        <textarea data-field="text" rows="${isFinal ? 3 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
       </label>
     </article>
   `;
@@ -380,12 +372,21 @@ function pipelineState(result) {
 }
 
 function renderAggregate(result) {
+  const stockOutputs = stockClassifierOutputs(result);
+
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
-    <span class="result-banner-label">Final output</span>
-    ${resultBannerItem("Model", selectedModel(result))}
-    ${resultToolsItem(selectedTools(result))}
-    ${resultBannerItem(classifierLabelText("security"), securityDecision(result))}
+    <header class="result-banner">
+      <span class="result-banner-label">Final output</span>
+      ${resultBannerItem("Model", selectedModel(result))}
+      ${resultBannerItem("Action", result.action)}
+      ${resultBannerItem("Security", securityDecision(result))}
+    </header>
+    ${stockOutputs.length === 0 ? "" : `
+      <section class="stock-output-list" aria-label="Stock classifier outputs">
+        ${stockOutputs.map(([name, output]) => renderStockOutput(name, output)).join("")}
+      </section>
+    `}
   `;
 }
 
@@ -407,10 +408,6 @@ function selectedModel(result) {
 
 function securityDecision(result) {
   return result.audit?.meta?.classifiers?.security?.decision ?? result.audit?.safety?.decision;
-}
-
-function selectedTools(result) {
-  return result.downstream?.tools?.tools ?? result.audit?.tools?.tools ?? [];
 }
 
 function stockClassifierOutputs(result) {
@@ -438,22 +435,18 @@ function resultBannerItem(label, value) {
   `;
 }
 
-function resultToolsItem(tools) {
-  const items = Array.isArray(tools) && tools.length > 0 ? tools : ["none"];
+function renderStockOutput(name, output) {
   return `
-    <div class="result-banner-item result-tools-item">
-      <span>${escapeHtml(classifierLabelText("tools"))}</span>
-      <div class="pill-list">
-        ${items.map((tool, index) => toolPill(tool, index)).join("")}
+    <details class="object-details stock-output" open>
+      <summary>
+        <span>${classifierLabel(name)}</span>
+        <strong>${escapeHtml(objectSummary(output))}</strong>
+      </summary>
+      <div class="object-grid classifier-output">
+        ${Object.entries(output).map(([key, value]) => objectRow(key, value)).join("")}
       </div>
-    </div>
+    </details>
   `;
-}
-
-function toolPill(tool, index) {
-  const text = String(tool);
-  const color = TOOL_PILL_COLORS[index % TOOL_PILL_COLORS.length];
-  return `<strong class="tool-pill${text === "none" ? " is-empty" : ""}" style="--tool-pill-bg: ${escapeHtml(color)}">${escapeHtml(text)}</strong>`;
 }
 
 function cancelClassifiersExcept(keptNames) {
@@ -509,14 +502,7 @@ function updateClassifier(name, patch) {
 }
 
 function renderClassifiers() {
-  const columnCount = window.matchMedia("(max-width: 1024px)").matches ? 1 : 2;
-  const columns = Array.from({ length: columnCount }, () => []);
-  state.classifierNames.forEach((name, index) => {
-    columns[index % columnCount].push(renderClassifier(name));
-  });
-  classifierGrid.innerHTML = columns
-    .map((items) => `<div class="classifier-column">${items.join("")}</div>`)
-    .join("");
+  classifierGrid.innerHTML = state.classifierNames.map(renderClassifier).join("");
   updateTickers();
 }
 
@@ -525,7 +511,6 @@ function renderClassifier(name) {
   const result = item.result;
   const detailHtml = renderDetails(name, item);
   const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
-  const confidenceHtml = renderClassifierConfidence(item);
   const metadata = CLASSIFIER_METADATA[name] ?? {};
   const kind = metadata.kind ?? "classifier";
   const purpose = metadata.purpose ? escapeHtml(metadata.purpose) : "";
@@ -541,7 +526,6 @@ function renderClassifier(name) {
         </div>
       `
     : "";
-  const reasonHtml = renderReasonPill(result);
   const shortCircuitHtml = item.shortCircuited
     ? `<div class="short-circuit-note">Short-circuited pipeline</div>`
     : "";
@@ -556,11 +540,9 @@ function renderClassifier(name) {
           </div>
         </div>
         <div class="status-block">
-          ${reasonHtml}
           <span class="badge ${item.status}">
-            ${item.status === "running" ? '<span class="pulse"></span>' : ""}${escapeHtml(classifierStatusLabel(item))}
+            ${item.status === "running" ? '<span class="pulse"></span>' : ""}${item.status}
           </span>
-          ${confidenceHtml}
           ${elapsedHtml}
         </div>
       </div>
@@ -607,15 +589,11 @@ function renderDetails(name, item) {
     return `<div class="detail muted">${emptyStateText(item.status)}</div>`;
   }
 
-  return renderClassifierResult(name, result);
+  return renderClassifierResult(result);
 }
 
 function classifierLabel(name) {
-  return escapeHtml(classifierLabelText(name));
-}
-
-function classifierLabelText(name) {
-  return toTitleCaseLabel(name);
+  return escapeHtml(CLASSIFIER_METADATA[name]?.ui?.label ?? name);
 }
 
 function emptyStateText(status) {
@@ -657,10 +635,10 @@ function renderValue(value, key = "") {
     const content = `<div class="object-nested">${entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("")}</div>`;
     if (key === "status" || entries.length > 2) {
       return `
-        <div class="object-details nested-details">
-          <div class="object-details-head">${escapeHtml(objectSummary(value))}</div>
+        <details class="object-details nested-details">
+          <summary>${escapeHtml(objectSummary(value))}</summary>
           ${content}
-        </div>
+        </details>
       `;
     }
     return content;
@@ -678,16 +656,15 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function renderClassifierResult(name, result) {
-  const entries = Object.entries(filterClassifierResult(name, result))
-    .filter(([key, value]) => key !== "version" && key !== "status" && hasRenderableValue(value));
-  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(pruneEmptyArrays(value))]);
+function renderClassifierResult(result) {
+  const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
+  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(value)]);
   const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
   const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
-  const HIDDEN_KEYS = new Set(["confidence"]);
-  const visiblePrimary = primary.filter(([key]) => !HIDDEN_KEYS.has(key));
-  const mainPrimary = visiblePrimary.filter(([key]) => key !== "reason");
+  const META_KEYS = new Set(["reason", "confidence"]);
+  const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
+  const metaPrimary = primary.filter(([key]) => META_KEYS.has(key));
 
   return `
     ${mainPrimary.length === 0 ? "" : `
@@ -698,78 +675,32 @@ function renderClassifierResult(name, result) {
     ${nested.length === 0 ? "" : `
       <div class="detail-stack">
         ${nested.map(([key, value]) => `
-          <div class="object-details classifier-detail">
-            <div class="object-details-head"><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></div>
-            <div class="object-grid classifier-output">${renderClassifierDetailBody(value)}</div>
-          </div>
+          <details class="object-details classifier-detail" open>
+            <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
+            <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
+          </details>
         `).join("")}
       </div>
+    `}
+    ${metaPrimary.length === 0 ? "" : `
+      <details class="object-details classifier-detail meta-detail">
+        <summary><span>details</span></summary>
+        <div class="field-list meta-field-list">
+          ${metaPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
+        </div>
+      </details>
     `}
   `;
 }
 
-function renderReasonPill(result) {
-  const reason = typeof result?.reason === "string" ? result.reason.trim() : "";
-  if (!reason) {
-    return "";
-  }
-
-  return `
-    <div class="reason-pill-wrap">
-      <span class="reason-pill" tabindex="0">Reason<span class="reason-pill-dot" aria-hidden="true">•</span></span>
-      <span class="reason-tooltip" role="tooltip">${escapeHtml(reason)}</span>
-    </div>
-  `;
-}
-
-function classifierStatusLabel(item) {
-  return {
-    pending: "Pending",
-    running: "Running",
-    done: "Done",
-    fallback: "Fallback",
-    timeout: "Timeout",
-    aborted: "Aborted",
-    failed: "Failed",
-    idle: "Idle",
-  }[item.status] ?? formatKeyLabel(item.status);
-}
-
-function renderClassifierConfidence(item) {
-  const confidence = item.result?.confidence;
-  if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
-    return "";
-  }
-
-  return `<span class="confidence-readout">${escapeHtml(`${(confidence * 100).toFixed(1)}% confident`)}</span>`;
-}
-
-function filterClassifierResult(name, result) {
-  if (name === "routing") {
-    const { specialization, ...rest } = result;
-    void specialization;
-    return rest;
-  }
-  if (name === "model_specialization") {
-    const { model_tier, ...rest } = result;
-    void model_tier;
-    return rest;
-  }
-  return result;
-}
-
-function renderClassifierDetailBody(value) {
-  if (Array.isArray(value)) {
-    return renderValue(value);
-  }
-
+function renderClassifierDetailBody(key, value) {
   if (!isPlainObject(value)) {
-    return `<div class="object-body-scalar"><code class="object-scalar">${escapeHtml(formatScalar(value))}</code></div>`;
+    return objectRow(key, value);
   }
 
-  const entries = Object.entries(value).filter(([, item]) => hasRenderableValue(item));
+  const entries = Object.entries(value);
   if (entries.length === 0) {
-    return `<div class="object-body-scalar"><code class="object-scalar">{}</code></div>`;
+    return objectRow(key, value);
   }
 
   return entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("");
@@ -788,21 +719,6 @@ function isExpandableValue(value) {
   return Array.isArray(value) || isPlainObject(value);
 }
 
-function hasRenderableValue(value) {
-  if (Array.isArray(value)) return value.length > 0;
-  if (isPlainObject(value)) return Object.values(value).some(hasRenderableValue);
-  return true;
-}
-
-function pruneEmptyArrays(value) {
-  if (!isPlainObject(value)) return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([, item]) => hasRenderableValue(item))
-      .map(([key, item]) => [key, pruneEmptyArrays(item)]),
-  );
-}
-
 function flattenSingleScalarObject(value) {
   if (!isPlainObject(value)) return value;
   const entries = Object.entries(value);
@@ -813,14 +729,6 @@ function flattenSingleScalarObject(value) {
 
 function formatKeyLabel(key) {
   return String(key).replaceAll("_", " ");
-}
-
-function toTitleCaseLabel(value) {
-  return formatKeyLabel(value)
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
 }
 
 function objectSummary(value) {
