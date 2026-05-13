@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Manifest-driven classifier runtime for routing user messages to downstream AI models",
   "license": "MIT",
-  "author": "Taylor Bayouth <taylorb@gmail.com>",
+  "author": "Taylor Bayouth",
   "homepage": "https://github.com/taylorbayouth/open-classify#readme",
   "repository": {
     "type": "git",
@@ -31,7 +31,6 @@
   },
   "files": [
     "dist/src",
-    "src",
     "open-classify.config.example.json",
     "LICENSE",
     "README.md"
