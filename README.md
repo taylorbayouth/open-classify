@@ -136,7 +136,7 @@ Every classifier prompt includes a shared header with its `Classifier` name, `Pu
 | `tools` | `{ tools[] }` | no |
 | `prompt_injection` | `{ risk_level }` | confident `high_risk` or `unknown` → `block` |
 
-Each output may also carry optional `reason` (≤120 chars) and `certainty` (`no_signal` through `near_certain`). The aggregator maps certainty tags to numeric scores and drops below-threshold signals; the default threshold is `0.65`.
+Each output must carry `reason` (≤120 chars) and `certainty` (`no_signal` through `near_certain`). The aggregator maps certainty tags to numeric scores and drops below-threshold signals; the default threshold is `0.65`.
 
 ## Custom classifiers
 
@@ -151,7 +151,11 @@ A custom classifier is two files in `src/classifiers/custom/<name>/`:
   "version": "1.0.0",
   "purpose": "Generate retrieval queries likely to surface helpful user-specific context for the downstream model.",
   "order": 60,
-  "fallback": { "output": { "queries": [] } },
+  "fallback": {
+    "reason": "Classifier failed; no memory queries generated.",
+    "certainty": "no_signal",
+    "output": { "queries": [] }
+  },
   "output_schema": {
     "type": "object",
     "additionalProperties": false,

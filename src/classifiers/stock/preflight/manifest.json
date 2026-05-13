@@ -4,5 +4,8 @@
   "version": "1.0.0",
   "purpose": "Determine whether the latest message can be answered immediately or should continue downstream.",
   "order": 10,
-  "fallback": {}
+  "fallback": {
+    "reason": "Classifier failed; no preflight signal.",
+    "certainty": "no_signal"
+  }
 }

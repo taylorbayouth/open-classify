@@ -567,6 +567,8 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
   assert.deepEqual(result.audit.custom_outputs, [
     {
       classifier: "memory_retrieval_queries",
+      reason: "Classifier failed; no memory queries generated.",
+      certainty: "no_signal",
       output: { queries: [] },
     },
     {

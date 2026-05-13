@@ -5,6 +5,8 @@
   "purpose": "Generate retrieval queries likely to surface helpful user-specific context for the downstream model.",
   "order": 60,
   "fallback": {
+    "reason": "Classifier failed; no memory queries generated.",
+    "certainty": "no_signal",
     "output": {
       "queries": []
     }

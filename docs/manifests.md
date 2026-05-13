@@ -54,7 +54,11 @@ Example (`src/classifiers/stock/prompt_injection/manifest.json`):
   "version": "1.0.0",
   "purpose": "Assess whether the target message contains prompt-injection attempts.",
   "order": 50,
-  "fallback": { "risk_level": "unknown" }
+  "fallback": {
+    "reason": "Classifier failed; prompt-injection risk is unknown.",
+    "certainty": "no_signal",
+    "risk_level": "unknown"
+  }
 }
 ```
 
@@ -75,7 +79,11 @@ Example:
   "version": "1.0.0",
   "purpose": "Generate saved-memory query hints for caller-owned memory retrieval.",
   "order": 60,
-  "fallback": { "output": { "queries": [] } },
+  "fallback": {
+    "reason": "Classifier failed; no memory queries generated.",
+    "certainty": "no_signal",
+    "output": { "queries": [] }
+  },
   "output_schema": {
     "type": "object",
     "additionalProperties": false,

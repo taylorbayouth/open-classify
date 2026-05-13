@@ -186,8 +186,8 @@ function customOutputs(
     if (result === undefined) continue;
     out.push({
       classifier: manifest.name,
-      ...(result.reason === undefined ? {} : { reason: result.reason }),
-      ...(result.certainty === undefined ? {} : { certainty: result.certainty }),
+      reason: result.reason,
+      certainty: result.certainty,
       output: result.output,
     });
   }

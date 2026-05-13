@@ -1,6 +1,6 @@
 # Signal contracts
 
-Stock classifier outputs are typed signals. Every output may carry optional `reason` (≤120 chars) and `certainty`. The aggregator maps certainty tags to numeric scores and drops below-threshold signals (default threshold: `0.65`).
+Stock classifier outputs are typed signals. Every classifier output must include `reason` (≤120 chars) and `certainty`. The aggregator maps certainty tags to numeric scores and drops below-threshold signals (default threshold: `0.65`).
 
 ```ts
 type Certainty =
@@ -20,8 +20,8 @@ type Certainty =
 {
   final_reply?: { reply: string };  // ≤200 chars; short-circuits to action=reply
   ack_reply?:   { reply: string };  // ≤200 chars; passthrough to caller
-  reason?: string;
-  certainty?: Certainty;
+  reason: string;
+  certainty: Certainty;
 }
 ```
 
@@ -36,8 +36,8 @@ type Certainty =
 {
   model_tier?: "local_fast" | "local_small" | "local_strong" | "local_coding"
              | "frontier_fast" | "frontier_strong" | "frontier_coding";
-  reason?: string;
-  certainty?: Certainty;
+  reason: string;
+  certainty: Certainty;
 }
 ```
 
@@ -49,8 +49,8 @@ Tier feeds the catalog resolver as a soft constraint.
 {
   specialization?: "chat" | "reasoning" | "planning" | "writing" | "summarization"
                  | "coding" | "tool_use" | "computer_use" | "vision";
-  reason?: string;
-  certainty?: Certainty;
+  reason: string;
+  certainty: Certainty;
 }
 ```
 
@@ -61,8 +61,8 @@ Tier feeds the catalog resolver as a soft constraint.
 ```ts
 {
   tools: string[];
-  reason?: string;
-  certainty?: Certainty;
+  reason: string;
+  certainty: Certainty;
 }
 ```
 
@@ -75,8 +75,8 @@ Tier feeds the catalog resolver as a soft constraint.
 ```ts
 {
   risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
-  reason?: string;
-  certainty?: Certainty;
+  reason: string;
+  certainty: Certainty;
 }
 ```
 
@@ -94,8 +94,8 @@ Custom classifiers emit an opaque `output` value validated against `output_schem
 ```ts
 {
   output: unknown;        // matches manifest output_schema
-  reason?: string;
-  certainty?: Certainty;
+  reason: string;
+  certainty: Certainty;
 }
 ```
 

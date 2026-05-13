@@ -21,13 +21,13 @@ Per-classifier signals are emitted with `certainty` tags. The aggregator maps th
 }
 ```
 
-Signals with scores below the threshold, or missing certainty, are dropped from aggregation. Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
+Signals with scores below the threshold are dropped from aggregation. Missing certainty is invalid for validated classifier outputs. Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
 
 Custom classifier outputs are surfaced regardless of certainty (callers can decide what to do with them), but the value still goes through schema validation.
 
 ## Whole-run certainty gate
 
-Before returning a normal `route`, the pipeline calculates mapped certainty scores for every classifier result, including custom classifiers. Missing certainty and fallback outputs without certainty count as `0`.
+Before returning a normal `route`, the pipeline calculates mapped certainty scores for every classifier result, including custom classifiers. Fallback outputs use explicit `certainty: "no_signal"`, which counts as `0`.
 
 `aggregator.certaintyGate` controls whether low whole-run certainty becomes `action: "block"`:
 

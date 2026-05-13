@@ -23,7 +23,11 @@ Stock classifier names are closed (`preflight`, `routing`, `model_specialization
   "version": "1.0.0",
   "purpose": "Tag the message with a small set of topic labels for analytics.",
   "order": 70,
-  "fallback": { "output": { "tags": [] } },
+  "fallback": {
+    "reason": "Classifier failed; no tags generated.",
+    "certainty": "no_signal",
+    "output": { "tags": [] }
+  },
   "output_schema": {
     "type": "object",
     "additionalProperties": false,
@@ -79,7 +83,7 @@ if (result.action === "route") {
 }
 ```
 
-`result.audit.custom_outputs[]` carries the same data with `reason` and `certainty` metadata if you need to inspect them.
+`result.audit.custom_outputs[]` carries the same data with required `reason` and `certainty` metadata if you need to inspect them.
 
 ## Choosing the classifier model
 

@@ -243,14 +243,16 @@ function validateMetadata(
   value: Record<string, unknown>,
   classifier: string,
   model: string,
-): { reason?: string; certainty?: Certainty } {
+): { reason: string; certainty: Certainty } {
+  if (value.reason === undefined) {
+    throwInvalid(classifier, model, "reason is required");
+  }
+  if (value.certainty === undefined) {
+    throwInvalid(classifier, model, "certainty is required");
+  }
   return {
-    ...(value.reason === undefined
-      ? {}
-      : { reason: truncateText(requireString(value.reason, classifier, model, "reason"), STOCK_REASON_MAX_CHARS) }),
-    ...(value.certainty === undefined
-      ? {}
-      : { certainty: requireEnum(value.certainty, CERTAINTY_VALUES, classifier, model, "certainty") }),
+    reason: truncateText(requireString(value.reason, classifier, model, "reason"), STOCK_REASON_MAX_CHARS),
+    certainty: requireEnum(value.certainty, CERTAINTY_VALUES, classifier, model, "certainty"),
   };
 }
 

@@ -4,5 +4,8 @@
   "version": "1.0.0",
   "purpose": "Choose the most accurate model specialty for serving the target message well.",
   "order": 30,
-  "fallback": {}
+  "fallback": {
+    "reason": "Classifier failed; no specialization signal.",
+    "certainty": "no_signal"
+  }
 }

@@ -14,6 +14,8 @@
     { "id": "developer_platforms", "description": "GitHub, GitLab, CI/CD, deployments, package registries, and cloud developer services." }
   ],
   "fallback": {
+    "reason": "Classifier failed; no tools selected.",
+    "certainty": "no_signal",
     "tools": []
   }
 }

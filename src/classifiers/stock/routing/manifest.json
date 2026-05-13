@@ -4,5 +4,8 @@
   "version": "1.0.0",
   "purpose": "Recommend the downstream model tier.",
   "order": 20,
-  "fallback": {}
+  "fallback": {
+    "reason": "Classifier failed; no routing signal.",
+    "certainty": "no_signal"
+  }
 }

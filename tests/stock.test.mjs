@@ -14,6 +14,8 @@ import {
   validateOutputForManifest,
 } from "../dist/src/index.js";
 
+const noSignal = (reason) => ({ reason, certainty: "no_signal" });
+
 function prompt_injection(overrides = {}) {
   return validateJsonClassifierManifest({
     kind: "stock",
@@ -21,7 +23,7 @@ function prompt_injection(overrides = {}) {
     version: "1.0.0",
     purpose: "Assess prompt injection risk.",
     order: 50,
-    fallback: { risk_level: "unknown" },
+    fallback: { ...noSignal("Classifier failed."), risk_level: "unknown" },
     ...overrides,
   });
 }
@@ -36,7 +38,7 @@ function tools(overrides = {}) {
     tools: [
       { id: "repo", description: "Read and edit source repositories." },
     ],
-    fallback: { tools: [] },
+    fallback: { ...noSignal("Classifier failed."), tools: [] },
     ...overrides,
   });
 }
@@ -56,7 +58,7 @@ function customMemory() {
         queries: { type: "array", items: { type: "string", minLength: 1 } },
       },
     },
-    fallback: { output: { queries: [] } },
+    fallback: { ...noSignal("Classifier failed."), output: { queries: [] } },
   });
 }
 
@@ -64,7 +66,11 @@ test("validates a stock prompt_injection manifest", () => {
   const manifest = prompt_injection();
   assert.equal(manifest.kind, "stock");
   assert.equal(manifest.name, "prompt_injection");
-  assert.deepEqual(manifest.fallback, { risk_level: "unknown" });
+  assert.deepEqual(manifest.fallback, {
+    reason: "Classifier failed.",
+    certainty: "no_signal",
+    risk_level: "unknown",
+  });
 });
 
 test("rejects undeclared fields on a prompt_injection output", () => {
@@ -99,6 +105,28 @@ test("validates certainty labels", () => {
   );
 });
 
+test("requires reason and certainty on classifier outputs", () => {
+  const manifest = prompt_injection();
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { certainty: "strong", risk_level: "normal" },
+        { classifier: "prompt_injection", model: "test" },
+      ),
+    /reason is required/,
+  );
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "ok", risk_level: "normal" },
+        { classifier: "prompt_injection", model: "test" },
+      ),
+    /certainty is required/,
+  );
+});
+
 test("validates a routing classifier output", () => {
   const manifest = validateJsonClassifierManifest({
     kind: "stock",
@@ -106,7 +134,7 @@ test("validates a routing classifier output", () => {
     version: "1.0.0",
     purpose: "Pick a tier.",
     order: 20,
-    fallback: {},
+    fallback: noSignal("Classifier failed."),
   });
   const output = validateOutputForManifest(
     manifest,
@@ -123,7 +151,7 @@ test("routing treats null and blank tier as omitted", () => {
     version: "1.0.0",
     purpose: "Pick a tier.",
     order: 20,
-    fallback: {},
+    fallback: noSignal("Classifier failed."),
   });
 
   assert.deepEqual(
@@ -152,7 +180,7 @@ test("routing rejects specialization output", () => {
     version: "1.0.0",
     purpose: "Pick a tier.",
     order: 20,
-    fallback: {},
+    fallback: noSignal("Classifier failed."),
   });
 
   assert.throws(
@@ -173,7 +201,7 @@ test("model_specialization rejects tier output", () => {
     version: "1.0.0",
     purpose: "Pick a specialization.",
     order: 30,
-    fallback: {},
+    fallback: noSignal("Classifier failed."),
   });
 
   assert.throws(
@@ -194,7 +222,7 @@ test("model_specialization treats null and blank specialization as omitted", () 
     version: "1.0.0",
     purpose: "Pick a specialization.",
     order: 30,
-    fallback: {},
+    fallback: noSignal("Classifier failed."),
   });
 
   assert.deepEqual(
@@ -223,7 +251,7 @@ test("preflight rejects emitting final_reply and ack_reply together", () => {
     version: "1.0.0",
     purpose: "Decide whether to answer immediately.",
     order: 10,
-    fallback: {},
+    fallback: noSignal("Classifier failed."),
   });
 
   assert.throws(
@@ -298,7 +326,7 @@ test("loadClassifierRegistry rejects manifest names that do not match directorie
       version: "1.0.0",
       purpose: "Preflight test.",
       order: 10,
-      fallback: {},
+      fallback: noSignal("Classifier failed."),
     }),
   );
 
@@ -320,7 +348,7 @@ test("normalizes tool aliases", () => {
     tools: [
       { id: "web", description: "Public web browsing." },
     ],
-    fallback: { tools: [] },
+    fallback: { ...noSignal("Classifier failed."), tools: [] },
   });
   const output = validateOutputForManifest(
     manifest,
@@ -354,7 +382,7 @@ test("custom manifest requires output_schema", () => {
         version: "1.0.0",
         purpose: "Emit memory queries.",
         order: 60,
-        fallback: { output: { queries: [] } },
+        fallback: { ...noSignal("Classifier failed."), output: { queries: [] } },
       }),
     /output_schema is required/,
   );
@@ -370,7 +398,7 @@ test("custom classifier rejects a name colliding with a stock name", () => {
         purpose: "shadow",
         order: 99,
         output_schema: { type: "object" },
-        fallback: { output: {} },
+        fallback: { ...noSignal("Classifier failed."), output: {} },
       }),
     /collides with a stock classifier/,
   );
@@ -395,5 +423,14 @@ test("custom output is validated against schema", () => {
         { classifier: "memory", model: "test" },
       ),
     /must NOT have fewer than 1 characters/,
+  );
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "bad", output: { queries: ["review preferences"] } },
+        { classifier: "memory", model: "test" },
+      ),
+    /certainty is required/,
   );
 });

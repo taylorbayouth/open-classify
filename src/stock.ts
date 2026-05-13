@@ -15,10 +15,9 @@ export interface StockClassifierInput {
 // ─── Stock signal types ─────────────────────────────────────────────────────
 //
 // Each stock signal is the canonical shape for the corresponding Envelope
-// slot. Stock classifier outputs extend their signal with optional reason +
+// slot. Stock classifier outputs extend their signal with required reason +
 // certainty — those metadata live on the signal itself, not on a separate
-// wrapper, so a classifier that has nothing to say doesn't return empty
-// reason/certainty metadata about nothing.
+// wrapper, so every classifier result is auditable and scoreable.
 
 export interface FinalReplySignal {
   readonly reply: string;
@@ -51,9 +50,9 @@ export interface PromptInjectionSignal {
 
 // ─── Per-classifier output types ────────────────────────────────────────────
 //
-// `reason` (≤120 chars) and `certainty` are optional metadata that every
-// classifier may attach to its emitted signal. Treat absent certainty
-// as 0 in the aggregator.
+// `reason` (≤120 chars) and `certainty` are required metadata that every
+// classifier must attach to its emitted signal. The aggregator still treats
+// absent certainty as 0 defensively for older callers or hand-built results.
 
 export type Certainty =
   | "no_signal"
@@ -88,8 +87,8 @@ export const certaintyScore: Record<Certainty, number> = {
 };
 
 export interface ClassifierOutputMetadata {
-  readonly reason?: string;
-  readonly certainty?: Certainty;
+  readonly reason: string;
+  readonly certainty: Certainty;
 }
 
 export interface PreflightClassifierOutput extends ClassifierOutputMetadata {
@@ -196,7 +195,7 @@ export function isCustomManifest(
 // classifier's output_schema.
 export interface CustomClassifierOutput {
   readonly classifier: string;
-  readonly reason?: string;
-  readonly certainty?: Certainty;
+  readonly reason: string;
+  readonly certainty: Certainty;
   readonly output: unknown;
 }

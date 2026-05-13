@@ -5,6 +5,8 @@
   "purpose": "Assess whether the target message contains prompt-injection attempts.",
   "order": 50,
   "fallback": {
+    "reason": "Classifier failed; prompt-injection risk is unknown.",
+    "certainty": "no_signal",
     "risk_level": "unknown"
   }
 }
