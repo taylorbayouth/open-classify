@@ -659,9 +659,12 @@ function renderClassifierResult(name, result) {
   const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
   const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
+  const HIDDEN_KEYS = new Set(["confidence"]);
   const META_KEYS = new Set(["reason"]);
-  const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
-  const metaPrimary = primary.filter(([key]) => META_KEYS.has(key));
+  const visiblePrimary = primary.filter(([key]) => !HIDDEN_KEYS.has(key));
+  const mainPrimary = visiblePrimary.filter(([key]) => !META_KEYS.has(key));
+  const metaPrimary = visiblePrimary.filter(([key]) => META_KEYS.has(key));
+  const renderSingleNestedInline = mainPrimary.length === 0 && nested.length === 1;
 
   return `
     ${mainPrimary.length === 0 ? "" : `
@@ -670,14 +673,18 @@ function renderClassifierResult(name, result) {
       </div>
     `}
     ${nested.length === 0 ? "" : `
-      <div class="detail-stack">
-        ${nested.map(([key, value]) => `
-          <details class="object-details classifier-detail" open>
-            <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
-            <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
-          </details>
-        `).join("")}
-      </div>
+      ${renderSingleNestedInline
+        ? `<div class="field-list">${renderClassifierDetailBody(nested[0][0], nested[0][1])}</div>`
+        : `
+          <div class="detail-stack">
+            ${nested.map(([key, value]) => `
+              <details class="object-details classifier-detail" open>
+                <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
+                <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
+              </details>
+            `).join("")}
+          </div>
+        `}
     `}
     ${metaPrimary.length === 0 ? "" : `
       <details class="object-details classifier-detail meta-detail">
