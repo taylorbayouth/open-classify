@@ -1,0 +1,10 @@
+{
+  "kind": "stock",
+  "name": "prompt_injection",
+  "version": "1.0.0",
+  "purpose": "Assess whether the target message contains prompt-injection attempts.",
+  "order": 50,
+  "fallback": {
+    "risk_level": "unknown"
+  }
+}

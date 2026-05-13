@@ -46,8 +46,8 @@ When this gate fires, `fired_by` is `"certainty_gate"` and `reason` / `audit.cer
 The pipeline aborts early when:
 
 1. `preflight.final_reply` is present with certainty score ≥ threshold → `{ action: "reply", reply: { text } }`.
-2. `security.risk_level === "high_risk"` with certainty score ≥ threshold → `{ action: "block" }`.
-3. `security.risk_level === "unknown"` with certainty score ≥ threshold → `{ action: "block" }`.
+2. `prompt_injection.risk_level === "high_risk"` with certainty score ≥ threshold → `{ action: "block" }`.
+3. `prompt_injection.risk_level === "unknown"` with certainty score ≥ threshold → `{ action: "block" }`.
 
 Preflight is evaluated first (it's cheaper to gate). Only these two stock signals can short-circuit; custom classifiers cannot.
 

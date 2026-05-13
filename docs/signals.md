@@ -70,28 +70,22 @@ Tier feeds the catalog resolver as a soft constraint.
 - `tools` must not contain duplicates.
 - Allowed ids are declared per-manifest in `tools`. The built-in tools classifier ships with `workspace`, `web`, `communications`, `documents`, `spreadsheets`, `project_management`, `developer_platforms`.
 
-## `security` — `SafetySignal`
+## `prompt_injection` — `PromptInjectionSignal`
 
 ```ts
 {
   risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
-  signals: string[];
   reason?: string;
   certainty?: Certainty;
 }
 ```
 
-Validation:
-
-- `normal` and `unknown` must have an empty `signals` array.
-- `suspicious` and `high_risk` must include at least one signal.
+This classifier is strictly about prompt injection: attempts to override higher-priority instructions, reveal hidden prompts, or make the assistant obey untrusted text as instructions. Destructive or sensitive ordinary requests are not prompt injection by themselves.
 
 Short-circuit behavior:
 
-- Confident `risk_level: "high_risk"` → `{ action: "block", reason: { kind: "security", risk_level, signals } }`.
-- Confident `risk_level: "unknown"` → `{ action: "block", reason: { kind: "security", risk_level, signals } }`.
-
-Built-in signal vocabulary: `instruction_attack`, `secret_or_private_data_risk`, `unsafe_tool_or_action`, `untrusted_content_or_code`, `injection_or_obfuscation`.
+- Confident `risk_level: "high_risk"` → `{ action: "block", reason: { kind: "prompt_injection", risk_level } }`.
+- Confident `risk_level: "unknown"` → `{ action: "block", reason: { kind: "prompt_injection", risk_level } }`.
 
 ## Custom classifier output
 

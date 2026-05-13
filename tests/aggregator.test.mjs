@@ -171,7 +171,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
       { kind: "stock", name: "routing", order: 20 },
       { kind: "stock", name: "model_specialization", order: 30 },
       { kind: "stock", name: "tools", order: 40 },
-      { kind: "stock", name: "security", order: 50 },
+      { kind: "stock", name: "prompt_injection", order: 50 },
       { kind: "custom", name: "memory", order: 60 },
     ],
     results: {
@@ -179,7 +179,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
       routing: { model_tier: "frontier_fast", certainty: "very_strong" },
       model_specialization: { specialization: "reasoning", certainty: "very_strong" },
       tools: { tools: ["web", "workspace"], certainty: "very_strong" },
-      security: { risk_level: "suspicious", signals: ["instruction_attack"], certainty: "very_strong" },
+      prompt_injection: { risk_level: "suspicious", certainty: "very_strong" },
       memory: { output: { queries: ["alpha"] }, reason: "a", certainty: "very_strong" },
     },
     catalog: CATALOG,
@@ -189,9 +189,8 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
   assert.deepEqual(envelope.ack_reply, { reply: "On it." });
   assert.equal(envelope.final_reply, undefined);
   assert.deepEqual(envelope.tools, { tools: ["web", "workspace"] });
-  assert.deepEqual(envelope.safety, {
+  assert.deepEqual(envelope.prompt_injection, {
     risk_level: "suspicious",
-    signals: ["instruction_attack"],
   });
   assert.deepEqual(envelope.routing, {
     model_tier: "frontier_fast",

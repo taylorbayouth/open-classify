@@ -35,7 +35,7 @@ function stockSection(manifest: StockJsonManifest): string {
     allowed_tools: renderAllowedTools(manifest.tools),
     preflight_output: promptMarkdown("preflight-output.md"),
     routing_output: promptMarkdown("routing-output.md"),
-    security_output: promptMarkdown("security-output.md"),
+    prompt_injection_output: promptMarkdown("prompt-injection-output.md"),
     specialty: promptMarkdown("specialty.md"),
     tier: promptMarkdown("tier.md"),
     tools_output: promptMarkdown("tools-output.md"),

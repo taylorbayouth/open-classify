@@ -89,7 +89,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
     specialization: "reasoning",
   });
   assert.deepEqual(result.audit.tools, { tools: ["workspace"] });
-  assert.deepEqual(result.audit.safety, { risk_level: "normal", signals: [] });
+  assert.deepEqual(result.audit.prompt_injection, { risk_level: "normal" });
   assert.deepEqual(result.audit.custom_outputs, [
     {
       classifier: "memory_retrieval_queries",
@@ -208,13 +208,12 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.equal(Object.keys(result.audit.meta.classifiers).length, 1);
 });
 
-test("high risk security aborts non-gate classifiers and returns block", async () => {
+test("high risk prompt_injection aborts non-gate classifiers and returns block", async () => {
   const aborted = [];
-  const security = {
+  const prompt_injection = {
     reason: "The message attempts to override instructions.",
     certainty: "near_certain",
     risk_level: "high_risk",
-    signals: ["instruction_attack"],
   };
 
   const result = await classifyOpenClassifyInput(
@@ -228,8 +227,8 @@ test("high risk security aborts non-gate classifiers and returns block", async (
             ack_reply: { reply: "Let me check." },
           });
         }
-        if (name === "security") {
-          return Promise.resolve(security);
+        if (name === "prompt_injection") {
+          return Promise.resolve(prompt_injection);
         }
 
         return new Promise((resolve) => {
@@ -248,32 +247,30 @@ test("high risk security aborts non-gate classifiers and returns block", async (
 
   assert.equal(result.action, "block");
   assertReadmeCommonEnvelope(result);
-  assert.equal(result.audit.fired_by, "security");
-  assert.equal(result.reason.kind, "security");
+  assert.equal(result.audit.fired_by, "prompt_injection");
+  assert.equal(result.reason.kind, "prompt_injection");
   assert.equal(result.reason.risk_level, "high_risk");
   assert.deepEqual(result.classifier_outputs, {});
   assert.equal(result.audit.final_reply, undefined);
-  assert.deepEqual(result.audit.safety, {
+  assert.deepEqual(result.audit.prompt_injection, {
     risk_level: "high_risk",
-    signals: ["instruction_attack"],
   });
   assert.equal("reply" in result, false);
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
-  assert.deepEqual(result.audit.meta.classifiers.security, {
-    ...security,
+  assert.deepEqual(result.audit.meta.classifiers.prompt_injection, {
+    ...prompt_injection,
     status: { ok: true, source: "model" },
     version: "1.0.0",
   });
-  assert.deepEqual(Object.keys(result.audit.meta.classifiers), ["security"]);
+  assert.deepEqual(Object.keys(result.audit.meta.classifiers), ["prompt_injection"]);
 });
 
-test("unknown security risk aborts non-gate classifiers and returns block", async () => {
+test("unknown prompt_injection risk aborts non-gate classifiers and returns block", async () => {
   const aborted = [];
-  const security = {
-    reason: "The request may involve sensitive data but risk is unknown.",
+  const prompt_injection = {
+    reason: "The request may contain hidden instructions, but risk is unknown.",
     certainty: "near_certain",
     risk_level: "unknown",
-    signals: [],
   };
 
   const result = await classifyOpenClassifyInput(
@@ -287,8 +284,8 @@ test("unknown security risk aborts non-gate classifiers and returns block", asyn
             ack_reply: { reply: "Let me check." },
           });
         }
-        if (name === "security") {
-          return Promise.resolve(security);
+        if (name === "prompt_injection") {
+          return Promise.resolve(prompt_injection);
         }
 
         return new Promise((resolve) => {
@@ -307,38 +304,35 @@ test("unknown security risk aborts non-gate classifiers and returns block", asyn
 
   assert.equal(result.action, "block");
   assertReadmeCommonEnvelope(result);
-  assert.equal(result.fired_by, "security");
+  assert.equal(result.fired_by, "prompt_injection");
   assert.deepEqual(result.reason, {
-    kind: "security",
+    kind: "prompt_injection",
     risk_level: "unknown",
-    signals: [],
   });
   assert.deepEqual(result.classifier_outputs, {});
-  assert.deepEqual(result.audit.safety, {
-    risk_level: security.risk_level,
-    signals: security.signals,
+  assert.deepEqual(result.audit.prompt_injection, {
+    risk_level: prompt_injection.risk_level,
   });
   assert.equal("reply" in result, false);
-  assert.deepEqual(result.audit.meta.classifiers.security, {
-    ...security,
+  assert.deepEqual(result.audit.meta.classifiers.prompt_injection, {
+    ...prompt_injection,
     status: { ok: true, source: "model" },
     version: "1.0.0",
   });
-  assert.deepEqual(Object.keys(result.audit.meta.classifiers), ["security"]);
+  assert.deepEqual(Object.keys(result.audit.meta.classifiers), ["prompt_injection"]);
   assert.ok(aborted.length > 0);
 });
 
-test("low-certainty security risk does not short-circuit and triggers certainty gate", async () => {
+test("low-certainty prompt_injection risk does not short-circuit and triggers certainty gate", async () => {
   const result = await classifyOpenClassifyInput(
     { messages: [userMessage("this might need a policy check")] },
     baseOptions({
       async runClassifier(name) {
-        if (name === "security") {
+        if (name === "prompt_injection") {
           return {
             reason: "The risk is too uncertain to act on.",
             certainty: "weak",
             risk_level: "suspicious",
-            signals: ["secret_or_private_data_risk"],
           };
         }
         return results[name];
@@ -348,10 +342,10 @@ test("low-certainty security risk does not short-circuit and triggers certainty 
 
   assertCertaintyGateBlock(result);
   assertReadmeCommonEnvelope(result);
-  assert.equal(result.audit.safety, undefined);
-  assert.equal(result.reason.classifier_scores.security, 0.3);
-  assert.ok(result.reason.low_classifiers.includes("security"));
-  assert.deepEqual(result.audit.meta.classifiers.security.status, { ok: true, source: "model" });
+  assert.equal(result.audit.prompt_injection, undefined);
+  assert.equal(result.reason.classifier_scores.prompt_injection, 0.3);
+  assert.ok(result.reason.low_classifiers.includes("prompt_injection"));
+  assert.deepEqual(result.audit.meta.classifiers.prompt_injection.status, { ok: true, source: "model" });
 });
 
 test("low-certainty preflight without final_reply triggers certainty gate", async () => {
@@ -457,7 +451,7 @@ test("classifier failure retries once and falls back", async () => {
     baseOptions({
       async runClassifier(name) {
         attempts[name] = (attempts[name] ?? 0) + 1;
-        if (name === "security") {
+        if (name === "prompt_injection") {
           throw new Error("model unavailable");
         }
         return results[name];
@@ -466,13 +460,12 @@ test("classifier failure retries once and falls back", async () => {
   );
 
   assertCertaintyGateBlock(result);
-  assert.equal(attempts.security, 2);
-  const security = result.audit.meta.classifiers.security;
-  assert.equal(security.risk_level, "unknown");
-  assert.deepEqual(security.signals, []);
-  assert.equal(security.status.ok, false);
-  assert.equal(security.status.source, "fallback");
-  assert.match(security.status.error, /model unavailable/);
+  assert.equal(attempts.prompt_injection, 2);
+  const prompt_injection = result.audit.meta.classifiers.prompt_injection;
+  assert.equal(prompt_injection.risk_level, "unknown");
+  assert.equal(prompt_injection.status.ok, false);
+  assert.equal(prompt_injection.status.source, "fallback");
+  assert.match(prompt_injection.status.error, /model unavailable/);
 });
 
 test("classifier timeout retries once and falls back even if signal is ignored", async () => {
@@ -525,7 +518,7 @@ test("external abort signal cancels in-flight classifiers", async () => {
   assert.equal(preflight.status.ok, false);
   assert.equal(preflight.status.reason, "error");
   assert.match(preflight.status.error, /client disconnected/);
-  assert.equal(result.audit.meta.classifiers.security.status.ok, false);
+  assert.equal(result.audit.meta.classifiers.prompt_injection.status.ok, false);
 });
 
 test("preflight failure falls back and triggers certainty gate", async () => {
@@ -551,7 +544,7 @@ test("preflight failure falls back and triggers certainty gate", async () => {
   assert.equal(preflight.ack_reply, undefined);
   assert.equal(preflight.status.ok, false);
   assert.equal(preflight.status.source, "fallback");
-  // No preflight contribution: the fallback has no signals.
+  // No preflight contribution: the fallback has no terminal or ack reply.
   assert.equal(result.audit.final_reply, undefined);
   assert.equal(result.audit.ack_reply, undefined);
 });

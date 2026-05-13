@@ -17,7 +17,7 @@ import type {
  * Gemma 4 E4B supports a native 131,072-token (128K) context window. Open
  * Classify does not use that full window in the reference local runtime: it
  * runs the classifier set in parallel with a configured 4,096-token context.
- * The largest fixed classifier prompt is security at about 1,748 estimated
+ * The largest fixed classifier prompt is prompt_injection at roughly 1,700 estimated
  * tokens using the same 3 chars/token heuristic as the Ollama packer. We round
  * that up to 2,000 fixed-prompt tokens, reserve roughly 400 tokens for output,
  * chat-template variance, and estimation error, then spend the remainder on

@@ -8,7 +8,7 @@
 
 Open Classify is a pre-routing layer for AI products. It runs a small set of fast classifiers in parallel against the latest user message, then tells your app one of three things: **route** it, **reply** immediately, or **block** it.
 
-Use it when your frontier model should not be the first thing every request touches. Open Classify can handle tiny terminal replies before they hit an expensive model, recommend the right downstream model for the actual task, suggest what tools or context the downstream model should receive, and add a safety pass for prompt injection and permission-boundary risk.
+Use it when your frontier model should not be the first thing every request touches. Open Classify can handle tiny terminal replies before they hit an expensive model, recommend the right downstream model for the actual task, suggest what tools or context the downstream model should receive, and add a focused prompt-injection pass.
 
 The result is a small, auditable decision envelope your app can act on before spending the big tokens.
 
@@ -22,7 +22,7 @@ normalize + trim classifier context
   ├─► routing ───────────────► model_tier?
   ├─► model_specialization ──► specialization?
   ├─► tools ─────────────────► tools?
-  ├─► security ──────────────► safety verdict
+  ├─► prompt_injection ─────► risk_level?
   └─► custom classifiers ────► JSON-Schema output
         (run in parallel)
   │
@@ -33,7 +33,7 @@ aggregator + model catalog
 route / reply / block
 ```
 
-Stock classifiers have fixed typed signals. Custom classifiers carry their own JSON-Schema-validated payload. The aggregator merges everything, resolves a concrete model from your catalog, and short-circuits when preflight has a terminal reply or security flags risk.
+Stock classifiers have fixed typed signals. Custom classifiers carry their own JSON-Schema-validated payload. The aggregator merges everything, resolves a concrete model from your catalog, and short-circuits when preflight has a terminal reply or prompt injection is detected.
 
 ## Why Open Classify
 
@@ -41,7 +41,7 @@ Stock classifiers have fixed typed signals. Custom classifiers carry their own J
 - **Keep the user interface responsive.** For complex work, preflight can return an `ack_reply` while your app routes the request to the real worker.
 - **Pick the right model per message.** Classifiers emit soft constraints like tier and specialization; your catalog turns those into a concrete model optimized for cost, capability, and fit.
 - **Shape downstream context intentionally.** Built-in and custom classifiers can recommend tools, retrieval queries, summaries, or other context hints without passing the full conversation history back to the caller.
-- **Add another defensive layer.** The security classifier can block prompt injection, secret exposure risk, unsafe tool use, and related boundary violations.
+- **Add another defensive layer.** The `prompt_injection` classifier can block instruction override attempts like “forget previous instructions” without treating ordinary tool requests as injection.
 
 ## Install
 
@@ -80,7 +80,7 @@ Every call returns a `PipelineResult` with one of three `action` values:
 |---|---|---|
 | `route` | Default — downstream work should continue | `downstream.{model_id, target_message, tools}`, `audit.ack_reply?` |
 | `reply` | Preflight had a tiny terminal reply | `reply.text` |
-| `block` | Security flagged confident `high_risk` / `unknown`, or the certainty gate fired | `reason.kind` plus security or low-certainty details |
+| `block` | Prompt injection flagged confident `high_risk` / `unknown`, or the certainty gate fired | `reason.kind` plus prompt-injection or low-certainty details |
 
 All three also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the downstream target message, not the caller's message history. Short-circuit results include the firing classifier's audit context.
 
@@ -126,7 +126,7 @@ Every classifier prompt includes a shared header with its `Classifier` name, `Pu
 
 - `routing` chooses only `model_tier`
 - `model_specialization` chooses only `specialization`
-- `security` is only for safety and permission-boundary risk, not contradiction, feasibility, or freshness checks
+- `prompt_injection` is only for prompt injection, not harmfulness, authorization, contradiction, feasibility, or freshness checks
 
 | Name | Signal | Short-circuits? |
 |---|---|---|
@@ -134,7 +134,7 @@ Every classifier prompt includes a shared header with its `Classifier` name, `Pu
 | `routing` | `model_tier?` | no |
 | `model_specialization` | `specialization?` | no |
 | `tools` | `{ tools[] }` | no |
-| `security` | `{ risk_level, signals[] }` | confident `high_risk` or `unknown` → `block` |
+| `prompt_injection` | `{ risk_level }` | confident `high_risk` or `unknown` → `block` |
 
 Each output may also carry optional `reason` (≤120 chars) and `certainty` (`no_signal` through `near_certain`). The aggregator maps certainty tags to numeric scores and drops below-threshold signals; the default threshold is `0.65`.
 
@@ -242,7 +242,7 @@ cp open-classify.config.example.json open-classify.config.json
     "models": {
       "stock": {
         "routing": "qwen2.5:7b-instruct-q4_K_M",
-        "security": "llama-guard3:8b"
+        "prompt_injection": "llama-guard3:8b"
       },
       "custom": {
         "memory_retrieval_queries": "qwen2.5:7b-instruct-q4_K_M"

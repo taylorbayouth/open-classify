@@ -377,7 +377,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
   );
 });
 
-test("createOllamaClassifierRunner validates security risk-level / signals consistency", async () => {
+test("createOllamaClassifierRunner rejects prompt_injection signals field", async () => {
   const runner = runnerReturning({
     reason: "Conflicting.",
     certainty: "tentative",
@@ -386,11 +386,11 @@ test("createOllamaClassifierRunner validates security risk-level / signals consi
   });
 
   await assert.rejects(
-    runner("security", classifierInput(), new AbortController().signal),
+    runner("prompt_injection", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "security" &&
-      /normal risk_level must not include signals/.test(error.message),
+      error.classifier === "prompt_injection" &&
+      /signals is not a supported field/.test(error.message),
   );
 });
 
@@ -435,10 +435,10 @@ test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
   });
 
   await assert.rejects(
-    runner("security", classifierInput(), new AbortController().signal),
+    runner("prompt_injection", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "security" &&
+      error.classifier === "prompt_injection" &&
       /model not found/.test(error.message),
   );
 });

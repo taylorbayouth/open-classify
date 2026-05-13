@@ -23,14 +23,18 @@ import { extname, join, normalize } from "node:path";
 import { loadCatalog } from "./catalog.js";
 import { CLASSIFIER_NAMES, REGISTRY, type RunClassifier } from "./classifiers.js";
 import {
+  DEFAULT_CERTAINTY_THRESHOLD,
+  certaintyThreshold,
+} from "./aggregator.js";
+import {
   classifierModelsFromConfig,
   loadOpenClassifyConfig,
 } from "./config.js";
+import { DEFAULT_CERTAINTY_GATE } from "./pipeline.js";
 import {
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
-  SECURITY_RISK_LEVEL_VALUES,
-  SECURITY_SIGNAL_VALUES,
+  PROMPT_INJECTION_RISK_LEVEL_VALUES,
 } from "./enums.js";
 import {
   createOllamaClassifierRunner,
@@ -47,8 +51,7 @@ import type { OpenClassifyInput } from "./types.js";
 const CLASSIFIER_ENUMS = {
   downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
   model_specialization: [...MODEL_SPECIALIZATION_VALUES],
-  security_risk_level: [...SECURITY_RISK_LEVEL_VALUES],
-  security_signal: [...SECURITY_SIGNAL_VALUES],
+  prompt_injection_risk_level: [...PROMPT_INJECTION_RISK_LEVEL_VALUES],
 };
 
 const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
@@ -104,7 +107,13 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     }
 
     if (request.method === "GET" && url.pathname === "/api/classifiers") {
-      sendJson(response, { classifiers: CLASSIFIER_METADATA });
+      sendJson(response, {
+        classifiers: CLASSIFIER_METADATA,
+        aggregator: {
+          certaintyGate: OPEN_CLASSIFY_CONFIG?.aggregator?.certaintyGate ?? DEFAULT_CERTAINTY_GATE,
+          certaintyThreshold: certaintyThreshold(OPEN_CLASSIFY_CONFIG?.aggregator) ?? DEFAULT_CERTAINTY_THRESHOLD,
+        },
+      });
       return;
     }
 

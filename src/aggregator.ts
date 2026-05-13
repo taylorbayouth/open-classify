@@ -17,10 +17,10 @@ import type {
   ModelSpecializationClassifierOutput,
   FinalReplySignal,
   PreflightClassifierOutput,
+  PromptInjectionClassifierOutput,
+  PromptInjectionSignal,
   RoutingClassifierOutput,
   RoutingSignal,
-  SafetySignal,
-  SecurityClassifierOutput,
   StockClassifierName,
   ToolsClassifierOutput,
   ToolsSignal,
@@ -49,7 +49,7 @@ export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
   const routing = stockByName.routing as RoutingClassifierOutput | undefined;
   const modelSpec = stockByName.model_specialization as ModelSpecializationClassifierOutput | undefined;
   const tools = stockByName.tools as ToolsClassifierOutput | undefined;
-  const security = stockByName.security as SecurityClassifierOutput | undefined;
+  const promptInjection = stockByName.prompt_injection as PromptInjectionClassifierOutput | undefined;
 
   const preflightConfident = isConfident(preflight, threshold);
   const finalReply = preflightConfident ? preflight?.final_reply : undefined;
@@ -58,14 +58,16 @@ export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
   const mergedRouting = mergeRouting(routing, modelSpec, threshold);
   const lowConfidenceDrops = lowConfidenceRoutingDrops(routing, modelSpec, mergedRouting, threshold);
   const toolsSignal = isConfident(tools, threshold) ? extractToolsSignal(tools!) : undefined;
-  const safety = isConfident(security, threshold) ? extractSafetySignal(security!) : undefined;
+  const promptInjectionSignal = isConfident(promptInjection, threshold)
+    ? extractPromptInjectionSignal(promptInjection!)
+    : undefined;
 
   const envelope: Envelope = {
     ...optional("final_reply", finalReply),
     ...optional("ack_reply", ackReply),
     ...optional("routing", mergedRouting),
     ...optional("tools", toolsSignal),
-    ...optional("safety", safety),
+    ...optional("prompt_injection", promptInjectionSignal),
     custom_outputs: customOutputs(registry, results),
     model_recommendation: resolveModelFromRouting(
       mergedRouting,
@@ -167,10 +169,9 @@ function extractToolsSignal(result: ToolsClassifierOutput): ToolsSignal {
   return { tools: result.tools };
 }
 
-function extractSafetySignal(result: SecurityClassifierOutput): SafetySignal {
+function extractPromptInjectionSignal(result: PromptInjectionClassifierOutput): PromptInjectionSignal {
   return {
     risk_level: result.risk_level,
-    signals: result.signals,
   };
 }
 

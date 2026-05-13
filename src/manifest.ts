@@ -3,9 +3,9 @@ import type {
   ClassifierOutput,
   CustomClassifierOutput,
   FinalReplySignal,
+  PromptInjectionSignal,
   RoutingSignal,
   RuntimeClassifierManifest,
-  SafetySignal,
   ToolsSignal,
 } from "./stock.js";
 import type {
@@ -78,7 +78,7 @@ export interface Envelope {
   readonly ack_reply?: AckReplySignal;
   readonly routing?: RoutingSignal;
   readonly tools?: ToolsSignal;
-  readonly safety?: SafetySignal;
+  readonly prompt_injection?: PromptInjectionSignal;
   readonly custom_outputs: ReadonlyArray<CustomClassifierOutput>;
   readonly model_recommendation: ModelRecommendation;
 }
@@ -113,13 +113,12 @@ export interface PipelineAudit extends Envelope {
 }
 
 export type BlockReason =
-  | SecurityBlockReason
+  | PromptInjectionBlockReason
   | LowCertaintyBlockReason;
 
-export interface SecurityBlockReason {
-  readonly kind: "security";
-  readonly risk_level: SafetySignal["risk_level"];
-  readonly signals: ReadonlyArray<string>;
+export interface PromptInjectionBlockReason {
+  readonly kind: "prompt_injection";
+  readonly risk_level: PromptInjectionSignal["risk_level"];
 }
 
 export interface LowCertaintyBlockReason {
@@ -148,7 +147,7 @@ export type BlockPipelineResult = {
   readonly fired_by?: string;
   readonly reason: BlockReason;
   readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "safety" | "meta" | "fired_by" | "certainty_gate">;
+  readonly audit: Pick<PipelineAudit, "prompt_injection" | "meta" | "fired_by" | "certainty_gate">;
 };
 
 export type RoutePipelineResult = {

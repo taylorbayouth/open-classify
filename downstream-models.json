@@ -42,6 +42,28 @@
       "output_tokens_cpm": 4.5
     },
     {
+      "id": "gemini-3-flash-preview",
+      "provider": "google",
+      "runtime": "api",
+      "specializations": [
+        "chat",
+        "writing",
+        "reasoning",
+        "planning",
+        "coding",
+        "tool_use",
+        "computer_use",
+        "vision"
+      ],
+      "tier": "frontier_fast",
+      "params_in_billions": null,
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "input_tokens_cpm": 0.5,
+      "cached_tokens_cpm": 0.05,
+      "output_tokens_cpm": 3
+    },
+    {
       "id": "gpt-5.3-codex",
       "provider": "openai",
       "runtime": "api",
@@ -94,7 +116,8 @@
   "default": "gpt-5.4-mini",
   "pricing_unit": "USD per 1M tokens",
   "notes": [
-    "OpenAI model parameter counts are not publicly disclosed, so params_in_billions is null for frontier models.",
+    "OpenAI and Google model parameter counts are not publicly disclosed, so params_in_billions is null for frontier API models.",
+    "Gemini 3 Flash Preview pricing uses Google AI's Standard paid text/image/video token rates; audio, batch, flex, priority, grounding, and cache storage rates differ.",
     "Local Ollama models have no API token price, but they still have local compute, memory, electricity, and latency costs.",
     "For qwen2.5-coder:14b, Ollama lists 32K context for the 14B instruct tags, while the upstream model card lists 131,072 tokens as the full supported context."
   ]

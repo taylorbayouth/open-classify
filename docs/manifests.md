@@ -37,7 +37,7 @@ The `kind` field in the manifest must match the parent directory (`stock` or `cu
 
 ## Stock manifests
 
-Stock manifests use a closed set of names (`preflight`, `routing`, `model_specialization`, `tools`, `security`). The runtime knows each name's signal type, so there's no `emits` field. Fallbacks must satisfy the signal contract for that name (see [signals.md](signals.md)).
+Stock manifests use a closed set of names (`preflight`, `routing`, `model_specialization`, `tools`, `prompt_injection`). The runtime knows each name's signal type, so there's no `emits` field. Fallbacks must satisfy the signal contract for that name (see [signals.md](signals.md)).
 
 The `tools` classifier additionally takes:
 
@@ -45,16 +45,16 @@ The `tools` classifier additionally takes:
 |---|---|---|
 | `tools` | no | Array of `{ id, description }`. Restricts which tool ids the classifier may emit. |
 
-Example (`src/classifiers/stock/security/manifest.json`):
+Example (`src/classifiers/stock/prompt_injection/manifest.json`):
 
 ```json
 {
   "kind": "stock",
-  "name": "security",
+  "name": "prompt_injection",
   "version": "1.0.0",
-  "purpose": "Assess prompt injection, exfiltration, and permission boundary risk.",
+  "purpose": "Assess whether the target message contains prompt-injection attempts.",
   "order": 50,
-  "fallback": { "risk_level": "unknown", "signals": [] }
+  "fallback": { "risk_level": "unknown" }
 }
 ```
 
@@ -92,7 +92,7 @@ Example:
 
 ## Prompt files
 
-Stock prompt files live together in `src/classifiers/stock/prompts/`. The runtime assembles shared markdown (`base.md`, `reason.md`, `confidence.md`, `classifier-header.md`) with focused stock sections such as `tier.md`, `specialty.md`, `tools-output.md`, and the stock classifier file (`preflight.md`, `routing.md`, `model_specialization.md`, `tools.md`, or `security.md`).
+Stock prompt files live together in `src/classifiers/stock/prompts/`. The runtime assembles shared markdown (`base.md`, `reason.md`, `confidence.md`, `classifier-header.md`) with focused stock sections such as `tier.md`, `specialty.md`, `tools-output.md`, and the stock classifier file (`preflight.md`, `routing.md`, `model_specialization.md`, `tools.md`, or `prompt_injection.md`).
 
 Dynamic prompt sections use small markdown slots. For example, `tools.md` contains `{{allowed_tools}}`, and the runtime renders the allowed tool list from the tools manifest.
 

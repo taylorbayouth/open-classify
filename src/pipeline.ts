@@ -17,7 +17,7 @@ import type {
   LowCertaintyBlockReason,
   PipelineMeta,
   PipelineResult,
-  SecurityBlockReason,
+  PromptInjectionBlockReason,
 } from "./manifest.js";
 import type {
   Certainty,
@@ -25,8 +25,8 @@ import type {
   CustomClassifierOutputValue,
   FinalReplySignal,
   PreflightClassifierOutput,
-  SafetySignal,
-  SecurityClassifierOutput,
+  PromptInjectionClassifierOutput,
+  PromptInjectionSignal,
 } from "./stock.js";
 import { certaintyScore, isCustomManifest } from "./stock.js";
 import type {
@@ -61,9 +61,9 @@ type SettledClassifierResult =
 
 // Short-circuit gates are intrinsic to specific stock signals — not configured
 // per-manifest. preflight.final_reply ⇒ reply; confident high_risk or unknown
-// security risk ⇒ block. Order matters: preflight is
+// prompt-injection risk ⇒ block. Order matters: preflight is
 // cheaper to evaluate, so we check it first.
-const SHORT_CIRCUIT_GATES = ["preflight", "security"] as const;
+const SHORT_CIRCUIT_GATES = ["preflight", "prompt_injection"] as const;
 
 export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
@@ -142,7 +142,7 @@ export async function classifyOpenClassifyInput(
 
 type ShortCircuitVerdict =
   | { kind: "reply"; final_reply: FinalReplySignal }
-  | { kind: "block"; safety: SafetySignal; reason: SecurityBlockReason };
+  | { kind: "block"; prompt_injection: PromptInjectionSignal; reason: PromptInjectionBlockReason };
 
 function shortCircuitVerdict(
   gate: (typeof SHORT_CIRCUIT_GATES)[number],
@@ -160,17 +160,16 @@ function shortCircuitVerdict(
     return null;
   }
 
-  if (gate === "security") {
-    const security = result as SecurityClassifierOutput;
-    if (security.risk_level === "high_risk" || security.risk_level === "unknown") {
-      const safety = extractSafety(security);
+  if (gate === "prompt_injection") {
+    const promptInjection = result as PromptInjectionClassifierOutput;
+    if (promptInjection.risk_level === "high_risk" || promptInjection.risk_level === "unknown") {
+      const promptInjectionSignal = extractPromptInjection(promptInjection);
       return {
         kind: "block",
-        safety,
+        prompt_injection: promptInjectionSignal,
         reason: {
-          kind: "security",
-          risk_level: safety.risk_level,
-          signals: safety.signals,
+          kind: "prompt_injection",
+          risk_level: promptInjectionSignal.risk_level,
         },
       };
     }
@@ -219,10 +218,9 @@ function scoreCertainty(certainty: Certainty | undefined): number {
   return certainty === undefined ? 0 : certaintyScore[certainty];
 }
 
-function extractSafety(value: SecurityClassifierOutput): SafetySignal {
+function extractPromptInjection(value: PromptInjectionClassifierOutput): PromptInjectionSignal {
   return {
     risk_level: value.risk_level,
-    signals: value.signals,
   };
 }
 
@@ -265,7 +263,7 @@ function buildShortCircuitResult(
     classifier_outputs,
     audit: {
       fired_by: name,
-      safety: verdict.safety,
+      prompt_injection: verdict.prompt_injection,
       meta,
     },
   };

@@ -27,7 +27,7 @@ Open Classify is a **manifest-driven classifier runtime** that routes user messa
 OpenClassifyInput
   → input.ts       (normalize, truncate history to 20 msgs, hash target message)
   → pipeline.ts    (run all classifiers concurrently via Promise.allSettled)
-      ↓ short-circuit: security block or preflight reply
+      ↓ short-circuit: prompt_injection block or preflight reply
   → aggregator.ts  (merge by certainty score/order, resolve concrete model from catalog)
   → PipelineResult
 ```
@@ -39,19 +39,17 @@ Each classifier lives under `src/classifiers/`:
 - custom classifiers also have `prompt.md`
 - stock prompt markdown lives in `src/classifiers/stock/prompts/`
 
-The 7 built-in classifiers (by order):
+The built-in classifiers (by order):
 
 | Name | Order | Emits | Notes |
 |---|---|---|---|
-| `preflight` | 10 | `handoff` | Short-circuits on `kind: "final"` |
-| `routing` | 20 | `routing` | Execution mode + model tier |
+| `preflight` | 10 | `reply` | Short-circuits on `final_reply` |
+| `routing` | 20 | `routing` | Model tier |
 | `model_specialization` | 30 | `routing` | Specialization (coding, reasoning, etc.) |
-| `conversation_history` | 40 | `context` | How much prior context downstream needs |
-| `tools` | 50 | `tools` | Which tool families to expose |
-| `memory_retrieval_queries` | 60 | `output` | Custom JSON output (validated by `output_schema`) |
-| `security` | 70 | `safety` | Blocks on confident `high_risk` or `unknown` |
+| `tools` | 40 | `tools` | Which tool families to expose |
+| `prompt_injection` | 50 | `prompt_injection` | Blocks on confident `high_risk` or `unknown` |
 
-Short-circuit gates: only preflight `final_reply` and security `risk_level` of `high_risk` or `unknown` can abort the pipeline early.
+Short-circuit gates: only preflight `final_reply` and prompt_injection `risk_level` of `high_risk` or `unknown` can abort the pipeline early.
 
 ### Key source files
 
@@ -73,7 +71,7 @@ Every classifier returns metadata like:
 { reason: string /* ≤120 chars */, certainty: "no_signal" | "very_weak" | "weak" | "tentative" | "reasonable" | "strong" | "very_strong" | "near_certain" }
 ```
 
-Plus optional stock signals (`handoff`, `routing`, `context`, `tools`, `safety`, `response`, `summary`) declared in the manifest's `emits` field, and an optional custom `output` validated by `output_schema`.
+Custom classifiers add an `output` value validated by their manifest's `output_schema`.
 
 Certainty scoring: the aggregator maps certainty tags to numeric scores for threshold checks and model-resolution audit data.
 The default certainty threshold is `0.65`; the default whole-run gate is `certaintyGate: "min_score"`, which blocks when any stock or custom classifier score is below threshold.

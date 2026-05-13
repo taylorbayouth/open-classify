@@ -45,9 +45,8 @@ export interface ToolsSignal {
   readonly tools: ReadonlyArray<string>;
 }
 
-export interface SafetySignal {
+export interface PromptInjectionSignal {
   readonly risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
-  readonly signals: ReadonlyArray<string>;
 }
 
 // ─── Per-classifier output types ────────────────────────────────────────────
@@ -101,7 +100,7 @@ export interface PreflightClassifierOutput extends ClassifierOutputMetadata {
 export type RoutingClassifierOutput = TierSignal & ClassifierOutputMetadata;
 export type ModelSpecializationClassifierOutput = SpecializationSignal & ClassifierOutputMetadata;
 export type ToolsClassifierOutput = ToolsSignal & ClassifierOutputMetadata;
-export type SecurityClassifierOutput = SafetySignal & ClassifierOutputMetadata;
+export type PromptInjectionClassifierOutput = PromptInjectionSignal & ClassifierOutputMetadata;
 
 export interface CustomClassifierOutputValue extends ClassifierOutputMetadata {
   readonly output: unknown;
@@ -114,7 +113,7 @@ export interface StockClassifierOutputs {
   readonly routing: RoutingClassifierOutput;
   readonly model_specialization: ModelSpecializationClassifierOutput;
   readonly tools: ToolsClassifierOutput;
-  readonly security: SecurityClassifierOutput;
+  readonly prompt_injection: PromptInjectionClassifierOutput;
 }
 
 export const STOCK_CLASSIFIER_NAMES = [
@@ -122,7 +121,7 @@ export const STOCK_CLASSIFIER_NAMES = [
   "routing",
   "model_specialization",
   "tools",
-  "security",
+  "prompt_injection",
 ] as const;
 export type StockClassifierName = (typeof STOCK_CLASSIFIER_NAMES)[number];
 

@@ -7,21 +7,21 @@ import {
   ClassifierManifestError,
   loadClassifierRegistry,
 } from "../dist/src/classifiers.js";
-import { SECURITY_RISK_LEVEL_VALUES } from "../dist/src/enums.js";
+import { PROMPT_INJECTION_RISK_LEVEL_VALUES } from "../dist/src/enums.js";
 import {
   buildStockClassifierPrompt,
   validateJsonClassifierManifest,
   validateOutputForManifest,
 } from "../dist/src/index.js";
 
-function security(overrides = {}) {
+function prompt_injection(overrides = {}) {
   return validateJsonClassifierManifest({
     kind: "stock",
-    name: "security",
+    name: "prompt_injection",
     version: "1.0.0",
     purpose: "Assess prompt injection risk.",
     order: 50,
-    fallback: { risk_level: "unknown", signals: [] },
+    fallback: { risk_level: "unknown" },
     ...overrides,
   });
 }
@@ -60,40 +60,40 @@ function customMemory() {
   });
 }
 
-test("validates a stock security manifest", () => {
-  const manifest = security();
+test("validates a stock prompt_injection manifest", () => {
+  const manifest = prompt_injection();
   assert.equal(manifest.kind, "stock");
-  assert.equal(manifest.name, "security");
-  assert.deepEqual(manifest.fallback, { risk_level: "unknown", signals: [] });
+  assert.equal(manifest.name, "prompt_injection");
+  assert.deepEqual(manifest.fallback, { risk_level: "unknown" });
 });
 
-test("rejects undeclared fields on a security output", () => {
-  const manifest = security();
+test("rejects undeclared fields on a prompt_injection output", () => {
+  const manifest = prompt_injection();
   assert.throws(
     () =>
       validateOutputForManifest(
         manifest,
-        { risk_level: "normal", signals: [], extra: 1 },
-        { classifier: "security", model: "test" },
+        { risk_level: "normal", signals: [] },
+        { classifier: "prompt_injection", model: "test" },
       ),
-    /extra is not a supported field/,
+    /signals is not a supported field/,
   );
 });
 
 test("validates certainty labels", () => {
-  const manifest = security();
+  const manifest = prompt_injection();
   const output = validateOutputForManifest(
     manifest,
-    { reason: "ok", certainty: "near_certain", risk_level: "normal", signals: [] },
-    { classifier: "security", model: "test" },
+    { reason: "ok", certainty: "near_certain", risk_level: "normal" },
+    { classifier: "prompt_injection", model: "test" },
   );
   assert.equal(output.certainty, "near_certain");
   assert.throws(
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "ok", certainty: "high", risk_level: "normal", signals: [] },
-        { classifier: "security", model: "test" },
+        { reason: "ok", certainty: "high", risk_level: "normal" },
+        { classifier: "prompt_injection", model: "test" },
       ),
     /certainty has an unsupported value/,
   );
@@ -264,14 +264,14 @@ test("validates tools output and allow-list", () => {
   );
 });
 
-test("validates safety risk_level / signals consistency", () => {
-  assert.ok(SECURITY_RISK_LEVEL_VALUES.includes("unknown"));
+test("validates prompt_injection risk_level", () => {
+  assert.ok(PROMPT_INJECTION_RISK_LEVEL_VALUES.includes("unknown"));
 
-  const manifest = security();
+  const manifest = prompt_injection();
   const output = validateOutputForManifest(
     manifest,
-    { reason: "Allow.", certainty: "very_strong", risk_level: "normal", signals: [] },
-    { classifier: "security", model: "test" },
+    { reason: "Allow.", certainty: "very_strong", risk_level: "normal" },
+    { classifier: "prompt_injection", model: "test" },
   );
   assert.equal(output.risk_level, "normal");
 
@@ -279,10 +279,10 @@ test("validates safety risk_level / signals consistency", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "Bad.", certainty: "very_strong", risk_level: "suspicious", signals: [] },
-        { classifier: "security", model: "test" },
+        { reason: "Bad.", certainty: "very_strong", risk_level: "not_real" },
+        { classifier: "prompt_injection", model: "test" },
       ),
-    /elevated risk_level must include at least one signal/,
+    /risk_level has an unsupported value/,
   );
 });
 
@@ -338,11 +338,11 @@ test("builds a prompt for a stock manifest", () => {
   assert.match(prompt, /repo: Read and edit source repositories/);
 });
 
-test("security prompt scopes ordinary tool constraints as non-safety by default", () => {
-  const prompt = buildStockClassifierPrompt(security());
-  assert.match(prompt, /This classifier is only for safety and permission-boundary risk\./);
-  assert.match(prompt, /Treat ordinary user constraints such as "do not browse", "do not send", "cite the source", or "use\/avoid tool X" as normal task requirements/);
-  assert.match(prompt, /Do not classify a request as suspicious merely because it is contradictory, impossible, or asks for freshness without the required tool/);
+test("prompt_injection prompt scopes ordinary requests as non-injection by default", () => {
+  const prompt = buildStockClassifierPrompt(prompt_injection());
+  assert.match(prompt, /This classifier is only for prompt injection\./);
+  assert.match(prompt, /Treat ordinary user requests such as "delete all files"/);
+  assert.match(prompt, /Do not classify a request as suspicious merely because it is contradictory, impossible, destructive/);
 });
 
 test("custom manifest requires output_schema", () => {
@@ -365,7 +365,7 @@ test("custom classifier rejects a name colliding with a stock name", () => {
     () =>
       validateJsonClassifierManifest({
         kind: "custom",
-        name: "security",
+        name: "prompt_injection",
         version: "1.0.0",
         purpose: "shadow",
         order: 99,

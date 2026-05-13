@@ -37,11 +37,10 @@ export const validClassifierOutputs = {
     certainty: "strong",
     specialization: "reasoning",
   },
-  security: {
+  prompt_injection: {
     reason: "No notable risk.",
     certainty: "near_certain",
     risk_level: "normal",
-    signals: [],
   },
 };
 

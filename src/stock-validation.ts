@@ -9,9 +9,8 @@ import type {
   Certainty,
   ModelSpecializationClassifierOutput,
   PreflightClassifierOutput,
+  PromptInjectionClassifierOutput,
   RoutingClassifierOutput,
-  SafetySignal,
-  SecurityClassifierOutput,
   StockClassifierName,
   StockClassifierOutputs,
   StockJsonManifest,
@@ -40,7 +39,7 @@ export const STOCK_MANIFEST_NAME_MAX_CHARS = 80;
 export const STOCK_MANIFEST_VERSION_MAX_CHARS = 40;
 export const STOCK_MANIFEST_PURPOSE_MAX_CHARS = 400;
 
-const STOCK_SAFETY_RISK_LEVEL_VALUES = [
+const STOCK_PROMPT_INJECTION_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
   "high_risk",
@@ -230,8 +229,8 @@ function validateStockOutputForName<Name extends StockClassifierName>(
       return validateModelSpecializationOutput(value, model) as StockClassifierOutputs[Name];
     case "tools":
       return validateToolsOutput(value, model, tools?.map((tool) => tool.id)) as StockClassifierOutputs[Name];
-    case "security":
-      return validateSecurityOutput(value, model) as StockClassifierOutputs[Name];
+    case "prompt_injection":
+      return validatePromptInjectionOutput(value, model) as StockClassifierOutputs[Name];
     default: {
       const _exhaustive: never = name;
       void _exhaustive;
@@ -363,31 +362,22 @@ function validateToolsOutput(
   return { ...meta, tools };
 }
 
-function validateSecurityOutput(
+function validatePromptInjectionOutput(
   value: Record<string, unknown>,
   model: string,
-): SecurityClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "risk_level", "signals"], "security", model, "output");
-  const meta = validateMetadata(value, "security", model);
+): PromptInjectionClassifierOutput {
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "risk_level"], "prompt_injection", model, "output");
+  const meta = validateMetadata(value, "prompt_injection", model);
   const riskLevel = requireEnum(
     value.risk_level,
-    STOCK_SAFETY_RISK_LEVEL_VALUES,
-    "security",
+    STOCK_PROMPT_INJECTION_RISK_LEVEL_VALUES,
+    "prompt_injection",
     model,
     "risk_level",
   );
-  const signals = requireStringArray(value.signals, "security", model, "signals");
-  ensureNoDuplicates(signals, "security", model, "signals");
-  if ((riskLevel === "normal" || riskLevel === "unknown") && signals.length > 0) {
-    throwInvalid("security", model, `${riskLevel} risk_level must not include signals`);
-  }
-  if (riskLevel !== "normal" && riskLevel !== "unknown" && signals.length === 0) {
-    throwInvalid("security", model, "elevated risk_level must include at least one signal");
-  }
   return {
     ...meta,
     risk_level: riskLevel,
-    signals,
   };
 }
 
@@ -528,6 +518,3 @@ export function validateClassifierOutputWithManifest(
     model: options.model,
   });
 }
-
-// Helper used by `SafetySignal` checks elsewhere — kept as a typed re-export.
-export type { SafetySignal };

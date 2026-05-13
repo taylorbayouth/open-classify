@@ -12,7 +12,7 @@ src/classifiers/custom/<name>/
 └── prompt.md
 ```
 
-Stock classifier names are closed (`preflight`, `routing`, `model_specialization`, `tools`, `security`). You generally don't add new stock classifiers — extend behavior with a custom one instead.
+Stock classifier names are closed (`preflight`, `routing`, `model_specialization`, `tools`, `prompt_injection`). You generally don't add new stock classifiers — extend behavior with a custom one instead.
 
 ## 2. Write the manifest
 

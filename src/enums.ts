@@ -34,23 +34,12 @@ export const MODEL_SPECIALIZATION_VALUES = [
 ] as const;
 export type ModelSpecialization = (typeof MODEL_SPECIALIZATION_VALUES)[number];
 
-// Overall safety posture on the latest user message. The pipeline blocks
-// confident high_risk and unknown security outputs.
-export const SECURITY_RISK_LEVEL_VALUES = [
+// Prompt-injection posture on the latest user message. The pipeline blocks
+// confident high_risk and unknown prompt-injection outputs.
+export const PROMPT_INJECTION_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
   "high_risk",
   "unknown",
 ] as const;
-export type SecurityRiskLevel = (typeof SECURITY_RISK_LEVEL_VALUES)[number];
-
-// Specific safety concerns the security classifier can flag. These are evidence
-// labels, not actions; risk_level controls whether the pipeline blocks.
-export const SECURITY_SIGNAL_VALUES = [
-  "instruction_attack",
-  "secret_or_private_data_risk",
-  "unsafe_tool_or_action",
-  "untrusted_content_or_code",
-  "injection_or_obfuscation",
-] as const;
-export type SecuritySignal = (typeof SECURITY_SIGNAL_VALUES)[number];
+export type PromptInjectionRiskLevel = (typeof PROMPT_INJECTION_RISK_LEVEL_VALUES)[number];

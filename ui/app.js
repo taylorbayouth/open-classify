@@ -1,5 +1,16 @@
 let CLASSIFIER_METADATA = {};
 
+const CERTAINTY_SCORE = {
+  no_signal: 0.00,
+  very_weak: 0.15,
+  weak: 0.30,
+  tentative: 0.45,
+  reasonable: 0.60,
+  strong: 0.75,
+  very_strong: 0.88,
+  near_certain: 0.97,
+};
+
 const state = {
   messages: [createMessage()],
   samples: [],
@@ -11,6 +22,8 @@ const state = {
   pipelineCompletedAt: null,
   tickerHandle: null,
   lastResult: null,
+  certaintyGateMode: "min_score",
+  certaintyThreshold: 0.65,
 };
 
 const form = document.querySelector("#classifyForm");
@@ -38,6 +51,8 @@ async function init() {
   const classifiers = classifierResponse.classifiers ?? [];
   CLASSIFIER_METADATA = Object.fromEntries(classifiers.map((item) => [item.name, item]));
   state.classifierNames = classifiers.map((item) => item.name);
+  state.certaintyGateMode = classifierResponse.aggregator?.certaintyGate ?? "min_score";
+  state.certaintyThreshold = classifierResponse.aggregator?.certaintyThreshold ?? 0.65;
   state.samples = samples;
   resetClassifiers("idle");
   renderMessages();
@@ -397,17 +412,18 @@ function renderAggregate(result) {
   const runStateLabel = RUN_STATE_LABELS[runStateValue] ?? runStateValue;
 
   const model = result ? selectedModel(result) ?? "—" : "—";
-  const security = result ? securityDecision(result) ?? "—" : "—";
+  const promptInjection = result ? promptInjectionDecision(result) ?? "—" : "—";
   const action = result ? result.action ?? "—" : "—";
   const toolsList = result ? toolsList_(result) : [];
   const latency = pipelineLatencySeconds();
+  const confidence = result ? aggregateConfidence(result) : null;
 
-  const securityClass =
-    security === "allow"
+  const promptInjectionClass =
+    promptInjection === "normal"
       ? "teal"
-      : security === "block"
+      : promptInjection === "high_risk" || promptInjection === "unknown"
       ? "red"
-      : security === "unknown" || security === "suspicious"
+      : promptInjection === "suspicious"
       ? "amber"
       : "";
 
@@ -422,7 +438,9 @@ function renderAggregate(result) {
       ${foItem("Model", model)}
       ${foItem("Action", action)}
       ${foToolsItem(toolsList)}
-      ${foItem("Security", security, securityClass)}
+      ${foItem("Prompt Injection", promptInjection, promptInjectionClass)}
+      ${foItem(confidence?.label ?? "Confidence", confidence?.value ?? "—", confidence?.className ?? "")}
+      ${confidence && confidence.threshold ? foItem("Threshold", confidence.threshold) : ""}
       ${foItem("Latency", latency != null ? `${latency.toFixed(1)}s` : "—")}
     </div>
   `;
@@ -476,7 +494,8 @@ function buildDisplayResult(result) {
   return {
     model: selectedModel(result),
     action: result.action,
-    security: { risk_level: securityDecision(result) },
+    prompt_injection: { risk_level: promptInjectionDecision(result) },
+    confidence: aggregateConfidence(result)?.detail,
     hash: result.message_id,
     latency_seconds: pipelineLatencySeconds(),
     classifiers: Object.fromEntries(stockClassifierOutputs(result)),
@@ -487,8 +506,58 @@ function selectedModel(result) {
   return result.downstream?.model_id ?? result.audit?.model_recommendation?.id;
 }
 
-function securityDecision(result) {
-  return result.audit?.meta?.classifiers?.security?.risk_level ?? result.audit?.safety?.risk_level;
+function promptInjectionDecision(result) {
+  return result.audit?.meta?.classifiers?.prompt_injection?.risk_level ?? result.audit?.prompt_injection?.risk_level;
+}
+
+function aggregateConfidence(result) {
+  const gate = result.audit?.certainty_gate ?? (result.reason?.kind === "low_certainty" ? result.reason : null);
+  const mode = gate?.mode ?? state.certaintyGateMode;
+  if (mode === "off") {
+    return {
+      label: "Confidence Gate",
+      value: "off",
+      className: "",
+      detail: { mode, score: null },
+    };
+  }
+
+  const scores = Object.values(classifierScores(result));
+  const score = typeof gate?.score === "number"
+    ? gate.score
+    : mode === "avg_score"
+    ? average(scores)
+    : scores.length > 0
+    ? Math.min(...scores)
+    : 0;
+  const label = mode === "avg_score" ? "Avg Confidence" : "Min Confidence";
+  return {
+    label,
+    value: percent(score),
+    threshold: percent(gate?.threshold ?? state.certaintyThreshold),
+    className: score >= (gate?.threshold ?? state.certaintyThreshold) ? "teal" : "red",
+    detail: { mode, score, threshold: gate?.threshold ?? state.certaintyThreshold },
+  };
+}
+
+function classifierScores(result) {
+  const classifiers = result.audit?.meta?.classifiers ?? {};
+  return Object.fromEntries(
+    Object.entries(classifiers).map(([name, entry]) => [name, confidenceScore(entry?.certainty)]),
+  );
+}
+
+function confidenceScore(certainty) {
+  return typeof certainty === "string" ? CERTAINTY_SCORE[certainty] ?? 0 : 0;
+}
+
+function average(values) {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function percent(score) {
+  return `${Math.round(score * 100)}%`;
 }
 
 function stockClassifierOutputs(result) {
@@ -584,8 +653,8 @@ function renderClassifier(name) {
       ? `<span class="pill reason" tabindex="0">Reason<span class="pill-tooltip">${escapeHtml(reason)}</span></span>`
       : "";
   const certaintyPill =
-    typeof certainty === "string"
-      ? `<span class="pill-text confident">${escapeHtml(certainty.replaceAll("_", " "))}</span>`
+    item.result && (item.status === "done" || item.status === "fallback")
+      ? `<span class="pill-text confident">CONFIDENCE: ${escapeHtml(percent(confidenceScore(certainty)))}</span>`
       : "";
   const statusPill = renderStatusPill(item);
   const elapsedHtml = `<span class="pill-text elapsed" data-name="${escapeHtml(name)}">${formatElapsed(item)}</span>`;
