@@ -39,13 +39,13 @@
             <button class="secondary" type="button" id="clearButton">Clear</button>
           </div>
 
-          <details class="event-log">
-            <summary>
+          <section class="event-log">
+            <div class="panel-head">
               <span>Event log</span>
               <span class="event-log-count" id="eventLogCount">0 events</span>
-            </summary>
+            </div>
             <ol id="eventLogList"></ol>
-          </details>
+          </section>
         </form>
 
         <section class="results">
@@ -55,13 +55,13 @@
 
           <div class="hashes" id="hashes" hidden></div>
 
-          <details class="json-toggle" id="jsonToggle">
-            <summary>
+          <section class="json-toggle" id="jsonToggle">
+            <div class="panel-head">
               <span>Raw pipeline JSON</span>
               <button type="button" class="copy-json" id="copyJsonButton">Copy</button>
-            </summary>
+            </div>
             <pre class="json-panel" id="jsonPanel"></pre>
-          </details>
+          </section>
         </section>
       </section>
     </main>

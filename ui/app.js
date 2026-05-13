@@ -170,7 +170,6 @@ function resetRunOutput() {
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   jsonToggle.hidden = true;
-  jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
 }
 
@@ -183,7 +182,6 @@ async function classify() {
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   jsonToggle.hidden = true;
-  jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
   form.querySelectorAll("button").forEach((button) => {
     button.disabled = true;
@@ -518,6 +516,7 @@ function renderClassifier(name) {
         </div>
       `
     : "";
+  const reasonHtml = renderReasonPill(result);
   const shortCircuitHtml = item.shortCircuited
     ? `<div class="short-circuit-note">Short-circuited pipeline</div>`
     : "";
@@ -530,6 +529,7 @@ function renderClassifier(name) {
             <h2 class="classifier-title">${classifierLabel(name)}</h2>
             ${purposeHtml}
           </div>
+          ${reasonHtml}
         </div>
         <div class="status-block">
           <span class="badge ${item.status}">
@@ -589,7 +589,7 @@ function classifierLabel(name) {
 }
 
 function classifierLabelText(name) {
-  return formatKeyLabel(name);
+  return toTitleCaseLabel(name);
 }
 
 function emptyStateText(status) {
@@ -631,10 +631,10 @@ function renderValue(value, key = "") {
     const content = `<div class="object-nested">${entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("")}</div>`;
     if (key === "status" || entries.length > 2) {
       return `
-        <details class="object-details nested-details">
-          <summary>${escapeHtml(objectSummary(value))}</summary>
+        <div class="object-details nested-details">
+          <div class="object-details-head">${escapeHtml(objectSummary(value))}</div>
           ${content}
-        </details>
+        </div>
       `;
     }
     return content;
@@ -660,10 +660,8 @@ function renderClassifierResult(name, result) {
   const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
 
   const HIDDEN_KEYS = new Set(["confidence"]);
-  const META_KEYS = new Set(["reason"]);
   const visiblePrimary = primary.filter(([key]) => !HIDDEN_KEYS.has(key));
-  const mainPrimary = visiblePrimary.filter(([key]) => !META_KEYS.has(key));
-  const metaPrimary = visiblePrimary.filter(([key]) => META_KEYS.has(key));
+  const mainPrimary = visiblePrimary.filter(([key]) => key !== "reason");
   const renderSingleNestedInline = mainPrimary.length === 0 && nested.length === 1;
 
   return `
@@ -678,22 +676,28 @@ function renderClassifierResult(name, result) {
         : `
           <div class="detail-stack">
             ${nested.map(([key, value]) => `
-              <details class="object-details classifier-detail" open>
-                <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
+              <div class="object-details classifier-detail">
+                <div class="object-details-head"><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></div>
                 <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
-              </details>
+              </div>
             `).join("")}
           </div>
         `}
     `}
-    ${metaPrimary.length === 0 ? "" : `
-      <details class="object-details classifier-detail meta-detail">
-        <summary><span>Reason text</span></summary>
-        <div class="field-list meta-field-list">
-          ${metaPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
-        </div>
-      </details>
-    `}
+  `;
+}
+
+function renderReasonPill(result) {
+  const reason = typeof result?.reason === "string" ? result.reason.trim() : "";
+  if (!reason) {
+    return "";
+  }
+
+  return `
+    <div class="reason-pill-wrap">
+      <span class="reason-pill" tabindex="0">Reason</span>
+      <span class="reason-tooltip" role="tooltip">${escapeHtml(reason)}</span>
+    </div>
   `;
 }
 
@@ -786,6 +790,14 @@ function flattenSingleScalarObject(value) {
 
 function formatKeyLabel(key) {
   return String(key).replaceAll("_", " ");
+}
+
+function toTitleCaseLabel(value) {
+  return formatKeyLabel(value)
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function objectSummary(value) {
