@@ -98,7 +98,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
       output: { queries: ["user review preferences"] },
     },
     {
-      classifier: "conversation_diegest",
+      classifier: "conversation_digest",
       reason: "Conversation compression is useful downstream context.",
       certainty: "very_strong",
       output: {
@@ -109,7 +109,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
   ]);
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: ["user review preferences"] },
-    conversation_diegest: {
+    conversation_digest: {
       history_summary: "",
       latest_user_message_summary: "User asks for code review.",
     },
@@ -572,7 +572,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
       output: { queries: [] },
     },
     {
-      classifier: "conversation_diegest",
+      classifier: "conversation_digest",
       reason: "Conversation compression is useful downstream context.",
       certainty: "very_strong",
       output: {
@@ -583,7 +583,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
   ]);
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: [] },
-    conversation_diegest: {
+    conversation_digest: {
       history_summary: "",
       latest_user_message_summary: "User asks for code review.",
     },

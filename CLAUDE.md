@@ -26,16 +26,16 @@ Open Classify is a **manifest-driven classifier runtime** that routes user messa
 ```
 OpenClassifyInput
   → input.ts       (normalize, truncate history to 20 msgs, hash target message)
-  → pipeline.ts    (run all classifiers concurrently via Promise.allSettled)
-      ↓ short-circuit: prompt_injection block or preflight reply
-  → aggregator.ts  (merge by certainty score/order, resolve concrete model from catalog)
+  → pipeline.ts    (run classifiers concurrently with early stock short-circuit checks)
+      ↓ short-circuit: preflight reply or prompt_injection block
+  → aggregator.ts  (threshold signals, resolve concrete model from catalog)
   → PipelineResult
 ```
 
 ### Classifiers
 
 Each classifier lives under `src/classifiers/`:
-- `manifest.json` - declares `order`, `emits`, `fallback`, optional `output_schema`
+- `manifest.json` - declares `kind`, `name`, `order`, `fallback`, and optional backend hints
 - custom classifiers also have `prompt.md`
 - stock prompt markdown lives in `src/classifiers/stock/prompts/`
 
@@ -81,13 +81,12 @@ Classifiers that fail use their manifest `fallback` output; failures are recorde
 ### Configuration files
 
 - `downstream-models.json` — Required catalog of available downstream models
-- `adapter-models.json` — Optional per-classifier Ollama model overrides
-- Base model: `gemma4:e4b-it-q4_K_M` at 4096-token context window per classifier
+- `open-classify.config.example.json` — Example runtime config for Ollama model overrides, aggregator settings, and catalog path
+- Base classifier model: `gemma4:e4b-it-q4_K_M`
 
 ### Design constraints
 
 - **No escape-hatch enums** — Classifiers omit uncertain optional fields instead of emitting sentinel values like `"unable_to_determine"`
 - **No model IDs from classifiers** — Classifiers emit routing *constraints*; the aggregator + catalog resolver picks the concrete model
 - **No keyword/regex mock classifiers** — All classifiers must use real model calls; no pattern-matching stubs
-- **Order is declarative** — Duplicate orders are rejected at load time; lower order wins on certainty-score ties
-- **Attachments are metadata only** — Classifiers see filename/size/mime type, never content
+- **Order is declarative** — Duplicate orders are rejected at load time

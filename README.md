@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="open-classify-logo.png" alt="Open Classify" width="220">
+  <img src="https://raw.githubusercontent.com/taylorbayouth/open-classify/main/open-classify-logo.png" alt="Open Classify" width="220">
 </p>
 
 <p align="center">
@@ -293,4 +293,4 @@ npm run ui    # build + serve the local workbench
 
 ## Screenshot
 
-![Open Classify local workbench](open-classify-screenshot.png)
+![Open Classify local workbench](https://raw.githubusercontent.com/taylorbayouth/open-classify/main/open-classify-screenshot.png)

@@ -19,7 +19,7 @@ export const validClassifierOutputs = {
     certainty: "strong",
     output: { queries: ["user review preferences"] },
   },
-  conversation_diegest: {
+  conversation_digest: {
     reason: "Conversation compression is useful downstream context.",
     certainty: "very_strong",
     output: {

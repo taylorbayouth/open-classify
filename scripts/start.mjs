@@ -33,16 +33,21 @@ async function main() {
   let ollamaChild;
   if (await isOllamaReachable()) {
     console.log(`Using existing Ollama server at ${ollamaHost}`);
-    const missing = await checkOllamaServerConfig().catch((err) => { console.log("checkOllamaServerConfig threw:", err.message); return []; });
-    console.log("checkOllamaServerConfig missing:", missing);
+    const missing = await checkOllamaServerConfig();
     if (missing.length > 0) {
-      console.log(`Ollama is misconfigured (missing: ${missing.map(([k, v]) => `${k}=${v}`).join(", ")}). Restarting with correct settings...`);
+      const missingSettings = missing.map(([key, value]) => `${key}=${value}`).join(", ");
+      console.log(`Ollama is misconfigured (missing: ${missingSettings}). Restarting with correct settings...`);
       await stopOllamaServe();
       ollamaChild = startOllamaServe();
       await waitForOllama();
     }
   } else {
-    console.log(`Starting Ollama with classifier runtime settings: OLLAMA_NUM_PARALLEL=${requiredParallelism}, OLLAMA_MAX_LOADED_MODELS=${requiredParallelism}, OLLAMA_CONTEXT_LENGTH=${contextLength}`);
+    console.log(
+      `Starting Ollama with classifier runtime settings: ` +
+      `OLLAMA_NUM_PARALLEL=${requiredParallelism}, ` +
+      `OLLAMA_MAX_LOADED_MODELS=${requiredParallelism}, ` +
+      `OLLAMA_CONTEXT_LENGTH=${contextLength}`,
+    );
     ollamaChild = startOllamaServe();
     await waitForOllama();
   }

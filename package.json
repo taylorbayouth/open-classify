@@ -31,6 +31,8 @@
   },
   "files": [
     "dist/src",
+    "docs",
+    "downstream-models.json",
     "open-classify.config.example.json",
     "LICENSE",
     "README.md"

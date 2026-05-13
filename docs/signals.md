@@ -54,7 +54,7 @@ Tier feeds the catalog resolver as a soft constraint.
 }
 ```
 
-`routing` and `model_specialization` both emit partial `RoutingSignal` shapes. The aggregator picks the highest-scored certainty value per axis.
+`routing` and `model_specialization` both contribute to downstream model resolution, but each owns one axis: `routing` owns `model_tier`; `model_specialization` owns `specialization`.
 
 ## `tools` — `ToolsSignal`
 

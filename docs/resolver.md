@@ -39,7 +39,7 @@ When this gate fires, `fired_by` is `"certainty_gate"` and `reason` / `audit.cer
 
 ## Routing axis merge
 
-`routing` and `model_specialization` both emit partial `RoutingSignal` shapes. For each axis (`model_tier`, `specialization`), the aggregator picks the highest-scored confident value among the two classifiers. Tier comes from `routing`; specialization comes from `model_specialization` — but either classifier may emit either axis.
+`routing` emits the `model_tier` axis. `model_specialization` emits the `specialization` axis. The aggregator includes each axis only when its classifier's certainty score meets the configured threshold.
 
 ## Short-circuits
 
