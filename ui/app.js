@@ -7,7 +7,6 @@ const state = {
   classifiers: {},
   events: [],
   eventCount: 0,
-  phases: [],
   pipelineStartedAt: null,
   pipelineCompletedAt: null,
   tickerHandle: null,
@@ -20,7 +19,6 @@ const addMessageButton = document.querySelector("#addMessageButton");
 const sampleButton = document.querySelector("#sampleButton");
 const classifierGrid = document.querySelector("#classifierGrid");
 const aggregatePanel = document.querySelector("#aggregatePanel");
-const runState = document.querySelector("#runState");
 const liveDot = document.querySelector("#liveDot");
 const jsonPanel = document.querySelector("#jsonPanel");
 const jsonToggle = document.querySelector("#jsonToggle");
@@ -29,7 +27,6 @@ const runButton = document.querySelector("#runButton");
 const copyJsonButton = document.querySelector("#copyJsonButton");
 const eventLogList = document.querySelector("#eventLogList");
 const eventLogCount = document.querySelector("#eventLogCount");
-const phaseTrail = document.querySelector("#phaseTrail");
 
 init();
 
@@ -173,10 +170,7 @@ function resetRunOutput() {
   renderEventLog();
   resetClassifiers("idle");
   setRunState("idle");
-  state.phases = [];
-  renderPhaseTrail();
-  aggregatePanel.hidden = true;
-  aggregatePanel.innerHTML = "";
+  renderAggregate(null);
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
@@ -191,8 +185,7 @@ async function classify() {
   state.lastResult = null;
   renderEventLog();
   setRunState("running");
-  aggregatePanel.hidden = true;
-  aggregatePanel.innerHTML = "";
+  renderAggregate(null);
   jsonToggle.hidden = true;
   jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
@@ -263,11 +256,11 @@ function renderMessage(message, index) {
     .join("");
 
   return `
-    <article class="message" data-message-id="${escapeHtml(message.id)}">
+    <article class="message${isFinal ? " classified" : ""}" data-message-id="${escapeHtml(message.id)}">
       <div class="message-head">
-        <div class="message-title">Message ${index + 1}<span class="ctx">${
-    isFinal ? "classified message" : "context"
-  }</span></div>
+        <div class="message-title">Message ${index + 1}${
+    isFinal ? '<span class="ctx">classified message</span>' : ""
+  }</div>
         <div class="message-right">
           <select class="role-pill" data-field="role" aria-label="Role"${isFinal ? " disabled" : ""}>${roleOptions}</select>
           <button
@@ -307,15 +300,11 @@ function handleStreamEvent(event, data) {
       if (Array.isArray(data.classifiers) && data.classifiers.length > 0) {
         state.classifierNames = data.classifiers;
       }
-      state.phases = [];
       state.pipelineStartedAt = performance.now();
-      renderPhaseTrail();
       resetClassifiers();
       break;
     case "pipeline_phase":
       setRunState(data.phase === "running" ? "running" : data.phase);
-      state.phases.push(data.phase);
-      renderPhaseTrail();
       break;
     case "classifier_started":
       updateClassifier(data.name, {
@@ -400,10 +389,13 @@ function pipelineLatencySeconds() {
 }
 
 function renderAggregate(result) {
-  const model = selectedModel(result) ?? "—";
-  const security = securityDecision(result) ?? "—";
-  const action = result.action ?? "—";
-  const tools = toolsSummary(result);
+  const runStateValue = state.runState ?? "idle";
+  const runStateLabel = RUN_STATE_LABELS[runStateValue] ?? runStateValue;
+
+  const model = result ? selectedModel(result) ?? "—" : "—";
+  const security = result ? securityDecision(result) ?? "—" : "—";
+  const action = result ? result.action ?? "—" : "—";
+  const tools = result ? toolsSummary(result) : "—";
   const latency = pipelineLatencySeconds();
 
   const securityClass =
@@ -415,15 +407,19 @@ function renderAggregate(result) {
       ? "amber"
       : "";
 
+  aggregatePanel.dataset.state = runStateValue;
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
-    <span class="final-output-eyebrow">Final Output</span>
+    <div class="final-output-head">
+      <h2 class="final-output-title">Final Output</h2>
+      <span class="run-state" data-state="${escapeHtml(runStateValue)}">${escapeHtml(runStateLabel)}</span>
+    </div>
     <div class="final-output-grid">
       ${foItem("Model", model)}
       ${foItem("Action", action)}
       ${foItem("Tools", tools)}
       ${foItem("Security", security, securityClass)}
-      ${latency != null ? foItem("Latency", `${latency.toFixed(1)}s`) : ""}
+      ${foItem("Latency", latency != null ? `${latency.toFixed(1)}s` : "—")}
     </div>
   `;
 }
@@ -556,7 +552,7 @@ function renderClassifier(name) {
   const confidence = item.result?.confidence;
   const reasonPill =
     reason && (item.status === "done" || item.status === "fallback")
-      ? `<span class="pill reason" data-tooltip="${escapeHtml(reason)}" title="${escapeHtml(reason)}">Reason</span>`
+      ? `<span class="pill reason" title="${escapeHtml(reason)}">Reason</span>`
       : "";
   const confidencePill =
     typeof confidence === "number"
@@ -580,12 +576,12 @@ function renderClassifier(name) {
         <div class="meta">
           ${reasonPill}
           ${statusPill}
-          ${confidencePill}
           ${elapsedHtml}
         </div>
       </div>
       ${shortCircuit}
       ${renderDetails(name, item)}
+      <div class="card-foot">${confidencePill}</div>
     </article>
   `;
 }
@@ -852,42 +848,28 @@ function parseSseEvent(chunk) {
   }
 }
 
-function setRunState(value) {
-  const labelMap = {
-    idle: "Idle",
-    normalizing: "Normalizing",
-    resource_check: "Resource check",
-    running: "Running",
-    complete: "Complete",
-    terminal: "Terminal",
-    block: "Block",
-    failed: "Failed",
-  };
-  runState.textContent = labelMap[value] ?? value;
-  runState.dataset.state = value;
-  liveDot.dataset.state = value;
-}
+const RUN_STATE_LABELS = {
+  idle: "Idle",
+  normalizing: "Normalizing",
+  resource_check: "Resource check",
+  running: "Running",
+  complete: "Complete",
+  terminal: "Terminal",
+  block: "Block",
+  failed: "Failed",
+};
 
-function renderPhaseTrail() {
-  const labels = {
-    normalizing: "normalizing",
-    resource_check: "resource check",
-    running: "running",
-  };
-  if (state.phases.length === 0) {
-    phaseTrail.hidden = true;
-    phaseTrail.textContent = "";
-    return;
+function setRunState(value) {
+  state.runState = value;
+  liveDot.dataset.state = value;
+  aggregatePanel.dataset.state = value;
+  const runStateEl = aggregatePanel.querySelector(".run-state");
+  if (runStateEl) {
+    runStateEl.textContent = RUN_STATE_LABELS[value] ?? value;
+    runStateEl.dataset.state = value;
+  } else {
+    renderAggregate(state.lastResult);
   }
-  phaseTrail.hidden = false;
-  phaseTrail.innerHTML = state.phases
-    .map((p, i) => {
-      const isLast = i === state.phases.length - 1;
-      return `<span class="phase-step${isLast ? " phase-step-active" : ""}">${escapeHtml(
-        labels[p] ?? p,
-      )}</span>`;
-    })
-    .join('<span class="phase-sep">→</span>');
 }
 
 function cssEscape(value) {
