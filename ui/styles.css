@@ -553,6 +553,27 @@ body {
 .fo-item .v.red { color: var(--red); }
 .fo-item .v.amber { color: var(--amber); }
 
+.tool-pill-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.tool-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--tool-pill-bg, rgb(229 203 94));
+  color: #000;
+  padding: 3px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
 /* MASONRY — two independent flex columns */
 .cards-masonry {
   display: flex;
