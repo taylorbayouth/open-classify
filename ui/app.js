@@ -552,7 +552,7 @@ function renderClassifier(name) {
   const confidence = item.result?.confidence;
   const reasonPill =
     reason && (item.status === "done" || item.status === "fallback")
-      ? `<span class="pill reason" title="${escapeHtml(reason)}">Reason</span>`
+      ? `<span class="pill reason" tabindex="0">Reason<span class="pill-tooltip">${escapeHtml(reason)}</span></span>`
       : "";
   const confidencePill =
     typeof confidence === "number"
@@ -667,17 +667,21 @@ function emptyStateText(status) {
 }
 
 function renderClassifierResult(result) {
-  const entries = Object.entries(result).filter(
-    ([key]) => key !== "version" && key !== "status" && key !== "reason" && key !== "confidence",
-  );
+  const entries = Object.entries(result)
+    .filter(
+      ([key]) => key !== "version" && key !== "status" && key !== "reason" && key !== "confidence",
+    )
+    .filter(([, value]) => !isEmptyValue(value));
   if (entries.length === 0) {
-    return `<div class="empty-state">No fields emitted.</div>`;
+    return "";
   }
 
-  return entries.map(([key, value]) => renderResultField(key, value)).join("");
+  const rendered = entries.map(([key, value]) => renderResultField(key, value)).join("");
+  return rendered;
 }
 
 function renderResultField(key, value) {
+  if (isEmptyValue(value)) return "";
   if (Array.isArray(value)) {
     return renderListField(key, value);
   }
@@ -692,22 +696,28 @@ function renderResultField(key, value) {
   `;
 }
 
-function renderListField(key, list) {
-  if (list.length === 0) {
-    return `
-      <div class="field">
-        <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
-        <span class="field-value">[]</span>
-      </div>
-    `;
+function isEmptyValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0 || value.every(isEmptyValue);
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return true;
+    return entries.every(([, v]) => isEmptyValue(v));
   }
+  return false;
+}
+
+function renderListField(key, list) {
+  const items = list.filter((entry) => !isEmptyValue(entry));
+  if (items.length === 0) return "";
   return `
     <div class="list-wrap">
       <div class="list-head">
         <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
-        <span class="count">${list.length} item${list.length === 1 ? "" : "s"}</span>
+        <span class="count">${items.length} item${items.length === 1 ? "" : "s"}</span>
       </div>
-      ${list
+      ${items
         .map(
           (entry, idx) => `
         <div class="list-item">
@@ -722,16 +732,8 @@ function renderListField(key, list) {
 }
 
 function renderObjectField(key, obj) {
-  const entries = Object.entries(obj);
-  if (entries.length === 0) {
-    return `
-      <div class="field">
-        <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
-        <span class="field-value">{}</span>
-      </div>
-    `;
-  }
-  // Render nested object as section with its own fields
+  const entries = Object.entries(obj).filter(([, value]) => !isEmptyValue(value));
+  if (entries.length === 0) return "";
   return entries.map(([k, v]) => renderResultField(`${key}.${k}`, v)).join("");
 }
 
