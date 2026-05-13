@@ -284,3 +284,7 @@ Pass any `RunClassifier` to `classifyOpenClassifyInput(input, { runClassifier, c
 npm test      # build + run the Node test runner suite
 npm run ui    # build + serve the local workbench
 ```
+
+## Screenshot
+
+![Open Classify local workbench](open-classify-screenshot.png)
