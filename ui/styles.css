@@ -46,17 +46,17 @@
 html {
   width: 100%;
   height: 100%;
-  background-color: #02050a;
+  background-color: var(--bg);
   scroll-behavior: smooth;
   overscroll-behavior: none;
   overflow: hidden;
 }
 
 body {
-  width: calc(100vw - 40px);
-  height: calc(100vh - 40px);
-  margin: 20px;
-  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: var(--page-inset);
   overflow: hidden;
   background:
     radial-gradient(1200px 600px at 80% -10%, rgba(94, 234, 212, 0.08), transparent 60%),
@@ -86,7 +86,7 @@ button, input, textarea, select {
   min-width: 0;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .topbar {
@@ -187,7 +187,7 @@ h1 {
   align-items: stretch;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .composer, .results {
@@ -284,8 +284,8 @@ textarea:focus, input:focus, select:focus {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 24px 14px 16px;
-  scroll-padding: 12px 24px 14px 16px;
+  padding: 18px 32px 18px 20px;
+  scroll-padding: 18px 32px 18px 20px;
 }
 
 .message-editor {
@@ -497,7 +497,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .results {
   height: 100%;
-  padding: 24px;
+  padding: 30px;
   background: transparent;
   overflow-y: auto;
   overflow-x: hidden;
@@ -722,7 +722,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   align-items: start;
   min-width: 0;
   margin-top: 10px;
-  padding-bottom: var(--tile-gap);
+  padding: 0 8px var(--tile-gap) 0;
 }
 
 .classifier-column {
