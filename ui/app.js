@@ -509,7 +509,14 @@ function updateClassifier(name, patch) {
 }
 
 function renderClassifiers() {
-  classifierGrid.innerHTML = state.classifierNames.map(renderClassifier).join("");
+  const columnCount = window.matchMedia("(max-width: 1024px)").matches ? 1 : 2;
+  const columns = Array.from({ length: columnCount }, () => []);
+  state.classifierNames.forEach((name, index) => {
+    columns[index % columnCount].push(renderClassifier(name));
+  });
+  classifierGrid.innerHTML = columns
+    .map((items) => `<div class="classifier-column">${items.join("")}</div>`)
+    .join("");
   updateTickers();
 }
 
