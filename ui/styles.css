@@ -27,6 +27,9 @@
 
   --radius: 14px;
   --radius-sm: 9px;
+  --page-inset: 20px;
+  --panel-inset: 10px;
+  --tile-gap: 10px;
   --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-deep: 18px 28px 70px rgba(0, 0, 0, 0.46), 4px 8px 28px rgba(0, 0, 0, 0.42);
   --shadow-soft: 12px 18px 48px rgba(0, 0, 0, 0.34), 3px 6px 20px rgba(0, 0, 0, 0.3);
@@ -50,9 +53,10 @@ html {
 }
 
 body {
-  width: calc(100vw - 40px);
-  height: calc(100vh - 40px);
-  margin: 20px;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: var(--page-inset);
   overflow: hidden;
   background:
     radial-gradient(1200px 600px at 80% -10%, rgba(94, 234, 212, 0.08), transparent 60%),
@@ -193,17 +197,14 @@ h1 {
 }
 
 .composer {
-  background: var(--panel);
-  box-shadow: var(--shadow-deep);
-}
-
-.composer {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto auto auto;
   gap: 24px;
   padding: 28px;
   height: 100%;
   overflow: hidden;
+  background: var(--panel);
+  box-shadow: var(--shadow-deep);
 }
 
 .field { display: grid; gap: 6px; }
@@ -257,8 +258,8 @@ textarea:focus, input:focus, select:focus {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
-  margin-top: 10px;
-  margin-right: 10px;
+  padding-top: var(--panel-inset);
+  padding-right: var(--panel-inset);
   min-height: 0;
 }
 
@@ -511,7 +512,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   margin-bottom: 22px;
   border-radius: var(--radius-sm);
   background: #101722;
-  box-shadow: 0 24px 80px rgba(60, 77, 112, 0.03);
+  box-shadow: 0 0 90px rgba(60, 77, 112, 0.03), 0 24px 90px rgba(60, 77, 112, 0.03);
   padding: 16px 18px;
 }
 
@@ -720,8 +721,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
   row-gap: 0;
   align-items: start;
   min-width: 0;
-  margin-top: 10px;
-  padding: 0 8px 10px;
+  margin-top: var(--tile-gap);
+  padding-bottom: var(--tile-gap);
 }
 
 .classifier-column {
@@ -731,7 +732,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 }
 
 .classifier-column:first-child {
-  margin-right: 10px;
+  margin-right: var(--tile-gap);
 }
 
 .classifier-card {
@@ -743,7 +744,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   box-shadow: var(--shadow-soft);
-  margin-bottom: 10px;
+  margin-bottom: var(--tile-gap);
   padding: 20px 21px;
   transition: border-color 200ms ease, background 200ms ease;
 }
