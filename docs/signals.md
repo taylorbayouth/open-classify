@@ -16,7 +16,7 @@ Stock classifier outputs are typed signals. Every output may carry optional `rea
 - Emit `final_reply` only for tiny terminal answers (greetings, thanks, simple arithmetic). Never for drafting, analysis, or generated work.
 - Emit `ack_reply` when downstream work should continue and a courtesy acknowledgement helps.
 - `final_reply` and `ack_reply` are mutually exclusive.
-- A confident `final_reply` aborts the pipeline and returns `{ action: "answer", reply }`.
+- A confident `final_reply` aborts the pipeline and returns `{ action: "answer", final_reply }`.
 
 ## `routing` — `RoutingSignal` (tier axis)
 

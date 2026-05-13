@@ -18,7 +18,7 @@ Custom classifier outputs are surfaced regardless of confidence (callers can dec
 
 The pipeline aborts early when:
 
-1. `preflight.final_reply` is present with confidence ≥ threshold → `{ action: "answer", reply }`.
+1. `preflight.final_reply` is present with confidence ≥ threshold → `{ action: "answer", final_reply }`.
 2. `security.decision === "block"` with confidence ≥ threshold → `{ action: "block" }`.
 3. `security.decision === "needs_review"` with confidence ≥ threshold → `{ action: "needs_review" }`.
 

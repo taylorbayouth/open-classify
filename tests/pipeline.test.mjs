@@ -36,7 +36,6 @@ test("starts all classifiers concurrently and returns route result", async () =>
   assert.deepEqual(started.sort(), Object.keys(results).sort());
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
   assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
-  assert.deepEqual(result.downstream.messages, [userMessage("review this")]);
   assert.deepEqual(result.downstream.target_message, {
     role: "user",
     text: "review this",
@@ -117,7 +116,7 @@ test("route picks the cheapest adequate matching model from the catalog", async 
   assert.equal(result.audit.model_recommendation.resolution.fell_back_to_default, false);
 });
 
-test("route returns the full normalized message window", async () => {
+test("route returns the target message, not the full message window", async () => {
   const messages = [
     userMessage("older"),
     { role: "assistant", text: "Which repo?" },
@@ -134,7 +133,7 @@ test("route returns the full normalized message window", async () => {
   );
 
   assert.equal(result.action, "route");
-  assert.deepEqual(result.downstream.messages, messages);
+  assert.equal("messages" in result.downstream, false);
   assert.equal(result.downstream.target_message.text, "review routing");
 });
 
@@ -168,7 +167,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   );
 
   assert.equal(result.action, "answer");
-  assert.equal(result.reply, "Anytime.");
+  assert.deepEqual(result.final_reply, { reply: "Anytime." });
   assert.deepEqual(result.audit.final_reply, { reply: "Anytime." });
   assert.equal(result.audit.fired_by, "preflight");
   assert.match(result.message_id, /^[a-f0-9]{8}$/);

@@ -25,7 +25,7 @@ const result = await classifyWithOllama(
 console.log(JSON.stringify(result, null, 2));
 
 if (result.action === "answer") {
-  console.error(`\nAction: answer — assistant should reply with: "${result.reply}"`);
+  console.error(`\nAction: answer — assistant should reply with: "${result.final_reply.reply}"`);
 } else if (result.action === "block") {
   console.error(`\nAction: block — ${result.reason.risk_level ?? result.reason.code ?? "blocked"}`);
 } else if (result.action === "needs_review") {
@@ -34,7 +34,6 @@ if (result.action === "answer") {
   console.error(
     `\nAction: route` +
       ` | model: ${result.downstream.model_id}` +
-      ` | messages: ${result.downstream.messages.length}` +
       ` | tools: ${result.downstream.tools.tools.join(", ") || "none"}`,
   );
 }

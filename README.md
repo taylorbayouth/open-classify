@@ -6,23 +6,42 @@
   Decide what should happen to a user message <em>before</em> it reaches your downstream model.
 </p>
 
-Open Classify runs a small set of fast classifiers in parallel against the latest user message and tells your app one of four things: **route** it (and to which model), **answer** it immediately, **block** it, or flag it for **review**.
+Open Classify is a pre-routing layer for AI products. It runs a small set of fast classifiers in parallel against the latest user message, then tells your app one of four things: **route** it, **answer** it immediately, **block** it, or flag it for **review**.
+
+Use it when your frontier model should not be the first thing every request touches. Open Classify can handle tiny terminal replies before they hit an expensive model, recommend the right downstream model for the actual task, suggest what tools or context the downstream model should receive, and add a safety pass for prompt injection and permission-boundary risk.
+
+The result is a small, auditable decision envelope your app can act on before spending the big tokens.
 
 ```
-                ┌──────────────┐
-                │  preflight   │ ─► final_reply? ack_reply?
-                ├──────────────┤
-                │  routing     │ ─► model_tier?
-   message ──►  │  model_spec  │ ─► specialization?      ──►  aggregator ──►  { action, model_id?, ... }
-                │  tools       │ ─► tools?
-                │  security    │ ─► safety verdict
-                ├──────────────┤
-                │  …custom…    │ ─► your own JSON-Schema output
-                └──────────────┘
-                 (run in parallel)
+message
+  │
+  ▼
+normalize + trim classifier context
+  │
+  ├─► preflight ─────────────► final_reply? / ack_reply?
+  ├─► routing ───────────────► model_tier?
+  ├─► model_specialization ──► specialization?
+  ├─► tools ─────────────────► tools?
+  ├─► security ──────────────► safety verdict
+  └─► custom classifiers ────► JSON-Schema output
+        (run in parallel)
+  │
+  ▼
+aggregator + model catalog
+  │
+  ▼
+route / answer / block / needs_review
 ```
 
 Stock classifiers have fixed typed signals. Custom classifiers carry their own JSON-Schema-validated payload. The aggregator merges everything, resolves a concrete model from your catalog, and short-circuits when preflight has a final answer or security flags risk.
+
+## Why Open Classify
+
+- **Spend frontier tokens only when they matter.** Simple greetings, thanks, spelling checks, and small arithmetic can return `action: "answer"` with a `final_reply` and skip downstream work entirely.
+- **Keep the user interface responsive.** For complex work, preflight can return an `ack_reply` while your app routes the request to the real worker.
+- **Pick the right model per message.** Classifiers emit soft constraints like tier and specialization; your catalog turns those into a concrete model optimized for cost, capability, and fit.
+- **Shape downstream context intentionally.** Built-in and custom classifiers can recommend tools, retrieval queries, summaries, or other context hints without passing the full conversation history back to the caller.
+- **Add another defensive layer.** The security classifier can block or require review for prompt injection, secret exposure risk, unsafe tool use, and related boundary violations.
 
 ## Install
 
@@ -30,7 +49,7 @@ Stock classifiers have fixed typed signals. Custom classifiers carry their own J
 npm install open-classify
 ```
 
-Node 18+. The reference runner is local Ollama and ships with `gemma4:e4b-it-q4_K_M` as the zero-config classifier model, but `RunClassifier` is a single function — bring your own backend.
+Node 18+. The packaged runner is local Ollama and ships with `gemma4:e4b-it-q4_K_M` as the zero-config classifier model. That runner is configurable through `open-classify.config.json`; arbitrary backends are supported in code by implementing `RunClassifier`.
 
 ## Hello World
 
@@ -59,12 +78,14 @@ Every call returns a `PipelineResult` with one of four `action` values:
 
 | `action` | When | Key fields |
 |---|---|---|
-| `route` | Default — downstream work should continue | `downstream.{model_id, messages, target_message, tools}` |
-| `answer` | Preflight had a tiny terminal reply (`final_reply`) | `reply` |
+| `route` | Default — downstream work should continue | `downstream.{model_id, target_message, tools}`, `audit.ack_reply?` |
+| `answer` | Preflight had a tiny terminal reply | `final_reply` |
 | `block` | Security flagged `decision: "block"` (with `high_risk`) | `reason.{risk_level, signals}` |
 | `needs_review` | Security flagged `decision: "needs_review"` | `reason.{risk_level, signals}` |
 
-All four also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the full envelope and per-classifier metadata; short-circuit results include the firing classifier's audit context.
+All four also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the downstream target message, not the caller's message history. Short-circuit results include the firing classifier's audit context.
+
+For complex requests, look for `audit.ack_reply` on `route` results. It is the immediate acknowledgement your UI can show while the downstream model works. For trivial requests, `result.final_reply.reply` is the complete response and no downstream model is needed.
 
 Example `route` result:
 
@@ -73,15 +94,28 @@ Example `route` result:
   "action": "route",
   "message_id": "b11d5268",
   "downstream": {
-    "model_id": "gpt-5.3-codex",
+    "model_id": "gpt-5.5",
     "tools": { "tools": ["workspace"] },
-    "messages": [ /* normalized conversation */ ],
     "target_message": { "role": "user", "text": "...", "hash": "b11d5268" }
   },
   "classifier_outputs": {
     "memory_retrieval_queries": { "queries": ["user code review preferences"] }
   },
-  "audit": { "routing": { "model_tier": "frontier_fast", "specialization": "coding" }, "...": "..." }
+  "audit": {
+    "ack_reply": { "reply": "Let me check." },
+    "routing": { "model_tier": "frontier_strong" },
+    "model_specialization": { "specialization": "coding" },
+    "tools": { "tools": ["workspace"] },
+    "model_recommendation": {
+      "id": "gpt-5.5",
+      "context_window": 1050000,
+      "input_tokens_cpm": 5,
+      "cached_tokens_cpm": 0.5,
+      "output_tokens_cpm": 30,
+      "resolution": { "...": "..." }
+    },
+    "meta": { "classifiers": { "...": "..." } }
+  }
 }
 ```
 
@@ -149,19 +183,33 @@ Classifiers never emit model ids. They emit constraints; your catalog maps const
 {
   "models": [
     {
-      "id": "gpt-5.3-codex",
-      "specializations": ["coding"],
-      "tier": "frontier_fast",
-      "params_in_billions": 30,
-      "context_window": 500000,
-      "input_tokens_cpm": 0.4,
-      "cached_tokens_cpm": 0.05,
-      "output_tokens_cpm": 2
+      "id": "gpt-5.5",
+      "provider": "openai",
+      "runtime": "api",
+      "specializations": [
+        "chat",
+        "writing",
+        "reasoning",
+        "planning",
+        "coding",
+        "instruction_following",
+        "agentic_workflows"
+      ],
+      "tier": "frontier_strong",
+      "params_in_billions": null,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "input_tokens_cpm": 5,
+      "cached_tokens_cpm": 0.5,
+      "output_tokens_cpm": 30
     }
   ],
-  "default": "gpt-5.3-codex"
+  "default": "gpt-5.5",
+  "pricing_unit": "USD per 1M tokens"
 }
 ```
+
+OpenAI's GPT-5.5 model page lists text and image input, text output, a 1,050,000-token context window, 128,000 max output tokens, and text-token pricing of $5.00 input, $0.50 cached input, and $30.00 output per 1M tokens. OpenAI does not publish parameter counts, so use `null` for `params_in_billions`. See the [GPT-5.5 model details](https://developers.openai.com/api/docs/models/gpt-5.5) for current pricing and capability details.
 
 The resolver picks the cheapest model matching `specialization` and `tier`, relaxing constraints in order when nothing fits, and reports what it dropped on `audit.model_recommendation.resolution`. See [docs/resolver.md](docs/resolver.md) for ranking details.
 
@@ -182,7 +230,7 @@ npm run start
 
 UI opens at `http://127.0.0.1:4317/`. Classifier cards use classifier names from the runtime, displayed with underscores as spaces; result rendering remains generic.
 
-Optional runtime config:
+Optional Ollama runtime config:
 
 ```sh
 cp open-classify.config.example.json open-classify.config.json
@@ -207,7 +255,7 @@ cp open-classify.config.example.json open-classify.config.json
 }
 ```
 
-`runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. The setup and start scripts read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
+`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. The setup and start scripts read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
 
 ## Bring your own backend
 
@@ -221,7 +269,7 @@ type RunClassifier = (
 ) => Promise<ClassifierOutput>;
 ```
 
-Pass any `RunClassifier` to `classifyOpenClassifyInput(input, { runClassifier, catalog })` to back classifiers with OpenAI, Anthropic, a remote service, or anything else.
+Pass any `RunClassifier` to `classifyOpenClassifyInput(input, { runClassifier, catalog })` to back classifiers with OpenAI, Anthropic, a remote service, or anything else. This is a code-level extension point, separate from the Ollama-only config file runner.
 
 ## Further reading
 

@@ -20,6 +20,7 @@ import type {
 import type {
   ClassifierOutput,
   CustomClassifierOutputValue,
+  FinalReplySignal,
   PreflightClassifierOutput,
   SafetySignal,
   SecurityClassifierOutput,
@@ -132,7 +133,7 @@ export async function classifyOpenClassifyInput(
 }
 
 type ShortCircuitVerdict =
-  | { kind: "answer"; reply: string }
+  | { kind: "answer"; final_reply: FinalReplySignal }
   | { kind: "block"; safety: SafetySignal }
   | { kind: "needs_review"; safety: SafetySignal };
 
@@ -147,7 +148,7 @@ function shortCircuitVerdict(
   if (gate === "preflight") {
     const preflight = result as PreflightClassifierOutput;
     if (preflight.final_reply !== undefined) {
-      return { kind: "answer", reply: preflight.final_reply.reply };
+      return { kind: "answer", final_reply: preflight.final_reply };
     }
     return null;
   }
@@ -200,7 +201,7 @@ function buildShortCircuitResult(
     return {
       action: "answer",
       message_id: target_message_hash,
-      reply: verdict.reply,
+      final_reply: verdict.final_reply,
       reason: "already_answered",
       classifier_outputs,
       audit: {
@@ -270,7 +271,6 @@ function buildRouteResult(
 ): PipelineResult {
   const downstream: DownstreamPayload = {
     model_id: envelope.model_recommendation.id,
-    messages: request.messages,
     target_message: {
       role: "user",
       text: request.text,

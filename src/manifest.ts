@@ -11,7 +11,6 @@ import type {
 import type {
   ClassifierInput,
   ClassifierRunStatus,
-  ConversationMessageInput,
 } from "./types.js";
 import type {
   DownstreamModelTier,
@@ -87,7 +86,6 @@ export interface DownstreamTargetMessage {
 
 export interface DownstreamPayload {
   readonly model_id: string;
-  readonly messages: ReadonlyArray<ConversationMessageInput>;
   readonly target_message: DownstreamTargetMessage;
   readonly tools: ToolsSignal;
 }
@@ -109,7 +107,7 @@ export interface PipelineAudit extends Envelope {
 export type AnswerPipelineResult = {
   readonly action: "answer";
   readonly message_id: string;
-  readonly reply: string;
+  readonly final_reply: FinalReplySignal;
   readonly reason: "already_answered";
   readonly classifier_outputs: ClassifierCustomOutputs;
   readonly audit: Pick<PipelineAudit, "final_reply" | "meta" | "fired_by">;
