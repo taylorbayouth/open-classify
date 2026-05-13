@@ -311,11 +311,12 @@ function validateTierRoutingOutput(
 ): RoutingClassifierOutput {
   ensureAllowedObjectKeys(value, ["reason", "confidence", "model_tier"], "routing", model, "output");
   const meta = validateMetadata(value, "routing", model);
+  const modelTier = normalizeOptionalEnumValue(value.model_tier);
   return {
     ...meta,
-    ...(value.model_tier === undefined
+    ...(modelTier === undefined
       ? {}
-      : { model_tier: requireEnum(value.model_tier, DOWNSTREAM_MODEL_TIER_VALUES, "routing", model, "model_tier") }),
+      : { model_tier: requireEnum(modelTier, DOWNSTREAM_MODEL_TIER_VALUES, "routing", model, "model_tier") }),
   };
 }
 
@@ -325,12 +326,23 @@ function validateModelSpecializationOutput(
 ): ModelSpecializationClassifierOutput {
   ensureAllowedObjectKeys(value, ["reason", "confidence", "specialization"], "model_specialization", model, "output");
   const meta = validateMetadata(value, "model_specialization", model);
+  const specialization = normalizeOptionalEnumValue(value.specialization);
   return {
     ...meta,
-    ...(value.specialization === undefined
+    ...(specialization === undefined
       ? {}
-      : { specialization: requireEnum(value.specialization, MODEL_SPECIALIZATION_VALUES, "model_specialization", model, "specialization") }),
+      : { specialization: requireEnum(specialization, MODEL_SPECIALIZATION_VALUES, "model_specialization", model, "specialization") }),
   };
+}
+
+function normalizeOptionalEnumValue(value: unknown): unknown {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "string" && value.trim().length === 0) {
+    return undefined;
+  }
+  return value;
 }
 
 function validateToolsOutput(

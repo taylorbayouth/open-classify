@@ -113,6 +113,35 @@ test("validates a routing classifier output", () => {
   assert.equal(output.model_tier, "frontier_fast");
 });
 
+test("routing treats null and blank tier as omitted", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "routing",
+    version: "1.0.0",
+    purpose: "Pick a tier.",
+    order: 20,
+    fallback: {},
+  });
+
+  assert.deepEqual(
+    validateOutputForManifest(
+      manifest,
+      { reason: "unsure", confidence: 0.4, model_tier: null },
+      { classifier: "routing", model: "test" },
+    ),
+    { reason: "unsure", confidence: 0.4 },
+  );
+
+  assert.deepEqual(
+    validateOutputForManifest(
+      manifest,
+      { reason: "unsure", confidence: 0.4, model_tier: "   " },
+      { classifier: "routing", model: "test" },
+    ),
+    { reason: "unsure", confidence: 0.4 },
+  );
+});
+
 test("routing rejects specialization output", () => {
   const manifest = validateJsonClassifierManifest({
     kind: "stock",
@@ -152,6 +181,35 @@ test("model_specialization rejects tier output", () => {
         { classifier: "model_specialization", model: "test" },
       ),
     /model_tier is not a supported field/,
+  );
+});
+
+test("model_specialization treats null and blank specialization as omitted", () => {
+  const manifest = validateJsonClassifierManifest({
+    kind: "stock",
+    name: "model_specialization",
+    version: "1.0.0",
+    purpose: "Pick a specialization.",
+    order: 30,
+    fallback: {},
+  });
+
+  assert.deepEqual(
+    validateOutputForManifest(
+      manifest,
+      { reason: "unsure", confidence: 0.4, specialization: null },
+      { classifier: "model_specialization", model: "test" },
+    ),
+    { reason: "unsure", confidence: 0.4 },
+  );
+
+  assert.deepEqual(
+    validateOutputForManifest(
+      manifest,
+      { reason: "unsure", confidence: 0.4, specialization: "" },
+      { classifier: "model_specialization", model: "test" },
+    ),
+    { reason: "unsure", confidence: 0.4 },
   );
 });
 
