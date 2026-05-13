@@ -748,7 +748,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 
 .classifier-title {
   margin: 0;
-  font-size: 26px;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--ink);
