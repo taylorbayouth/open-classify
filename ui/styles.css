@@ -257,6 +257,8 @@ textarea:focus, input:focus, select:focus {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
+  margin-top: 10px;
+  margin-right: 10px;
   min-height: 0;
 }
 
@@ -281,10 +283,8 @@ textarea:focus, input:focus, select:focus {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  margin-top: 10px;
-  margin-right: 10px;
-  padding: 10px 22px 14px 12px;
-  scroll-padding: 10px 22px 14px 12px;
+  padding: 12px 24px 14px 16px;
+  scroll-padding: 12px 24px 14px 16px;
 }
 
 .message-editor {
