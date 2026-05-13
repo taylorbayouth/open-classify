@@ -503,6 +503,7 @@ function renderClassifier(name) {
   const result = item.result;
   const detailHtml = renderDetails(name, item);
   const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
+  const confidenceHtml = renderClassifierConfidence(item);
   const metadata = CLASSIFIER_METADATA[name] ?? {};
   const kind = metadata.kind ?? "classifier";
   const purpose = metadata.purpose ? escapeHtml(metadata.purpose) : "";
@@ -537,6 +538,7 @@ function renderClassifier(name) {
           <span class="badge ${item.status}">
             ${item.status === "running" ? '<span class="pulse"></span>' : ""}${escapeHtml(classifierStatusLabel(item))}
           </span>
+          ${confidenceHtml}
           ${elapsedHtml}
         </div>
       </div>
@@ -699,7 +701,7 @@ function renderReasonPill(result) {
 }
 
 function classifierStatusLabel(item) {
-  const base = {
+  return {
     pending: "Pending",
     running: "Running",
     done: "Done",
@@ -709,17 +711,15 @@ function classifierStatusLabel(item) {
     failed: "Failed",
     idle: "Idle",
   }[item.status] ?? formatKeyLabel(item.status);
+}
 
-  if (item.status !== "done") {
-    return base;
-  }
-
+function renderClassifierConfidence(item) {
   const confidence = item.result?.confidence;
   if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
-    return base;
+    return "";
   }
 
-  return `${base} (${(confidence * 100).toFixed(1)}% confident)`;
+  return `<span class="confidence-readout">${escapeHtml(`${(confidence * 100).toFixed(1)}% confident`)}</span>`;
 }
 
 function filterClassifierResult(name, result) {
