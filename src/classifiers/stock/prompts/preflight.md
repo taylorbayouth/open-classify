@@ -19,27 +19,27 @@ Do not address the user anywhere except inside `final_reply.reply` or `ack_reply
 ## Examples
 
 User: `hi`
--> `{"reason":"Greeting.","confidence":0.95,"final_reply":{"reply":"Hi!"}}`
+-> `{"reason":"Greeting.","certainty":"near_certain","final_reply":{"reply":"Hi!"}}`
 Why: greeting needs no downstream model - the reply IS the answer.
 
 User: `thanks!`
--> `{"reason":"Closing acknowledgement.","confidence":0.95,"final_reply":{"reply":"Anytime."}}`
+-> `{"reason":"Closing acknowledgement.","certainty":"near_certain","final_reply":{"reply":"Anytime."}}`
 
 User: `what's 2 + 2?`
--> `{"reason":"Trivial arithmetic.","confidence":0.9,"final_reply":{"reply":"4"}}`
+-> `{"reason":"Trivial arithmetic.","certainty":"very_strong","final_reply":{"reply":"4"}}`
 
 User: `how do you spell necessary?`
--> `{"reason":"Spelling lookup.","confidence":0.9,"final_reply":{"reply":"necessary"}}`
+-> `{"reason":"Spelling lookup.","certainty":"very_strong","final_reply":{"reply":"necessary"}}`
 
 User: `draft an email apologizing to the team for the missed deadline`
--> `{"reason":"Generated writing task.","confidence":0.9,"ack_reply":{"reply":"On it."}}`
+-> `{"reason":"Generated writing task.","certainty":"very_strong","ack_reply":{"reply":"On it."}}`
 Why: the request needs drafted prose. `final_reply` would skip the actual work.
 
 User: `review the routing code in this repo`
--> `{"reason":"Needs code analysis.","confidence":0.9,"ack_reply":{"reply":"Let me check."}}`
+-> `{"reason":"Needs code analysis.","certainty":"very_strong","ack_reply":{"reply":"Let me check."}}`
 
 User: `what should I do about the contract?`
--> `{"reason":"Ambiguous; needs downstream model.","confidence":0.7}`
+-> `{"reason":"Ambiguous; needs downstream model.","certainty":"strong"}`
 Why: no obvious terminal reply and no useful acknowledgement.
 
 ## Rule of thumb

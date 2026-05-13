@@ -6,7 +6,7 @@
   Decide what should happen to a user message <em>before</em> it reaches your downstream model.
 </p>
 
-Open Classify is a pre-routing layer for AI products. It runs a small set of fast classifiers in parallel against the latest user message, then tells your app one of four things: **route** it, **answer** it immediately, **block** it, or flag it for **review**.
+Open Classify is a pre-routing layer for AI products. It runs a small set of fast classifiers in parallel against the latest user message, then tells your app one of three things: **route** it, **reply** immediately, or **block** it.
 
 Use it when your frontier model should not be the first thing every request touches. Open Classify can handle tiny terminal replies before they hit an expensive model, recommend the right downstream model for the actual task, suggest what tools or context the downstream model should receive, and add a safety pass for prompt injection and permission-boundary risk.
 
@@ -30,18 +30,18 @@ normalize + trim classifier context
 aggregator + model catalog
   │
   ▼
-route / answer / block / needs_review
+route / reply / block
 ```
 
-Stock classifiers have fixed typed signals. Custom classifiers carry their own JSON-Schema-validated payload. The aggregator merges everything, resolves a concrete model from your catalog, and short-circuits when preflight has a final answer or security flags risk.
+Stock classifiers have fixed typed signals. Custom classifiers carry their own JSON-Schema-validated payload. The aggregator merges everything, resolves a concrete model from your catalog, and short-circuits when preflight has a terminal reply or security flags risk.
 
 ## Why Open Classify
 
-- **Spend frontier tokens only when they matter.** Simple greetings, thanks, spelling checks, and small arithmetic can return `action: "answer"` with a `final_reply` and skip downstream work entirely.
+- **Spend frontier tokens only when they matter.** Simple greetings, thanks, spelling checks, and small arithmetic can return `action: "reply"` with `reply.text` and skip downstream work entirely.
 - **Keep the user interface responsive.** For complex work, preflight can return an `ack_reply` while your app routes the request to the real worker.
 - **Pick the right model per message.** Classifiers emit soft constraints like tier and specialization; your catalog turns those into a concrete model optimized for cost, capability, and fit.
 - **Shape downstream context intentionally.** Built-in and custom classifiers can recommend tools, retrieval queries, summaries, or other context hints without passing the full conversation history back to the caller.
-- **Add another defensive layer.** The security classifier can block or require review for prompt injection, secret exposure risk, unsafe tool use, and related boundary violations.
+- **Add another defensive layer.** The security classifier can block prompt injection, secret exposure risk, unsafe tool use, and related boundary violations.
 
 ## Install
 
@@ -74,18 +74,17 @@ if (result.action === "route") {
 
 ## What you get back
 
-Every call returns a `PipelineResult` with one of four `action` values:
+Every call returns a `PipelineResult` with one of three `action` values:
 
 | `action` | When | Key fields |
 |---|---|---|
 | `route` | Default — downstream work should continue | `downstream.{model_id, target_message, tools}`, `audit.ack_reply?` |
-| `answer` | Preflight had a tiny terminal reply | `final_reply` |
-| `block` | Security flagged `decision: "block"` (with `high_risk`) | `reason.{risk_level, signals}` |
-| `needs_review` | Security flagged `decision: "needs_review"` | `reason.{risk_level, signals}` |
+| `reply` | Preflight had a tiny terminal reply | `reply.text` |
+| `block` | Security flagged confident `high_risk` / `unknown`, or the certainty gate fired | `reason.kind` plus security or low-certainty details |
 
-All four also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the downstream target message, not the caller's message history. Short-circuit results include the firing classifier's audit context.
+All three also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the downstream target message, not the caller's message history. Short-circuit results include the firing classifier's audit context.
 
-For complex requests, look for `audit.ack_reply` on `route` results. It is the immediate acknowledgement your UI can show while the downstream model works. For trivial requests, `result.final_reply.reply` is the complete response and no downstream model is needed.
+For complex requests, look for `audit.ack_reply` on `route` results. It is the immediate acknowledgement your UI can show while the downstream model works. For trivial requests, `result.reply.text` is the complete response and no downstream model is needed.
 
 Example `route` result:
 
@@ -131,13 +130,13 @@ Every classifier prompt includes a shared header with its `Classifier` name, `Pu
 
 | Name | Signal | Short-circuits? |
 |---|---|---|
-| `preflight` | `final_reply?` / `ack_reply?` | `final_reply` → `answer` |
+| `preflight` | `final_reply?` / `ack_reply?` | `final_reply` → `reply` |
 | `routing` | `model_tier?` | no |
 | `model_specialization` | `specialization?` | no |
 | `tools` | `{ tools[] }` | no |
-| `security` | `{ decision?, risk_level, signals[] }` | `decision: "block"` → `block`, `"needs_review"` → `needs_review` |
+| `security` | `{ risk_level, signals[] }` | confident `high_risk` or `unknown` → `block` |
 
-Each output may also carry optional `reason` (≤120 chars) and `confidence` (0–1). Below-threshold signals are dropped from aggregation; the default threshold is `0.6`.
+Each output may also carry optional `reason` (≤120 chars) and `certainty` (`no_signal` through `near_certain`). The aggregator maps certainty tags to numeric scores and drops below-threshold signals; the default threshold is `0.65`.
 
 ## Custom classifiers
 
@@ -192,8 +191,7 @@ Classifiers never emit model ids. They emit constraints; your catalog maps const
         "reasoning",
         "planning",
         "coding",
-        "instruction_following",
-        "agentic_workflows"
+        "tool_use"
       ],
       "tier": "frontier_strong",
       "params_in_billions": null,
@@ -251,11 +249,15 @@ cp open-classify.config.example.json open-classify.config.json
       }
     }
   },
+  "aggregator": {
+    "certaintyThreshold": 0.65,
+    "certaintyGate": "min_score"
+  },
   "catalog": "downstream-models.json"
 }
 ```
 
-`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. The setup and start scripts read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
+`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. `aggregator.certaintyGate` can be `"min_score"` (lowest score across all stock and custom classifiers), `"avg_score"`, or `"off"`. The setup and start scripts read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
 
 ## Bring your own backend
 

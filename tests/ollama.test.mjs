@@ -8,6 +8,7 @@ import {
   classifierModelsFromConfig,
   loadOpenClassifyConfig,
   OpenClassifyConfigError,
+  validateOpenClassifyConfig,
 } from "../dist/src/config.js";
 import {
   classifyWithOllama,
@@ -188,16 +189,53 @@ test("loadOpenClassifyConfig validates stock and custom model maps", () => {
         custom: { memory_retrieval_queries: "custom-model" },
       },
     },
+    aggregator: {
+      certaintyThreshold: 0.7,
+      certaintyGate: "avg_score",
+    },
     catalog: "downstream-models.json",
   }));
 
   const config = loadOpenClassifyConfig(path);
 
   assert.equal(config.runner.defaultModel, "default-model");
+  assert.deepEqual(config.aggregator, {
+    certaintyThreshold: 0.7,
+    certaintyGate: "avg_score",
+  });
   assert.deepEqual(classifierModelsFromConfig(config), {
     preflight: "stock-model",
     memory_retrieval_queries: "custom-model",
   });
+});
+
+test("loadOpenClassifyConfig validates aggregator options", () => {
+  assert.deepEqual(
+    validateOpenClassifyConfig({
+      aggregator: {
+        certaintyThreshold: 0.65,
+        certaintyGate: "min_score",
+      },
+    }).aggregator,
+    {
+      certaintyThreshold: 0.65,
+      certaintyGate: "min_score",
+    },
+  );
+
+  assert.throws(
+    () => validateOpenClassifyConfig({ aggregator: { certaintyThreshold: 1.1 } }),
+    (error) =>
+      error instanceof OpenClassifyConfigError &&
+      /aggregator\.certaintyThreshold must be a finite number between 0 and 1 inclusive/.test(error.message),
+  );
+
+  assert.throws(
+    () => validateOpenClassifyConfig({ aggregator: { certaintyGate: "sometimes" } }),
+    (error) =>
+      error instanceof OpenClassifyConfigError &&
+      /aggregator\.certaintyGate must be one of/.test(error.message),
+  );
 });
 
 test("loadOpenClassifyConfig rejects unknown classifier names", () => {
@@ -223,7 +261,7 @@ test("loadOpenClassifyConfig rejects unknown classifier names", () => {
 test("createOllamaClassifierRunner rejects unknown preflight fields", async () => {
   const runner = runnerReturning({
     reason: "Invalid.",
-    confidence: 0.7,
+    certainty: "strong",
     handoff: { kind: "final", reply: "Nope." },
   });
 
@@ -239,7 +277,7 @@ test("createOllamaClassifierRunner rejects unknown preflight fields", async () =
 test("createOllamaClassifierRunner validates preflight reply length", async () => {
   const runner = runnerReturning({
     reason: "Too long.",
-    confidence: 0.7,
+    certainty: "strong",
     ack_reply: { reply: "x".repeat(201) },
   });
 
@@ -255,7 +293,7 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
 test("createOllamaClassifierRunner rejects empty preflight replies", async () => {
   const runner = runnerReturning({
     reason: "Empty.",
-    confidence: 0.7,
+    certainty: "strong",
     ack_reply: { reply: "   " },
   });
 
@@ -271,7 +309,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
 test("createOllamaClassifierRunner validates routing enum values", async () => {
   const runner = runnerReturning({
     reason: "Invalid tier.",
-    confidence: 0.5,
+    certainty: "tentative",
     model_tier: "ultra_strong",
   });
 
@@ -287,7 +325,7 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
 test("createOllamaClassifierRunner validates memory custom output schema", async () => {
   const runner = runnerReturning({
     reason: "Bad query.",
-    confidence: 0.5,
+    certainty: "tentative",
     output: { queries: [""] },
   });
 
@@ -303,7 +341,7 @@ test("createOllamaClassifierRunner validates memory custom output schema", async
 test("createOllamaClassifierRunner rejects duplicate tools", async () => {
   const runner = runnerReturning({
     reason: "Duplicate.",
-    confidence: 0.5,
+    certainty: "tentative",
     tools: ["workspace", "workspace"],
   });
 
@@ -326,7 +364,7 @@ test("tools system prompt describes empty tools as no tools required", () => {
 test("createOllamaClassifierRunner validates model_specialization enum", async () => {
   const runner = runnerReturning({
     reason: "Invalid spec.",
-    confidence: 0.5,
+    certainty: "tentative",
     specialization: "spreadsheet_magic",
   });
 
@@ -342,7 +380,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
 test("createOllamaClassifierRunner validates security risk-level / signals consistency", async () => {
   const runner = runnerReturning({
     reason: "Conflicting.",
-    confidence: 0.5,
+    certainty: "tentative",
     risk_level: "normal",
     signals: ["instruction_attack"],
   });
@@ -453,10 +491,14 @@ test("classifyWithOllama applies config file models and lets explicit options wi
         stock: { preflight: "config-preflight" },
       },
     },
+    aggregator: {
+      certaintyThreshold: 0.9,
+      certaintyGate: "min_score",
+    },
   }));
 
   const seenModels = new Set();
-  await classifyWithOllama(
+  const result = await classifyWithOllama(
     { messages: [{ role: "user", text: "review this" }] },
     {
       configPath: path,
@@ -479,6 +521,8 @@ test("classifyWithOllama applies config file models and lets explicit options wi
   assert.ok(seenModels.has("explicit-preflight"));
   assert.ok(seenModels.has("config-default"));
   assert.equal(seenModels.has("config-preflight"), false);
+  assert.equal(result.action, "block");
+  assert.equal(result.fired_by, "certainty_gate");
 });
 
 test("resource check can fail before fetch is called", async () => {

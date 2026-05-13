@@ -25,7 +25,7 @@ import {
   type OpenClassifyConfig,
 } from "./config.js";
 import { classifyOpenClassifyInput } from "./pipeline.js";
-import type { Catalog } from "./manifest.js";
+import type { AggregatorConfig, Catalog } from "./manifest.js";
 import type { ClassifierOutput } from "./stock.js";
 import type {
   ClassifierInput,
@@ -86,6 +86,7 @@ export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
   catalogPath?: string;
   configPath?: string;
   openClassifyConfig?: OpenClassifyConfig;
+  aggregator?: AggregatorConfig;
 }
 
 interface OllamaChatResponse {
@@ -243,6 +244,7 @@ export async function classifyWithOllama(
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(runnerConfig),
     catalog,
+    aggregator: config.aggregator ?? fileConfig?.aggregator,
   });
 }
 

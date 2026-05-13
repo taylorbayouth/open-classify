@@ -54,7 +54,7 @@ Example (`src/classifiers/stock/security/manifest.json`):
   "version": "1.0.0",
   "purpose": "Assess prompt injection, exfiltration, and permission boundary risk.",
   "order": 50,
-  "fallback": { "decision": "needs_review", "risk_level": "unknown", "signals": [] }
+  "fallback": { "risk_level": "unknown", "signals": [] }
 }
 ```
 

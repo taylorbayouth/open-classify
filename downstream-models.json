@@ -10,8 +10,7 @@
         "reasoning",
         "planning",
         "coding",
-        "instruction_following",
-        "agentic_workflows"
+        "tool_use"
       ],
       "tier": "frontier_strong",
       "params_in_billions": null,
@@ -32,8 +31,7 @@
         "planning",
         "coding",
         "computer_use",
-        "subagents",
-        "instruction_following"
+        "tool_use"
       ],
       "tier": "frontier_fast",
       "params_in_billions": null,
@@ -48,10 +46,7 @@
       "provider": "openai",
       "runtime": "api",
       "specializations": [
-        "coding",
-        "code_review",
-        "debugging",
-        "agentic_coding"
+        "coding"
       ],
       "tier": "frontier_coding",
       "params_in_billions": null,
@@ -67,9 +62,7 @@
       "runtime": "local",
       "specializations": [
         "coding",
-        "code_reasoning",
-        "code_fixing",
-        "tool_assisted_coding"
+        "tool_use"
       ],
       "tier": "local_coding",
       "params_in_billions": 14.7,
@@ -87,9 +80,8 @@
         "chat",
         "writing",
         "summarization",
-        "question_answering",
         "reasoning",
-        "vision_input"
+        "vision"
       ],
       "tier": "local_small",
       "params_in_billions": 4,

@@ -2,25 +2,52 @@
 
 The aggregator merges classifier outputs into an `Envelope`, picks a concrete model from the catalog, and returns a `PipelineResult`.
 
-## Confidence threshold
+## Certainty threshold
 
-Default: `0.6`. Configurable via `aggregator.confidenceThreshold` on `classifyOpenClassifyInput`.
+Default: `0.65`. Configurable via `aggregator.certaintyThreshold` on `classifyOpenClassifyInput`. `aggregator.confidenceThreshold` remains as a deprecated compatibility alias.
 
-Per-classifier signals with `confidence < threshold` (or missing confidence, treated as `0`) are dropped from aggregation. Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
+Per-classifier signals are emitted with `certainty` tags. The aggregator maps those tags to scores:
 
-Custom classifier outputs are surfaced regardless of confidence (callers can decide what to do with them), but the value still goes through schema validation.
+```ts
+{
+  no_signal: 0.00,
+  very_weak: 0.15,
+  weak: 0.30,
+  tentative: 0.45,
+  reasonable: 0.60,
+  strong: 0.75,
+  very_strong: 0.88,
+  near_certain: 0.97,
+}
+```
+
+Signals with scores below the threshold, or missing certainty, are dropped from aggregation. Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
+
+Custom classifier outputs are surfaced regardless of certainty (callers can decide what to do with them), but the value still goes through schema validation.
+
+## Whole-run certainty gate
+
+Before returning a normal `route`, the pipeline calculates mapped certainty scores for every classifier result, including custom classifiers. Missing certainty and fallback outputs without certainty count as `0`.
+
+`aggregator.certaintyGate` controls whether low whole-run certainty becomes `action: "block"`:
+
+- `min_score` (default) — compare the lowest classifier score to `certaintyThreshold`.
+- `avg_score` — compare the arithmetic mean of all classifier scores to `certaintyThreshold`.
+- `off` — do not block based on whole-run certainty.
+
+When this gate fires, `fired_by` is `"certainty_gate"` and `reason` / `audit.certainty_gate` include `kind: "low_certainty"`, the mode, threshold, observed score, per-classifier scores, and low classifier names.
 
 ## Routing axis merge
 
-`routing` and `model_specialization` both emit partial `RoutingSignal` shapes. For each axis (`model_tier`, `specialization`), the aggregator picks the highest-confidence confident value among the two classifiers. Tier comes from `routing`; specialization comes from `model_specialization` — but either classifier may emit either axis.
+`routing` and `model_specialization` both emit partial `RoutingSignal` shapes. For each axis (`model_tier`, `specialization`), the aggregator picks the highest-scored confident value among the two classifiers. Tier comes from `routing`; specialization comes from `model_specialization` — but either classifier may emit either axis.
 
 ## Short-circuits
 
 The pipeline aborts early when:
 
-1. `preflight.final_reply` is present with confidence ≥ threshold → `{ action: "answer", final_reply }`.
-2. `security.decision === "block"` with confidence ≥ threshold → `{ action: "block" }`.
-3. `security.decision === "needs_review"` with confidence ≥ threshold → `{ action: "needs_review" }`.
+1. `preflight.final_reply` is present with certainty score ≥ threshold → `{ action: "reply", reply: { text } }`.
+2. `security.risk_level === "high_risk"` with certainty score ≥ threshold → `{ action: "block" }`.
+3. `security.risk_level === "unknown"` with certainty score ≥ threshold → `{ action: "block" }`.
 
 Preflight is evaluated first (it's cheaper to gate). Only these two stock signals can short-circuit; custom classifiers cannot.
 
@@ -74,4 +101,4 @@ Drop reasons:
 After aggregation:
 
 - `result.classifier_outputs` is a flat `Record<name, unknown>` of validated custom outputs.
-- `result.audit.custom_outputs` is the same data with `reason` and `confidence` metadata attached.
+- `result.audit.custom_outputs` is the same data with `reason` and `certainty` metadata attached.

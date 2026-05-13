@@ -29,7 +29,6 @@ import {
 import {
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
-  SECURITY_DECISION_VALUES,
   SECURITY_RISK_LEVEL_VALUES,
   SECURITY_SIGNAL_VALUES,
 } from "./enums.js";
@@ -48,7 +47,6 @@ import type { OpenClassifyInput } from "./types.js";
 const CLASSIFIER_ENUMS = {
   downstream_model_tier: [...DOWNSTREAM_MODEL_TIER_VALUES],
   model_specialization: [...MODEL_SPECIALIZATION_VALUES],
-  security_decision: [...SECURITY_DECISION_VALUES],
   security_risk_level: [...SECURITY_RISK_LEVEL_VALUES],
   security_signal: [...SECURITY_SIGNAL_VALUES],
 };
@@ -219,6 +217,7 @@ async function classifyStream(
     const result = await classifyOpenClassifyInput(input, {
       runClassifier,
       catalog: loadCatalog(CATALOG_PATH),
+      aggregator: OPEN_CLASSIFY_CONFIG?.aggregator,
       signal: clientAbortController.signal,
     });
     send("pipeline_completed", result);

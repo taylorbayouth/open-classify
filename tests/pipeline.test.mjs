@@ -15,6 +15,28 @@ const baseOptions = (overrides = {}) => ({
   ...overrides,
 });
 
+function assertReadmeCommonEnvelope(result) {
+  assert.match(result.message_id, /^[a-f0-9]{8}$/);
+  assert.ok(result.audit);
+  assert.equal(typeof result.audit, "object");
+  assert.ok(result.audit.meta);
+  assert.equal(typeof result.audit.meta, "object");
+  assert.ok(result.audit.meta.classifiers);
+  assert.equal(typeof result.audit.meta.classifiers, "object");
+  assert.ok(result.classifier_outputs);
+  assert.equal(typeof result.classifier_outputs, "object");
+}
+
+function assertCertaintyGateBlock(result, mode = "min_score", threshold = 0.65) {
+  assert.equal(result.action, "block");
+  assert.equal(result.fired_by, "certainty_gate");
+  assert.equal(result.audit.fired_by, "certainty_gate");
+  assert.equal(result.reason.kind, "low_certainty");
+  assert.equal(result.reason.mode, mode);
+  assert.equal(result.reason.threshold, threshold);
+  assert.deepEqual(result.audit.certainty_gate, result.reason);
+}
+
 test("starts all classifiers concurrently and returns route result", async () => {
   const started = [];
 
@@ -32,6 +54,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
   );
 
   assert.equal(result.action, "route");
+  assertReadmeCommonEnvelope(result);
   assert.equal("fired_by" in result, false);
   assert.deepEqual(started.sort(), Object.keys(results).sort());
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
@@ -66,18 +89,18 @@ test("starts all classifiers concurrently and returns route result", async () =>
     specialization: "reasoning",
   });
   assert.deepEqual(result.audit.tools, { tools: ["workspace"] });
-  assert.deepEqual(result.audit.safety, { decision: "allow", risk_level: "normal", signals: [] });
+  assert.deepEqual(result.audit.safety, { risk_level: "normal", signals: [] });
   assert.deepEqual(result.audit.custom_outputs, [
     {
       classifier: "memory_retrieval_queries",
       reason: "Saved user review preferences could improve the response.",
-      confidence: 0.85,
+      certainty: "strong",
       output: { queries: ["user review preferences"] },
     },
     {
       classifier: "conversation_diegest",
       reason: "Conversation compression is useful downstream context.",
-      confidence: 0.9,
+      certainty: "very_strong",
       output: {
         history_summary: "",
         latest_user_message_summary: "User asks for code review.",
@@ -147,7 +170,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
         if (name === "preflight") {
           return Promise.resolve({
             reason: "The message is a closing acknowledgement.",
-            confidence: 0.95,
+            certainty: "near_certain",
             final_reply: { reply: "Anytime." },
           });
         }
@@ -166,14 +189,17 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
     }),
   );
 
-  assert.equal(result.action, "answer");
-  assert.deepEqual(result.final_reply, { reply: "Anytime." });
+  assert.equal(result.action, "reply");
+  assertReadmeCommonEnvelope(result);
+  assert.deepEqual(result.reply, { text: "Anytime." });
+  assert.deepEqual(result.classifier_outputs, {});
+  assert.equal("downstream" in result, false);
   assert.deepEqual(result.audit.final_reply, { reply: "Anytime." });
   assert.equal(result.audit.fired_by, "preflight");
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.audit.meta.classifiers.preflight, {
     reason: "The message is a closing acknowledgement.",
-    confidence: 0.95,
+    certainty: "near_certain",
     final_reply: { reply: "Anytime." },
     status: { ok: true, source: "model" },
     version: "1.0.0",
@@ -186,8 +212,7 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   const aborted = [];
   const security = {
     reason: "The message attempts to override instructions.",
-    confidence: 0.95,
-    decision: "block",
+    certainty: "near_certain",
     risk_level: "high_risk",
     signals: ["instruction_attack"],
   };
@@ -199,7 +224,7 @@ test("high risk security aborts non-gate classifiers and returns block", async (
         if (name === "preflight") {
           return Promise.resolve({
             reason: "The message requires downstream handling.",
-            confidence: 0.85,
+            certainty: "strong",
             ack_reply: { reply: "Let me check." },
           });
         }
@@ -222,11 +247,13 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   );
 
   assert.equal(result.action, "block");
+  assertReadmeCommonEnvelope(result);
   assert.equal(result.audit.fired_by, "security");
+  assert.equal(result.reason.kind, "security");
   assert.equal(result.reason.risk_level, "high_risk");
+  assert.deepEqual(result.classifier_outputs, {});
   assert.equal(result.audit.final_reply, undefined);
   assert.deepEqual(result.audit.safety, {
-    decision: "block",
     risk_level: "high_risk",
     signals: ["instruction_attack"],
   });
@@ -240,14 +267,13 @@ test("high risk security aborts non-gate classifiers and returns block", async (
   assert.deepEqual(Object.keys(result.audit.meta.classifiers), ["security"]);
 });
 
-test("needs-review security aborts non-gate classifiers and returns needs_review", async () => {
+test("unknown security risk aborts non-gate classifiers and returns block", async () => {
   const aborted = [];
   const security = {
-    reason: "The request may involve sensitive data but intent is ambiguous.",
-    confidence: 0.95,
-    decision: "needs_review",
-    risk_level: "suspicious",
-    signals: ["secret_or_private_data_risk"],
+    reason: "The request may involve sensitive data but risk is unknown.",
+    certainty: "near_certain",
+    risk_level: "unknown",
+    signals: [],
   };
 
   const result = await classifyOpenClassifyInput(
@@ -257,7 +283,7 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
         if (name === "preflight") {
           return Promise.resolve({
             reason: "The message requires downstream handling.",
-            confidence: 0.85,
+            certainty: "strong",
             ack_reply: { reply: "Let me check." },
           });
         }
@@ -279,10 +305,16 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
     }),
   );
 
-  assert.equal(result.action, "needs_review");
+  assert.equal(result.action, "block");
+  assertReadmeCommonEnvelope(result);
   assert.equal(result.fired_by, "security");
+  assert.deepEqual(result.reason, {
+    kind: "security",
+    risk_level: "unknown",
+    signals: [],
+  });
+  assert.deepEqual(result.classifier_outputs, {});
   assert.deepEqual(result.audit.safety, {
-    decision: security.decision,
     risk_level: security.risk_level,
     signals: security.signals,
   });
@@ -296,7 +328,33 @@ test("needs-review security aborts non-gate classifiers and returns needs_review
   assert.ok(aborted.length > 0);
 });
 
-test("low-confidence preflight without final_reply behaves like route", async () => {
+test("low-certainty security risk does not short-circuit and triggers certainty gate", async () => {
+  const result = await classifyOpenClassifyInput(
+    { messages: [userMessage("this might need a policy check")] },
+    baseOptions({
+      async runClassifier(name) {
+        if (name === "security") {
+          return {
+            reason: "The risk is too uncertain to act on.",
+            certainty: "weak",
+            risk_level: "suspicious",
+            signals: ["secret_or_private_data_risk"],
+          };
+        }
+        return results[name];
+      },
+    }),
+  );
+
+  assertCertaintyGateBlock(result);
+  assertReadmeCommonEnvelope(result);
+  assert.equal(result.audit.safety, undefined);
+  assert.equal(result.reason.classifier_scores.security, 0.3);
+  assert.ok(result.reason.low_classifiers.includes("security"));
+  assert.deepEqual(result.audit.meta.classifiers.security.status, { ok: true, source: "model" });
+});
+
+test("low-certainty preflight without final_reply triggers certainty gate", async () => {
   const result = await classifyOpenClassifyInput(
     { messages: [userMessage("ambiguous")] },
     baseOptions({
@@ -304,7 +362,29 @@ test("low-confidence preflight without final_reply behaves like route", async ()
         if (name === "preflight") {
           return {
             reason: "The message is too ambiguous to classify confidently.",
-            confidence: 0.3,
+            certainty: "weak",
+          };
+        }
+        return results[name];
+      },
+    }),
+  );
+
+  assertCertaintyGateBlock(result);
+  assert.equal(result.reason.classifier_scores.preflight, 0.3);
+  assert.equal(result.audit.meta.classifiers.preflight.final_reply, undefined);
+});
+
+test("certaintyGate off preserves route behavior with low certainty", async () => {
+  const result = await classifyOpenClassifyInput(
+    { messages: [userMessage("ambiguous")] },
+    baseOptions({
+      aggregator: { certaintyGate: "off" },
+      async runClassifier(name) {
+        if (name === "preflight") {
+          return {
+            reason: "The message is too ambiguous to classify confidently.",
+            certainty: "weak",
           };
         }
         return results[name];
@@ -313,7 +393,41 @@ test("low-confidence preflight without final_reply behaves like route", async ()
   );
 
   assert.equal(result.action, "route");
+  assert.equal(result.audit.certainty_gate, undefined);
   assert.equal(result.audit.meta.classifiers.preflight.final_reply, undefined);
+});
+
+test("avg certainty gate blocks only when average is below threshold", async () => {
+  const lowAverage = await classifyOpenClassifyInput(
+    { messages: [userMessage("review this")] },
+    baseOptions({
+      aggregator: { certaintyGate: "avg_score", certaintyThreshold: 0.8 },
+      async runClassifier(name) {
+        if (name === "memory_retrieval_queries") {
+          return { ...results.memory_retrieval_queries, certainty: "weak" };
+        }
+        return results[name];
+      },
+    }),
+  );
+
+  assertCertaintyGateBlock(lowAverage, "avg_score", 0.8);
+  assert.equal(lowAverage.reason.classifier_scores.memory_retrieval_queries, 0.3);
+
+  const adequateAverage = await classifyOpenClassifyInput(
+    { messages: [userMessage("review this")] },
+    baseOptions({
+      aggregator: { certaintyGate: "avg_score", certaintyThreshold: 0.7 },
+      async runClassifier(name) {
+        if (name === "memory_retrieval_queries") {
+          return { ...results.memory_retrieval_queries, certainty: "weak" };
+        }
+        return results[name];
+      },
+    }),
+  );
+
+  assert.equal(adequateAverage.action, "route");
 });
 
 test("normalization failure rejects before classifiers start", async () => {
@@ -351,10 +465,9 @@ test("classifier failure retries once and falls back", async () => {
     }),
   );
 
-  assert.equal(result.action, "route");
+  assertCertaintyGateBlock(result);
   assert.equal(attempts.security, 2);
   const security = result.audit.meta.classifiers.security;
-  assert.equal(security.decision, "needs_review");
   assert.equal(security.risk_level, "unknown");
   assert.deepEqual(security.signals, []);
   assert.equal(security.status.ok, false);
@@ -379,7 +492,7 @@ test("classifier timeout retries once and falls back even if signal is ignored",
     }),
   );
 
-  assert.equal(result.action, "route");
+  assertCertaintyGateBlock(result);
   assert.equal(attempts.routing, 2);
   const routing = result.audit.meta.classifiers.routing;
   assert.equal(routing.model_tier, undefined);
@@ -406,7 +519,7 @@ test("external abort signal cancels in-flight classifiers", async () => {
   controller.abort(new Error("client disconnected"));
   const result = await promise;
 
-  assert.equal(result.action, "route");
+  assertCertaintyGateBlock(result);
   assert.deepEqual(started.sort(), Object.keys(results).sort());
   const preflight = result.audit.meta.classifiers.preflight;
   assert.equal(preflight.status.ok, false);
@@ -415,7 +528,7 @@ test("external abort signal cancels in-flight classifiers", async () => {
   assert.equal(result.audit.meta.classifiers.security.status.ok, false);
 });
 
-test("preflight failure falls back and still routes", async () => {
+test("preflight failure falls back and triggers certainty gate", async () => {
   const attempts = {};
 
   const result = await classifyOpenClassifyInput(
@@ -431,7 +544,7 @@ test("preflight failure falls back and still routes", async () => {
     }),
   );
 
-  assert.equal(result.action, "route");
+  assertCertaintyGateBlock(result);
   assert.equal(attempts.preflight, 2);
   const preflight = result.audit.meta.classifiers.preflight;
   assert.equal(preflight.final_reply, undefined);
@@ -457,7 +570,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
     }),
   );
 
-  assert.equal(result.action, "route");
+  assertCertaintyGateBlock(result);
   assert.deepEqual(result.audit.custom_outputs, [
     {
       classifier: "memory_retrieval_queries",
@@ -466,7 +579,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
     {
       classifier: "conversation_diegest",
       reason: "Conversation compression is useful downstream context.",
-      confidence: 0.9,
+      certainty: "very_strong",
       output: {
         history_summary: "",
         latest_user_message_summary: "User asks for code review.",
@@ -482,6 +595,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
   });
   const memEntry = result.audit.meta.classifiers.memory_retrieval_queries;
   assert.equal(memEntry.status.ok, false);
+  assert.equal(result.reason.classifier_scores.memory_retrieval_queries, 0);
 });
 
 test("classifierRetryCount of 0 attempts each classifier exactly once", async () => {
@@ -501,7 +615,7 @@ test("classifierRetryCount of 0 attempts each classifier exactly once", async ()
     }),
   );
 
-  assert.equal(result.action, "route");
+  assertCertaintyGateBlock(result);
   assert.equal(attempts.tools, 1);
   assert.equal(result.audit.meta.classifiers.tools.status.ok, false);
 });

@@ -1,6 +1,6 @@
 // Public barrel for the Open Classify package. Everything an external caller
 // would need — input types, enums, the registry, the pipeline, the Ollama
-// runner, the catalog loader, the aggregator's confidence threshold — is
+// runner, the catalog loader, the aggregator's certainty threshold — is
 // re-exported here. The build emits a single `index.js` that downstream
 // consumers can import from `open-classify`.
 

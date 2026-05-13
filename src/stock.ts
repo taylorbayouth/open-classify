@@ -1,7 +1,6 @@
 import type {
   DownstreamModelTier,
   ModelSpecialization,
-  SecurityDecision,
 } from "./enums.js";
 
 export interface StockClassifierMessageInput {
@@ -17,9 +16,9 @@ export interface StockClassifierInput {
 //
 // Each stock signal is the canonical shape for the corresponding Envelope
 // slot. Stock classifier outputs extend their signal with optional reason +
-// confidence — those metadata live on the signal itself, not on a separate
+// certainty — those metadata live on the signal itself, not on a separate
 // wrapper, so a classifier that has nothing to say doesn't return empty
-// reason/confidence metadata about nothing.
+// reason/certainty metadata about nothing.
 
 export interface FinalReplySignal {
   readonly reply: string;
@@ -47,20 +46,51 @@ export interface ToolsSignal {
 }
 
 export interface SafetySignal {
-  readonly decision?: SecurityDecision;
   readonly risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
   readonly signals: ReadonlyArray<string>;
 }
 
 // ─── Per-classifier output types ────────────────────────────────────────────
 //
-// `reason` (≤120 chars) and `confidence` (0–1) are optional metadata that
-// every classifier may attach to its emitted signal. Treat absent confidence
+// `reason` (≤120 chars) and `certainty` are optional metadata that every
+// classifier may attach to its emitted signal. Treat absent certainty
 // as 0 in the aggregator.
+
+export type Certainty =
+  | "no_signal"
+  | "very_weak"
+  | "weak"
+  | "tentative"
+  | "reasonable"
+  | "strong"
+  | "very_strong"
+  | "near_certain";
+
+export const CERTAINTY_VALUES = [
+  "no_signal",
+  "very_weak",
+  "weak",
+  "tentative",
+  "reasonable",
+  "strong",
+  "very_strong",
+  "near_certain",
+] as const satisfies readonly Certainty[];
+
+export const certaintyScore: Record<Certainty, number> = {
+  no_signal: 0.00,
+  very_weak: 0.15,
+  weak: 0.30,
+  tentative: 0.45,
+  reasonable: 0.60,
+  strong: 0.75,
+  very_strong: 0.88,
+  near_certain: 0.97,
+};
 
 export interface ClassifierOutputMetadata {
   readonly reason?: string;
-  readonly confidence?: number;
+  readonly certainty?: Certainty;
 }
 
 export interface PreflightClassifierOutput extends ClassifierOutputMetadata {
@@ -168,6 +198,6 @@ export function isCustomManifest(
 export interface CustomClassifierOutput {
   readonly classifier: string;
   readonly reason?: string;
-  readonly confidence?: number;
+  readonly certainty?: Certainty;
   readonly output: unknown;
 }

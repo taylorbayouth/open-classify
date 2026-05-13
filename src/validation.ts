@@ -123,50 +123,6 @@ export function requireEnum<const Values extends readonly string[]>(
   return value;
 }
 
-// `confidence` must be a finite number in [0, 1]. Required on every
-// classifier output (ClassifierResultBase); fallback shapes use 0.
-export function requireConfidence(
-  value: unknown,
-  classifier: string,
-  model: string,
-  path = "confidence",
-): number {
-  const confidence = normalizeConfidence(value);
-  if (
-    typeof confidence !== "number" ||
-    !Number.isFinite(confidence) ||
-    confidence < 0 ||
-    confidence > 1
-  ) {
-    throwInvalid(classifier, model, `${path} must be a number between 0 and 1 inclusive`);
-  }
-  return confidence;
-}
-
-function normalizeConfidence(value: unknown): unknown {
-  if (typeof value === "number") {
-    return value > 1 && value <= 100 ? value / 100 : value;
-  }
-  if (typeof value !== "string") return value;
-
-  const text = value.trim().toLowerCase();
-  if (text === "") return value;
-  if (text.endsWith("%")) {
-    const percent = Number(text.slice(0, -1).trim());
-    return Number.isFinite(percent) ? percent / 100 : value;
-  }
-
-  const numeric = Number(text);
-  if (Number.isFinite(numeric)) {
-    return numeric > 1 && numeric <= 100 ? numeric / 100 : numeric;
-  }
-
-  if (text === "high") return 0.9;
-  if (text === "medium") return 0.5;
-  if (text === "low") return 0.2;
-  return value;
-}
-
 export function ensureExactKeys(
   value: Record<string, unknown>,
   keys: readonly string[],

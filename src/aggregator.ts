@@ -10,6 +10,7 @@ import type {
 } from "./manifest.js";
 import type {
   AckReplySignal,
+  Certainty,
   ClassifierOutput,
   CustomClassifierOutput,
   CustomClassifierOutputValue,
@@ -24,10 +25,12 @@ import type {
   ToolsClassifierOutput,
   ToolsSignal,
 } from "./stock.js";
-import { isCustomManifest, isStockManifest } from "./stock.js";
+import { certaintyScore, isCustomManifest, isStockManifest } from "./stock.js";
 import type { ClassifierInput } from "./types.js";
 
-export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
+export const DEFAULT_CERTAINTY_THRESHOLD = 0.65;
+/** @deprecated Use DEFAULT_CERTAINTY_THRESHOLD. */
+export const DEFAULT_CONFIDENCE_THRESHOLD = DEFAULT_CERTAINTY_THRESHOLD;
 
 export interface ComposeEnvelopeArgs {
   readonly registry: ClassifierRegistry;
@@ -39,7 +42,7 @@ export interface ComposeEnvelopeArgs {
 
 export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
   const { registry, results, catalog, config } = args;
-  const threshold = config?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+  const threshold = certaintyThreshold(config);
 
   const stockByName = stockResultsByName(registry, results);
   const preflight = stockByName.preflight as PreflightClassifierOutput | undefined;
@@ -75,6 +78,10 @@ export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
   return envelope;
 }
 
+export function certaintyThreshold(config: AggregatorConfig | undefined): number {
+  return config?.certaintyThreshold ?? config?.confidenceThreshold ?? DEFAULT_CERTAINTY_THRESHOLD;
+}
+
 function optional<Key extends keyof Envelope>(
   key: Key,
   value: Envelope[Key] | undefined,
@@ -98,11 +105,11 @@ function stockResultsByName(
 }
 
 function isConfident(
-  result: { confidence?: number } | undefined,
+  result: { certainty?: Certainty } | undefined,
   threshold: number,
 ): boolean {
   if (!result) return false;
-  return (result.confidence ?? 0) >= threshold;
+  return scoreCertainty(result.certainty) >= threshold;
 }
 
 function mergeRouting(
@@ -130,14 +137,14 @@ function mergeRouting(
 }
 
 function pickConfidentAxis<T>(
-  candidates: ReadonlyArray<[string, { confidence?: number } | undefined, T | undefined]>,
+  candidates: ReadonlyArray<[string, { certainty?: Certainty } | undefined, T | undefined]>,
   threshold: number,
 ): T | undefined {
   let best: { value: T; confidence: number } | undefined;
   for (const [, source, value] of candidates) {
     if (value === undefined) continue;
     if (!isConfident(source, threshold)) continue;
-    const confidence = source!.confidence ?? 0;
+    const confidence = scoreCertainty(source!.certainty);
     if (best === undefined || confidence > best.confidence) {
       best = { value, confidence };
     }
@@ -149,9 +156,9 @@ function routingMaxConfidence(
   routing: RoutingClassifierOutput | undefined,
   modelSpec: ModelSpecializationClassifierOutput | undefined,
 ): number | undefined {
-  const values = [routing?.confidence, modelSpec?.confidence].filter(
-    (v): v is number => typeof v === "number",
-  );
+  const values = [routing?.certainty, modelSpec?.certainty]
+    .filter((v): v is Certainty => v !== undefined)
+    .map(scoreCertainty);
   if (values.length === 0) return undefined;
   return Math.max(...values);
 }
@@ -162,7 +169,6 @@ function extractToolsSignal(result: ToolsClassifierOutput): ToolsSignal {
 
 function extractSafetySignal(result: SecurityClassifierOutput): SafetySignal {
   return {
-    ...(result.decision === undefined ? {} : { decision: result.decision }),
     risk_level: result.risk_level,
     signals: result.signals,
   };
@@ -180,7 +186,7 @@ function customOutputs(
     out.push({
       classifier: manifest.name,
       ...(result.reason === undefined ? {} : { reason: result.reason }),
-      ...(result.confidence === undefined ? {} : { confidence: result.confidence }),
+      ...(result.certainty === undefined ? {} : { certainty: result.certainty }),
       output: result.output,
     });
   }
@@ -212,13 +218,17 @@ function lowConfidenceRoutingDrops(
 }
 
 function hasLowConfidenceAxis(
-  result: ({ confidence?: number } & RoutingSignal) | undefined,
+  result: ({ certainty?: Certainty } & RoutingSignal) | undefined,
   field: "model_tier" | "specialization",
   threshold: number,
 ): boolean {
   if (!result) return false;
   if (result[field] === undefined) return false;
-  return (result.confidence ?? 0) < threshold;
+  return scoreCertainty(result.certainty) < threshold;
+}
+
+function scoreCertainty(certainty: Certainty | undefined): number {
+  return certainty === undefined ? 0 : certaintyScore[certainty];
 }
 
 export function resolveModelFromRouting(

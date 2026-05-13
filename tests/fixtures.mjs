@@ -2,26 +2,26 @@
 
 // Sample valid outputs for each built-in classifier manifest, in the new
 // flat-per-signal shape: each classifier's output IS its signal, with optional
-// reason/confidence metadata attached.
+// reason/certainty metadata attached.
 export const validClassifierOutputs = {
   preflight: {
     reason: "The latest message requires downstream work.",
-    confidence: 0.85,
+    certainty: "strong",
     ack_reply: { reply: "Let me check." },
   },
   routing: {
     reason: "The request needs moderate reasoning.",
-    confidence: 0.85,
+    certainty: "strong",
     model_tier: "local_strong",
   },
   memory_retrieval_queries: {
     reason: "Saved user review preferences could improve the response.",
-    confidence: 0.85,
+    certainty: "strong",
     output: { queries: ["user review preferences"] },
   },
   conversation_diegest: {
     reason: "Conversation compression is useful downstream context.",
-    confidence: 0.9,
+    certainty: "very_strong",
     output: {
       history_summary: "",
       latest_user_message_summary: "User asks for code review.",
@@ -29,18 +29,17 @@ export const validClassifierOutputs = {
   },
   tools: {
     reason: "The request requires code access.",
-    confidence: 0.9,
+    certainty: "very_strong",
     tools: ["workspace"],
   },
   model_specialization: {
     reason: "The request asks for evaluative review.",
-    confidence: 0.85,
+    certainty: "strong",
     specialization: "reasoning",
   },
   security: {
     reason: "No notable risk.",
-    confidence: 0.95,
-    decision: "allow",
+    certainty: "near_certain",
     risk_level: "normal",
     signals: [],
   },
@@ -52,7 +51,7 @@ export const TEST_CATALOG = {
   models: [
     {
       id: "gpt-5.5",
-      specializations: ["chat", "writing", "reasoning", "planning", "coding", "instruction_following"],
+      specializations: ["chat", "writing", "reasoning", "planning", "coding", "tool_use"],
       tier: "frontier_strong",
       params_in_billions: null,
       context_window: 1050000,
@@ -62,7 +61,7 @@ export const TEST_CATALOG = {
     },
     {
       id: "gpt-5.4-mini",
-      specializations: ["chat", "writing", "reasoning", "planning", "instruction_following"],
+      specializations: ["chat", "writing", "reasoning", "planning"],
       tier: "frontier_fast",
       params_in_billions: 15,
       context_window: 200000,
@@ -79,7 +78,7 @@ export const TEST_CATALOG = {
     },
     {
       id: "gemma4:e4b-it-q4_K_M",
-      specializations: ["chat", "writing", "reasoning", "planning", "instruction_following"],
+      specializations: ["chat", "writing", "reasoning", "planning"],
       tier: "local_strong",
       params_in_billions: 4,
       context_window: 131072,

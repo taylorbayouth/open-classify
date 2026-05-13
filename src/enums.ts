@@ -22,36 +22,20 @@ export type DownstreamModelTier = (typeof DOWNSTREAM_MODEL_TIER_VALUES)[number];
 // Which kind of model/prompt specialization fits the request best. Combined
 // with the tier to look up a concrete model in the catalog.
 export const MODEL_SPECIALIZATION_VALUES = [
-  "agentic_coding",
-  "agentic_workflows",
   "chat",
-  "code_fixing",
-  "code_reasoning",
-  "code_review",
-  "writing",
   "reasoning",
   "planning",
-  "coding",
-  "computer_use",
-  "debugging",
-  "instruction_following",
-  "question_answering",
-  "subagents",
+  "writing",
   "summarization",
-  "tool_assisted_coding",
-  "vision_input",
+  "coding",
+  "tool_use",
+  "computer_use",
+  "vision",
 ] as const;
 export type ModelSpecialization = (typeof MODEL_SPECIALIZATION_VALUES)[number];
 
-export const SECURITY_DECISION_VALUES = [
-  "allow",
-  "block",
-  "needs_review",
-] as const;
-export type SecurityDecision = (typeof SECURITY_DECISION_VALUES)[number];
-
-// Overall safety posture on the latest user message. Security short-circuiting
-// is driven by safety.decision, not risk level alone.
+// Overall safety posture on the latest user message. The pipeline blocks
+// confident high_risk and unknown security outputs.
 export const SECURITY_RISK_LEVEL_VALUES = [
   "normal",
   "suspicious",
@@ -60,8 +44,8 @@ export const SECURITY_RISK_LEVEL_VALUES = [
 ] as const;
 export type SecurityRiskLevel = (typeof SECURITY_RISK_LEVEL_VALUES)[number];
 
-// Specific safety concerns the security classifier can flag. These are
-// advisory; safety.decision controls whether the pipeline blocks or needs review.
+// Specific safety concerns the security classifier can flag. These are evidence
+// labels, not actions; risk_level controls whether the pipeline blocks.
 export const SECURITY_SIGNAL_VALUES = [
   "instruction_attack",
   "secret_or_private_data_risk",

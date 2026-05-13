@@ -73,27 +73,30 @@ test("rejects undeclared fields on a security output", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { decision: "allow", risk_level: "normal", signals: [], extra: 1 },
+        { risk_level: "normal", signals: [], extra: 1 },
         { classifier: "security", model: "test" },
       ),
     /extra is not a supported field/,
   );
 });
 
-test("normalizes common confidence formats", () => {
+test("validates certainty labels", () => {
   const manifest = security();
-  for (const [confidence, expected] of [
-    [95, 0.95],
-    ["95%", 0.95],
-    ["high", 0.9],
-  ]) {
-    const output = validateOutputForManifest(
-      manifest,
-      { reason: "ok", confidence, decision: "allow", risk_level: "normal", signals: [] },
-      { classifier: "security", model: "test" },
-    );
-    assert.equal(output.confidence, expected);
-  }
+  const output = validateOutputForManifest(
+    manifest,
+    { reason: "ok", certainty: "near_certain", risk_level: "normal", signals: [] },
+    { classifier: "security", model: "test" },
+  );
+  assert.equal(output.certainty, "near_certain");
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "ok", certainty: "high", risk_level: "normal", signals: [] },
+        { classifier: "security", model: "test" },
+      ),
+    /certainty has an unsupported value/,
+  );
 });
 
 test("validates a routing classifier output", () => {
@@ -107,7 +110,7 @@ test("validates a routing classifier output", () => {
   });
   const output = validateOutputForManifest(
     manifest,
-    { reason: "ok", confidence: 0.9, model_tier: "frontier_fast" },
+    { reason: "ok", certainty: "very_strong", model_tier: "frontier_fast" },
     { classifier: "routing", model: "test" },
   );
   assert.equal(output.model_tier, "frontier_fast");
@@ -126,19 +129,19 @@ test("routing treats null and blank tier as omitted", () => {
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", confidence: 0.4, model_tier: null },
+      { reason: "unsure", certainty: "tentative", model_tier: null },
       { classifier: "routing", model: "test" },
     ),
-    { reason: "unsure", confidence: 0.4 },
+    { reason: "unsure", certainty: "tentative" },
   );
 
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", confidence: 0.4, model_tier: "   " },
+      { reason: "unsure", certainty: "tentative", model_tier: "   " },
       { classifier: "routing", model: "test" },
     ),
-    { reason: "unsure", confidence: 0.4 },
+    { reason: "unsure", certainty: "tentative" },
   );
 });
 
@@ -156,7 +159,7 @@ test("routing rejects specialization output", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "wrong axis", confidence: 0.9, specialization: "question_answering" },
+        { reason: "wrong axis", certainty: "very_strong", specialization: "chat" },
         { classifier: "routing", model: "test" },
       ),
     /specialization is not a supported field/,
@@ -177,7 +180,7 @@ test("model_specialization rejects tier output", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "wrong axis", confidence: 0.9, model_tier: "frontier_fast" },
+        { reason: "wrong axis", certainty: "very_strong", model_tier: "frontier_fast" },
         { classifier: "model_specialization", model: "test" },
       ),
     /model_tier is not a supported field/,
@@ -197,19 +200,19 @@ test("model_specialization treats null and blank specialization as omitted", () 
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", confidence: 0.4, specialization: null },
+      { reason: "unsure", certainty: "tentative", specialization: null },
       { classifier: "model_specialization", model: "test" },
     ),
-    { reason: "unsure", confidence: 0.4 },
+    { reason: "unsure", certainty: "tentative" },
   );
 
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", confidence: 0.4, specialization: "" },
+      { reason: "unsure", certainty: "tentative", specialization: "" },
       { classifier: "model_specialization", model: "test" },
     ),
-    { reason: "unsure", confidence: 0.4 },
+    { reason: "unsure", certainty: "tentative" },
   );
 });
 
@@ -229,7 +232,7 @@ test("preflight rejects emitting final_reply and ack_reply together", () => {
         manifest,
         {
           reason: "Conflicting replies.",
-          confidence: 0.9,
+          certainty: "very_strong",
           final_reply: { reply: "Hi." },
           ack_reply: { reply: "Working on it." },
         },
@@ -244,42 +247,42 @@ test("validates tools output and allow-list", () => {
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "Needs repo.", confidence: 0.88, tools: ["repo"] },
+      { reason: "Needs repo.", certainty: "very_strong", tools: ["repo"] },
       { classifier: "tools", model: "test" },
     ),
-    { reason: "Needs repo.", confidence: 0.88, tools: ["repo"] },
+    { reason: "Needs repo.", certainty: "very_strong", tools: ["repo"] },
   );
 
   assert.throws(
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "Needs mail.", confidence: 0.88, tools: ["email"] },
+        { reason: "Needs mail.", certainty: "very_strong", tools: ["email"] },
         { classifier: "tools", model: "test" },
       ),
     /unsupported tool email/,
   );
 });
 
-test("validates safety risk_level / signals / decision consistency", () => {
+test("validates safety risk_level / signals consistency", () => {
   assert.ok(SECURITY_RISK_LEVEL_VALUES.includes("unknown"));
 
   const manifest = security();
   const output = validateOutputForManifest(
     manifest,
-    { reason: "Allow.", confidence: 0.9, decision: "allow", risk_level: "normal", signals: [] },
+    { reason: "Allow.", certainty: "very_strong", risk_level: "normal", signals: [] },
     { classifier: "security", model: "test" },
   );
-  assert.equal(output.decision, "allow");
+  assert.equal(output.risk_level, "normal");
 
   assert.throws(
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "Bad.", confidence: 0.9, decision: "block", risk_level: "suspicious", signals: ["instruction_attack"] },
+        { reason: "Bad.", certainty: "very_strong", risk_level: "suspicious", signals: [] },
         { classifier: "security", model: "test" },
       ),
-    /block requires high_risk/,
+    /elevated risk_level must include at least one signal/,
   );
 });
 
@@ -321,7 +324,7 @@ test("normalizes tool aliases", () => {
   });
   const output = validateOutputForManifest(
     manifest,
-    { reason: "Needs current data.", confidence: 0.88, tools: ["web_browsing"] },
+    { reason: "Needs current data.", certainty: "very_strong", tools: ["web_browsing"] },
     { classifier: "tools", model: "test" },
   );
   assert.deepEqual(output.tools, ["web"]);
@@ -378,7 +381,7 @@ test("custom output is validated against schema", () => {
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "Memory may help.", confidence: 0.8, output: { queries: ["review preferences"] } },
+      { reason: "Memory may help.", certainty: "strong", output: { queries: ["review preferences"] } },
       { classifier: "memory", model: "test" },
     ).output,
     { queries: ["review preferences"] },
@@ -388,7 +391,7 @@ test("custom output is validated against schema", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "bad", confidence: 0.8, output: { queries: [""] } },
+        { reason: "bad", certainty: "strong", output: { queries: [""] } },
         { classifier: "memory", model: "test" },
       ),
     /must NOT have fewer than 1 characters/,

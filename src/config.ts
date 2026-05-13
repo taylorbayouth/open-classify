@@ -1,5 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { REGISTRY, type ClassifierName } from "./classifiers.js";
+import {
+  CERTAINTY_GATE_MODES,
+  type AggregatorConfig,
+  type CertaintyGateMode,
+} from "./manifest.js";
 import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import { isRecord } from "./validation.js";
 
@@ -8,6 +13,7 @@ export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
 export interface OpenClassifyConfig {
   readonly runner?: OllamaRunnerConfig;
   readonly catalog?: string;
+  readonly aggregator?: AggregatorConfig;
 }
 
 export interface OllamaRunnerConfig {
@@ -73,11 +79,30 @@ export function validateOpenClassifyConfig(
   if (!isRecord(value)) {
     throwConfig(path, "config must be a JSON object");
   }
-  ensureAllowedKeys(value, ["runner", "catalog"], path, "<root>");
+  ensureAllowedKeys(value, ["runner", "catalog", "aggregator"], path, "<root>");
 
   return {
     ...(value.runner === undefined ? {} : { runner: validateRunner(value.runner, path) }),
     ...(value.catalog === undefined ? {} : { catalog: requireString(value.catalog, path, "catalog") }),
+    ...(value.aggregator === undefined ? {} : { aggregator: validateAggregator(value.aggregator, path) }),
+  };
+}
+
+function validateAggregator(value: unknown, path: string): AggregatorConfig {
+  if (!isRecord(value)) {
+    throwConfig(path, "aggregator must be an object");
+  }
+  ensureAllowedKeys(value, ["certaintyThreshold", "confidenceThreshold", "certaintyGate"], path, "aggregator");
+  return {
+    ...(value.certaintyThreshold === undefined
+      ? {}
+      : { certaintyThreshold: requireUnitFloat(value.certaintyThreshold, path, "aggregator.certaintyThreshold") }),
+    ...(value.confidenceThreshold === undefined
+      ? {}
+      : { confidenceThreshold: requireUnitFloat(value.confidenceThreshold, path, "aggregator.confidenceThreshold") }),
+    ...(value.certaintyGate === undefined
+      ? {}
+      : { certaintyGate: requireCertaintyGateMode(value.certaintyGate, path, "aggregator.certaintyGate") }),
   };
 }
 
@@ -183,6 +208,25 @@ function requireNumber(value: unknown, path: string, field: string): number {
     throwConfig(path, `${field} must be a finite number`);
   }
   return value;
+}
+
+function requireUnitFloat(value: unknown, path: string, field: string): number {
+  const number = requireNumber(value, path, field);
+  if (number < 0 || number > 1) {
+    throwConfig(path, `${field} must be a finite number between 0 and 1 inclusive`);
+  }
+  return number;
+}
+
+function requireCertaintyGateMode(
+  value: unknown,
+  path: string,
+  field: string,
+): CertaintyGateMode {
+  if (typeof value !== "string" || !CERTAINTY_GATE_MODES.includes(value as CertaintyGateMode)) {
+    throwConfig(path, `${field} must be one of ${CERTAINTY_GATE_MODES.join(", ")}`);
+  }
+  return value as CertaintyGateMode;
 }
 
 function ensureAllowedKeys(

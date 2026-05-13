@@ -1,22 +1,34 @@
 # Signal contracts
 
-Stock classifier outputs are typed signals. Every output may carry optional `reason` (≤120 chars) and `confidence` (0–1). Below-threshold signals are dropped from aggregation (default threshold: `0.6`).
+Stock classifier outputs are typed signals. Every output may carry optional `reason` (≤120 chars) and `certainty`. The aggregator maps certainty tags to numeric scores and drops below-threshold signals (default threshold: `0.65`).
+
+```ts
+type Certainty =
+  | "no_signal"
+  | "very_weak"
+  | "weak"
+  | "tentative"
+  | "reasonable"
+  | "strong"
+  | "very_strong"
+  | "near_certain";
+```
 
 ## `preflight` — `FinalReplySignal | AckReplySignal`
 
 ```ts
 {
-  final_reply?: { reply: string };  // ≤200 chars; short-circuits to action=answer
+  final_reply?: { reply: string };  // ≤200 chars; short-circuits to action=reply
   ack_reply?:   { reply: string };  // ≤200 chars; passthrough to caller
   reason?: string;
-  confidence?: number;
+  certainty?: Certainty;
 }
 ```
 
 - Emit `final_reply` only for tiny terminal answers (greetings, thanks, simple arithmetic). Never for drafting, analysis, or generated work.
 - Emit `ack_reply` when downstream work should continue and a courtesy acknowledgement helps.
 - `final_reply` and `ack_reply` are mutually exclusive.
-- A confident `final_reply` aborts the pipeline and returns `{ action: "answer", final_reply }`.
+- A confident `final_reply` aborts the pipeline and returns `{ action: "reply", reply: { text } }`.
 
 ## `routing` — `RoutingSignal` (tier axis)
 
@@ -25,7 +37,7 @@ Stock classifier outputs are typed signals. Every output may carry optional `rea
   model_tier?: "local_fast" | "local_small" | "local_strong" | "local_coding"
              | "frontier_fast" | "frontier_strong" | "frontier_coding";
   reason?: string;
-  confidence?: number;
+  certainty?: Certainty;
 }
 ```
 
@@ -35,14 +47,14 @@ Tier feeds the catalog resolver as a soft constraint.
 
 ```ts
 {
-  specialization?: "chat" | "writing" | "reasoning" | "planning" | "coding"
-                 | "instruction_following" | /* ... full enum in src/enums.ts ... */;
+  specialization?: "chat" | "reasoning" | "planning" | "writing" | "summarization"
+                 | "coding" | "tool_use" | "computer_use" | "vision";
   reason?: string;
-  confidence?: number;
+  certainty?: Certainty;
 }
 ```
 
-`routing` and `model_specialization` both emit partial `RoutingSignal` shapes. The aggregator picks the highest-confidence value per axis.
+`routing` and `model_specialization` both emit partial `RoutingSignal` shapes. The aggregator picks the highest-scored certainty value per axis.
 
 ## `tools` — `ToolsSignal`
 
@@ -50,7 +62,7 @@ Tier feeds the catalog resolver as a soft constraint.
 {
   tools: string[];
   reason?: string;
-  confidence?: number;
+  certainty?: Certainty;
 }
 ```
 
@@ -62,11 +74,10 @@ Tier feeds the catalog resolver as a soft constraint.
 
 ```ts
 {
-  decision?: "allow" | "block" | "needs_review";
   risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
   signals: string[];
   reason?: string;
-  confidence?: number;
+  certainty?: Certainty;
 }
 ```
 
@@ -74,13 +85,11 @@ Validation:
 
 - `normal` and `unknown` must have an empty `signals` array.
 - `suspicious` and `high_risk` must include at least one signal.
-- `decision: "block"` requires `risk_level: "high_risk"`.
-- `decision: "allow"` must not use `risk_level: "high_risk"`.
 
 Short-circuit behavior:
 
-- Confident `decision: "block"` → `{ action: "block", reason: { risk_level, signals } }`.
-- Confident `decision: "needs_review"` → `{ action: "needs_review", reason: { risk_level, signals } }`.
+- Confident `risk_level: "high_risk"` → `{ action: "block", reason: { kind: "security", risk_level, signals } }`.
+- Confident `risk_level: "unknown"` → `{ action: "block", reason: { kind: "security", risk_level, signals } }`.
 
 Built-in signal vocabulary: `instruction_attack`, `secret_or_private_data_risk`, `unsafe_tool_or_action`, `untrusted_content_or_code`, `injection_or_obfuscation`.
 
@@ -92,7 +101,7 @@ Custom classifiers emit an opaque `output` value validated against `output_schem
 {
   output: unknown;        // matches manifest output_schema
   reason?: string;
-  confidence?: number;
+  certainty?: Certainty;
 }
 ```
 

@@ -369,7 +369,11 @@ function renderPipeline(result) {
     }
   }
 
-  if (result.action !== "route" && result.audit?.fired_by) {
+  if (
+    result.action !== "route" &&
+    result.audit?.fired_by &&
+    state.classifierNames.includes(result.audit.fired_by)
+  ) {
     updateClassifier(result.audit.fired_by, { shortCircuited: true });
     cancelClassifiersExcept([result.audit.fired_by]);
   }
@@ -379,7 +383,7 @@ function renderPipeline(result) {
 
 function pipelineState(result) {
   if (result.action === "block") return "block";
-  if (result.action === "answer") return "terminal";
+  if (result.action === "reply") return "terminal";
   return "complete";
 }
 
@@ -403,7 +407,7 @@ function renderAggregate(result) {
       ? "teal"
       : security === "block"
       ? "red"
-      : security === "needs_review"
+      : security === "unknown" || security === "suspicious"
       ? "amber"
       : "";
 
@@ -472,7 +476,7 @@ function buildDisplayResult(result) {
   return {
     model: selectedModel(result),
     action: result.action,
-    security: { decision: securityDecision(result) },
+    security: { risk_level: securityDecision(result) },
     hash: result.message_id,
     latency_seconds: pipelineLatencySeconds(),
     classifiers: Object.fromEntries(stockClassifierOutputs(result)),
@@ -484,7 +488,7 @@ function selectedModel(result) {
 }
 
 function securityDecision(result) {
-  return result.audit?.meta?.classifiers?.security?.decision ?? result.audit?.safety?.decision;
+  return result.audit?.meta?.classifiers?.security?.risk_level ?? result.audit?.safety?.risk_level;
 }
 
 function stockClassifierOutputs(result) {
@@ -574,14 +578,14 @@ function renderClassifier(name) {
   const accent = kind === "custom" ? " accent" : "";
 
   const reason = item.result?.reason;
-  const confidence = item.result?.confidence;
+  const certainty = item.result?.certainty;
   const reasonPill =
     reason && (item.status === "done" || item.status === "fallback")
       ? `<span class="pill reason" tabindex="0">Reason<span class="pill-tooltip">${escapeHtml(reason)}</span></span>`
       : "";
-  const confidencePill =
-    typeof confidence === "number"
-      ? `<span class="pill-text confident">${(confidence * 100).toFixed(1)}% confident</span>`
+  const certaintyPill =
+    typeof certainty === "string"
+      ? `<span class="pill-text confident">${escapeHtml(certainty.replaceAll("_", " "))}</span>`
       : "";
   const statusPill = renderStatusPill(item);
   const elapsedHtml = `<span class="pill-text elapsed" data-name="${escapeHtml(name)}">${formatElapsed(item)}</span>`;
@@ -606,7 +610,7 @@ function renderClassifier(name) {
       </div>
       ${shortCircuit}
       ${renderDetails(name, item)}
-      <div class="card-foot">${confidencePill}</div>
+      <div class="card-foot">${certaintyPill}</div>
     </article>
   `;
 }
@@ -694,7 +698,7 @@ function emptyStateText(status) {
 function renderClassifierResult(result) {
   const entries = Object.entries(result)
     .filter(
-      ([key]) => key !== "version" && key !== "status" && key !== "reason" && key !== "confidence",
+      ([key]) => key !== "version" && key !== "status" && key !== "reason" && key !== "certainty",
     )
     .filter(([, value]) => !isEmptyValue(value));
   if (entries.length === 0) {

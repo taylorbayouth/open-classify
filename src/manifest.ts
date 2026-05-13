@@ -19,6 +19,13 @@ import type {
 
 export type ClassifierName = string;
 export type ClassifierResults = Record<ClassifierName, ClassifierOutput>;
+export const CERTAINTY_GATE_MODES = [
+  "min_score",
+  "avg_score",
+  "off",
+] as const;
+export type CertaintyGateMode = (typeof CERTAINTY_GATE_MODES)[number];
+
 export type RunClassifier = (
   name: ClassifierName,
   input: ClassifierInput,
@@ -102,13 +109,35 @@ export interface PipelineMeta {
 export interface PipelineAudit extends Envelope {
   readonly meta: PipelineMeta;
   readonly fired_by?: string;
+  readonly certainty_gate?: LowCertaintyBlockReason;
 }
 
-export type AnswerPipelineResult = {
-  readonly action: "answer";
+export type BlockReason =
+  | SecurityBlockReason
+  | LowCertaintyBlockReason;
+
+export interface SecurityBlockReason {
+  readonly kind: "security";
+  readonly risk_level: SafetySignal["risk_level"];
+  readonly signals: ReadonlyArray<string>;
+}
+
+export interface LowCertaintyBlockReason {
+  readonly kind: "low_certainty";
+  readonly mode: Exclude<CertaintyGateMode, "off">;
+  readonly threshold: number;
+  readonly score: number;
+  readonly classifier_scores: Readonly<Record<string, number>>;
+  readonly low_classifiers: ReadonlyArray<string>;
+}
+
+export type ReplyPipelineResult = {
+  readonly action: "reply";
   readonly message_id: string;
-  readonly final_reply: FinalReplySignal;
-  readonly reason: "already_answered";
+  readonly reply: {
+    readonly text: string;
+  };
+  readonly reason: "preflight_reply";
   readonly classifier_outputs: ClassifierCustomOutputs;
   readonly audit: Pick<PipelineAudit, "final_reply" | "meta" | "fired_by">;
 };
@@ -116,24 +145,10 @@ export type AnswerPipelineResult = {
 export type BlockPipelineResult = {
   readonly action: "block";
   readonly message_id: string;
-  readonly reason: {
-    readonly risk_level?: SafetySignal["risk_level"];
-    readonly signals?: ReadonlyArray<string>;
-  };
+  readonly fired_by?: string;
+  readonly reason: BlockReason;
   readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "safety" | "meta" | "fired_by">;
-};
-
-export type NeedsReviewPipelineResult = {
-  readonly action: "needs_review";
-  readonly message_id: string;
-  readonly fired_by: string;
-  readonly reason: {
-    readonly risk_level?: SafetySignal["risk_level"];
-    readonly signals?: ReadonlyArray<string>;
-  };
-  readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "safety" | "meta" | "fired_by">;
+  readonly audit: Pick<PipelineAudit, "safety" | "meta" | "fired_by" | "certainty_gate">;
 };
 
 export type RoutePipelineResult = {
@@ -145,13 +160,15 @@ export type RoutePipelineResult = {
 };
 
 export type PipelineResult =
-  | AnswerPipelineResult
+  | ReplyPipelineResult
   | BlockPipelineResult
-  | NeedsReviewPipelineResult
   | RoutePipelineResult;
 
 export interface AggregatorConfig {
+  readonly certaintyThreshold?: number;
+  /** @deprecated Use certaintyThreshold. */
   readonly confidenceThreshold?: number;
+  readonly certaintyGate?: CertaintyGateMode;
 }
 
 export type ClassifierRegistry = ReadonlyArray<RuntimeClassifierManifest>;

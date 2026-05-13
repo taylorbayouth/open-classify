@@ -19,7 +19,7 @@ node --test tests/pipeline.test.mjs
 
 ## Architecture
 
-Open Classify is a **manifest-driven classifier runtime** that routes user messages to downstream AI models. Given a conversation, it runs classifiers concurrently and aggregates their outputs into a `PipelineResult` (`route | answer | block | needs_review`).
+Open Classify is a **manifest-driven classifier runtime** that routes user messages to downstream AI models. Given a conversation, it runs classifiers concurrently and aggregates their outputs into a `PipelineResult` (`route | reply | block`).
 
 ### Pipeline flow
 
@@ -27,8 +27,8 @@ Open Classify is a **manifest-driven classifier runtime** that routes user messa
 OpenClassifyInput
   → input.ts       (normalize, truncate history to 20 msgs, hash target message)
   → pipeline.ts    (run all classifiers concurrently via Promise.allSettled)
-      ↓ short-circuit: security "block"/"needs_review" or preflight "final"
-  → aggregator.ts  (merge by confidence/order, resolve concrete model from catalog)
+      ↓ short-circuit: security block or preflight reply
+  → aggregator.ts  (merge by certainty score/order, resolve concrete model from catalog)
   → PipelineResult
 ```
 
@@ -49,9 +49,9 @@ The 7 built-in classifiers (by order):
 | `conversation_history` | 40 | `context` | How much prior context downstream needs |
 | `tools` | 50 | `tools` | Which tool families to expose |
 | `memory_retrieval_queries` | 60 | `output` | Custom JSON output (validated by `output_schema`) |
-| `security` | 70 | `safety` | Short-circuits on `block`/`needs_review` |
+| `security` | 70 | `safety` | Blocks on confident `high_risk` or `unknown` |
 
-Short-circuit gates: only `handoff.kind === "final"` (preflight) and `safety.decision` of `block`/`needs_review` (security) can abort the pipeline early.
+Short-circuit gates: only preflight `final_reply` and security `risk_level` of `high_risk` or `unknown` can abort the pipeline early.
 
 ### Key source files
 
@@ -68,16 +68,17 @@ Short-circuit gates: only `handoff.kind === "final"` (preflight) and `safety.dec
 
 ### Classifier output contract
 
-Every classifier returns at minimum:
+Every classifier returns metadata like:
 ```ts
-{ reason: string /* ≤120 chars */, confidence: number /* 0–1 */ }
+{ reason: string /* ≤120 chars */, certainty: "no_signal" | "very_weak" | "weak" | "tentative" | "reasonable" | "strong" | "very_strong" | "near_certain" }
 ```
 
 Plus optional stock signals (`handoff`, `routing`, `context`, `tools`, `safety`, `response`, `summary`) declared in the manifest's `emits` field, and an optional custom `output` validated by `output_schema`.
 
-Confidence normalization: the runtime accepts 0–100 ranges, percentages, and text labels (`"low"/"medium"/"high"`) and normalizes them to 0–1.
+Certainty scoring: the aggregator maps certainty tags to numeric scores for threshold checks and model-resolution audit data.
+The default certainty threshold is `0.65`; the default whole-run gate is `certaintyGate: "min_score"`, which blocks when any stock or custom classifier score is below threshold.
 
-Classifiers that fail use their manifest `fallback` output (`confidence: 0`); failures are recorded in `audit.meta.classifiers[name].status`.
+Classifiers that fail use their manifest `fallback` output; failures are recorded in `audit.meta.classifiers[name].status`.
 
 ### Configuration files
 
@@ -90,5 +91,5 @@ Classifiers that fail use their manifest `fallback` output (`confidence: 0`); fa
 - **No escape-hatch enums** — Classifiers omit uncertain optional fields instead of emitting sentinel values like `"unable_to_determine"`
 - **No model IDs from classifiers** — Classifiers emit routing *constraints*; the aggregator + catalog resolver picks the concrete model
 - **No keyword/regex mock classifiers** — All classifiers must use real model calls; no pattern-matching stubs
-- **Order is declarative** — Duplicate orders are rejected at load time; lower order wins on confidence ties
+- **Order is declarative** — Duplicate orders are rejected at load time; lower order wins on certainty-score ties
 - **Attachments are metadata only** — Classifiers see filename/size/mime type, never content

@@ -20,5 +20,9 @@
       }
     }
   },
+  "aggregator": {
+    "certaintyThreshold": 0.65,
+    "certaintyGate": "min_score"
+  },
   "catalog": "downstream-models.json"
 }

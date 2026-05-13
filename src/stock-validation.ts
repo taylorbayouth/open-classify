@@ -1,12 +1,12 @@
 import {
   DOWNSTREAM_MODEL_TIER_VALUES,
   MODEL_SPECIALIZATION_VALUES,
-  SECURITY_DECISION_VALUES,
 } from "./enums.js";
 import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
 import type {
   CustomJsonManifest,
   JsonClassifierManifest,
+  Certainty,
   ModelSpecializationClassifierOutput,
   PreflightClassifierOutput,
   RoutingClassifierOutput,
@@ -20,12 +20,10 @@ import type {
   ClassifierOutput,
   ToolDefinition,
 } from "./stock.js";
-import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
+import { CERTAINTY_VALUES, STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import {
   ensureNoDuplicates,
   isRecord,
-  requireBoolean,
-  requireConfidence,
   requireEnum,
   requireNonEmptyStringMaxLength,
   requireNonNegativeSafeInteger,
@@ -246,14 +244,14 @@ function validateMetadata(
   value: Record<string, unknown>,
   classifier: string,
   model: string,
-): { reason?: string; confidence?: number } {
+): { reason?: string; certainty?: Certainty } {
   return {
     ...(value.reason === undefined
       ? {}
       : { reason: truncateText(requireString(value.reason, classifier, model, "reason"), STOCK_REASON_MAX_CHARS) }),
-    ...(value.confidence === undefined
+    ...(value.certainty === undefined
       ? {}
-      : { confidence: requireConfidence(value.confidence, classifier, model) }),
+      : { certainty: requireEnum(value.certainty, CERTAINTY_VALUES, classifier, model, "certainty") }),
   };
 }
 
@@ -261,7 +259,7 @@ function validatePreflightOutput(
   value: Record<string, unknown>,
   model: string,
 ): PreflightClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "final_reply", "ack_reply"], "preflight", model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "final_reply", "ack_reply"], "preflight", model, "output");
   if (value.final_reply !== undefined && value.ack_reply !== undefined) {
     throwInvalid(
       "preflight",
@@ -309,7 +307,7 @@ function validateTierRoutingOutput(
   value: Record<string, unknown>,
   model: string,
 ): RoutingClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "model_tier"], "routing", model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "model_tier"], "routing", model, "output");
   const meta = validateMetadata(value, "routing", model);
   const modelTier = normalizeOptionalEnumValue(value.model_tier);
   return {
@@ -324,7 +322,7 @@ function validateModelSpecializationOutput(
   value: Record<string, unknown>,
   model: string,
 ): ModelSpecializationClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "specialization"], "model_specialization", model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "specialization"], "model_specialization", model, "output");
   const meta = validateMetadata(value, "model_specialization", model);
   const specialization = normalizeOptionalEnumValue(value.specialization);
   return {
@@ -350,7 +348,7 @@ function validateToolsOutput(
   model: string,
   configuredTools: ReadonlyArray<string> | undefined,
 ): ToolsClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "tools"], "tools", model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "tools"], "tools", model, "output");
   const meta = validateMetadata(value, "tools", model);
   const tools = requireStringArray(value.tools, "tools", model, "tools").map(normalizeTool);
   ensureNoDuplicates(tools, "tools", model, "tools");
@@ -369,12 +367,8 @@ function validateSecurityOutput(
   value: Record<string, unknown>,
   model: string,
 ): SecurityClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "decision", "risk_level", "signals"], "security", model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "risk_level", "signals"], "security", model, "output");
   const meta = validateMetadata(value, "security", model);
-  const decision =
-    value.decision === undefined
-      ? undefined
-      : requireEnum(value.decision, SECURITY_DECISION_VALUES, "security", model, "decision");
   const riskLevel = requireEnum(
     value.risk_level,
     STOCK_SAFETY_RISK_LEVEL_VALUES,
@@ -390,15 +384,8 @@ function validateSecurityOutput(
   if (riskLevel !== "normal" && riskLevel !== "unknown" && signals.length === 0) {
     throwInvalid("security", model, "elevated risk_level must include at least one signal");
   }
-  if (decision === "block" && riskLevel !== "high_risk") {
-    throwInvalid("security", model, "decision block requires high_risk risk_level");
-  }
-  if (decision === "allow" && riskLevel === "high_risk") {
-    throwInvalid("security", model, "decision allow must not use high_risk risk_level");
-  }
   return {
     ...meta,
-    ...(decision === undefined ? {} : { decision }),
     risk_level: riskLevel,
     signals,
   };
@@ -413,7 +400,7 @@ function validateCustomOutput(
   if (!isRecord(value)) {
     throwInvalid(classifier, model, "output must be a JSON object");
   }
-  ensureAllowedObjectKeys(value, ["reason", "confidence", "output"], classifier, model, "output");
+  ensureAllowedObjectKeys(value, ["reason", "certainty", "output"], classifier, model, "output");
   if (value.output === undefined) {
     throwInvalid(classifier, model, "output is required for custom classifiers");
   }

@@ -4,4 +4,4 @@ Use local tiers for short, low-stakes, or self-contained requests.
 Use frontier tiers for high-stakes, ambiguous, multi-step, or complex requests.
 Use *_coding tiers when the request is implementation-heavy or code quality matters materially.
 Prefer the weakest tier that should still succeed.
-Omit model_tier when you cannot pick with reasonable confidence.
+Omit model_tier when you cannot pick with reasonable certainty.

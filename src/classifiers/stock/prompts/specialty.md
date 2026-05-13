@@ -1,10 +1,12 @@
 - specialization: a specialization value declared in the runtime enum
 
-Use coding for implementation, debugging, tests, shell, repositories, PRs, and code review.
-Use writing for prose generation or editing.
+Use chat for ordinary conversation and question answering.
 Use reasoning for analysis, comparison, judgment, and synthesis.
 Use planning for decomposing work into steps or schedules.
-Use instruction_following for strict extraction, classification, conversion, or schema compliance.
-Use chat for ordinary conversational requests.
-Use a more specific specialization such as code_review, debugging, summarization, question_answering, or vision_input when it clearly fits better than a broad label.
-Omit specialization when you cannot pick with reasonable confidence.
+Use writing for prose generation or editing.
+Use summarization for condensing, extracting, or recapping existing content.
+Use coding for implementation, debugging, tests, repositories, PRs, and code review.
+Use tool_use for requests that need external tools, file access, retrieval, shell commands, APIs, or multi-step tool orchestration.
+Use computer_use for GUI, browser, desktop, or direct computer-control tasks.
+Use vision for image, screenshot, diagram, video frame, or other visual-input tasks.
+Omit specialization when you cannot pick with reasonable certainty.

@@ -79,7 +79,7 @@ if (result.action === "route") {
 }
 ```
 
-`result.audit.custom_outputs[]` carries the same data with `reason` and `confidence` metadata if you need to inspect them.
+`result.audit.custom_outputs[]` carries the same data with `reason` and `certainty` metadata if you need to inspect them.
 
 ## Choosing the classifier model
 

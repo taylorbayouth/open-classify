@@ -1,4 +1,4 @@
-import { composeEnvelope } from "./aggregator.js";
+import { certaintyThreshold, composeEnvelope } from "./aggregator.js";
 import {
   CLASSIFIER_NAMES,
   MODULES_BY_NAME,
@@ -14,10 +14,13 @@ import type {
   ClassifierResults,
   DownstreamPayload,
   Envelope,
+  LowCertaintyBlockReason,
   PipelineMeta,
   PipelineResult,
+  SecurityBlockReason,
 } from "./manifest.js";
 import type {
+  Certainty,
   ClassifierOutput,
   CustomClassifierOutputValue,
   FinalReplySignal,
@@ -25,7 +28,7 @@ import type {
   SafetySignal,
   SecurityClassifierOutput,
 } from "./stock.js";
-import { isCustomManifest } from "./stock.js";
+import { certaintyScore, isCustomManifest } from "./stock.js";
 import type {
   ClassifierFallbackReason,
   NormalizedOpenClassifyInput,
@@ -34,6 +37,7 @@ import type {
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
+export const DEFAULT_CERTAINTY_GATE = "min_score";
 
 export class OpenClassifyNormalizationError extends Error {
   constructor(cause: unknown) {
@@ -56,8 +60,8 @@ type SettledClassifierResult =
   | { ok: false; name: string; error: unknown; reason: ClassifierFallbackReason };
 
 // Short-circuit gates are intrinsic to specific stock signals — not configured
-// per-manifest. preflight.final_reply ⇒ answer; security.decision in
-// {block, needs_review} ⇒ block / needs_review. Order matters: preflight is
+// per-manifest. preflight.final_reply ⇒ reply; confident high_risk or unknown
+// security risk ⇒ block. Order matters: preflight is
 // cheaper to evaluate, so we check it first.
 const SHORT_CIRCUIT_GATES = ["preflight", "security"] as const;
 
@@ -85,7 +89,7 @@ export async function classifyOpenClassifyInput(
   const classifierInput = toClassifierInput(request);
   const classifierTimeoutMs = options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
-  const threshold = options.aggregator?.confidenceThreshold ?? 0.6;
+  const threshold = certaintyThreshold(options.aggregator);
 
   const runs = new Map<string, Promise<SettledClassifierResult>>(
     CLASSIFIER_NAMES.map((name) => [
@@ -125,6 +129,10 @@ export async function classifyOpenClassifyInput(
       input: classifierInput,
       config: options.aggregator,
     });
+    const certaintyGate = certaintyGateBlock(options.aggregator, results);
+    if (certaintyGate) {
+      return buildCertaintyGateBlockResult(request, envelope, results, meta, certaintyGate);
+    }
 
     return buildRouteResult(request, envelope, results, meta);
   } finally {
@@ -133,38 +141,37 @@ export async function classifyOpenClassifyInput(
 }
 
 type ShortCircuitVerdict =
-  | { kind: "answer"; final_reply: FinalReplySignal }
-  | { kind: "block"; safety: SafetySignal }
-  | { kind: "needs_review"; safety: SafetySignal };
+  | { kind: "reply"; final_reply: FinalReplySignal }
+  | { kind: "block"; safety: SafetySignal; reason: SecurityBlockReason };
 
 function shortCircuitVerdict(
   gate: (typeof SHORT_CIRCUIT_GATES)[number],
   result: ClassifierOutput,
   threshold: number,
 ): ShortCircuitVerdict | null {
-  const confidence = (result as { confidence?: number }).confidence ?? 0;
-  if (confidence < threshold) return null;
+  const score = scoreCertainty(result.certainty);
+  if (score < threshold) return null;
 
   if (gate === "preflight") {
     const preflight = result as PreflightClassifierOutput;
     if (preflight.final_reply !== undefined) {
-      return { kind: "answer", final_reply: preflight.final_reply };
+      return { kind: "reply", final_reply: preflight.final_reply };
     }
     return null;
   }
 
   if (gate === "security") {
     const security = result as SecurityClassifierOutput;
-    if (security.decision === "block") {
+    if (security.risk_level === "high_risk" || security.risk_level === "unknown") {
+      const safety = extractSafety(security);
       return {
         kind: "block",
-        safety: extractSafety(security),
-      };
-    }
-    if (security.decision === "needs_review") {
-      return {
-        kind: "needs_review",
-        safety: extractSafety(security),
+        safety,
+        reason: {
+          kind: "security",
+          risk_level: safety.risk_level,
+          signals: safety.signals,
+        },
       };
     }
   }
@@ -172,9 +179,48 @@ function shortCircuitVerdict(
   return null;
 }
 
+function certaintyGateBlock(
+  config: AggregatorConfig | undefined,
+  results: ClassifierResults,
+): LowCertaintyBlockReason | undefined {
+  const mode = config?.certaintyGate ?? DEFAULT_CERTAINTY_GATE;
+  if (mode === "off") return undefined;
+
+  const threshold = certaintyThreshold(config);
+  const classifier_scores = classifierScores(results);
+  const scores = Object.values(classifier_scores);
+  const score = mode === "min_score"
+    ? Math.min(...scores)
+    : scores.reduce((sum, value) => sum + value, 0) / scores.length;
+  if (score >= threshold) return undefined;
+
+  return {
+    kind: "low_certainty",
+    mode,
+    threshold,
+    score,
+    classifier_scores,
+    low_classifiers: Object.entries(classifier_scores)
+      .filter(([, value]) => value < threshold)
+      .map(([name]) => name),
+  };
+}
+
+function classifierScores(results: ClassifierResults): Record<string, number> {
+  return Object.fromEntries(
+    REGISTRY.map((manifest) => [
+      manifest.name,
+      scoreCertainty(results[manifest.name]?.certainty),
+    ]),
+  );
+}
+
+function scoreCertainty(certainty: Certainty | undefined): number {
+  return certainty === undefined ? 0 : certaintyScore[certainty];
+}
+
 function extractSafety(value: SecurityClassifierOutput): SafetySignal {
   return {
-    ...(value.decision === undefined ? {} : { decision: value.decision }),
     risk_level: value.risk_level,
     signals: value.signals,
   };
@@ -196,13 +242,13 @@ function buildShortCircuitResult(
   const meta: PipelineMeta = { classifiers: { [name]: entry } };
   const classifier_outputs = classifierCustomOutputs({ [name]: value });
 
-  if (verdict.kind === "answer") {
+  if (verdict.kind === "reply") {
     const preflight = value as PreflightClassifierOutput;
     return {
-      action: "answer",
+      action: "reply",
       message_id: target_message_hash,
-      final_reply: verdict.final_reply,
-      reason: "already_answered",
+      reply: { text: verdict.final_reply.reply },
+      reason: "preflight_reply",
       classifier_outputs,
       audit: {
         fired_by: name,
@@ -211,30 +257,11 @@ function buildShortCircuitResult(
       },
     };
   }
-  if (verdict.kind === "needs_review") {
-    return {
-      action: "needs_review",
-      message_id: target_message_hash,
-      fired_by: name,
-      reason: {
-        risk_level: verdict.safety.risk_level,
-        signals: verdict.safety.signals,
-      },
-      classifier_outputs,
-      audit: {
-        fired_by: name,
-        safety: verdict.safety,
-        meta,
-      },
-    };
-  }
   return {
     action: "block",
     message_id: target_message_hash,
-    reason: {
-      risk_level: verdict.safety.risk_level,
-      signals: verdict.safety.signals,
-    },
+    fired_by: name,
+    reason: verdict.reason,
     classifier_outputs,
     audit: {
       fired_by: name,
@@ -286,6 +313,28 @@ function buildRouteResult(
     classifier_outputs: classifierCustomOutputs(results),
     audit: {
       ...envelope,
+      meta,
+    },
+  };
+}
+
+function buildCertaintyGateBlockResult(
+  request: NormalizedOpenClassifyInput,
+  envelope: Envelope,
+  results: ClassifierResults,
+  meta: PipelineMeta,
+  certaintyGate: LowCertaintyBlockReason,
+): PipelineResult {
+  return {
+    action: "block",
+    message_id: request.target_message_hash,
+    fired_by: "certainty_gate",
+    reason: certaintyGate,
+    classifier_outputs: classifierCustomOutputs(results),
+    audit: {
+      ...envelope,
+      fired_by: "certainty_gate",
+      certainty_gate: certaintyGate,
       meta,
     },
   };
