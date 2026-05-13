@@ -170,6 +170,7 @@ function resetRunOutput() {
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   jsonToggle.hidden = true;
+  jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
 }
 
@@ -182,6 +183,7 @@ async function classify() {
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   jsonToggle.hidden = true;
+  jsonToggle.removeAttribute("open");
   resetCopyJsonButton();
   form.querySelectorAll("button").forEach((button) => {
     button.disabled = true;
@@ -662,7 +664,6 @@ function renderClassifierResult(name, result) {
   const HIDDEN_KEYS = new Set(["confidence"]);
   const visiblePrimary = primary.filter(([key]) => !HIDDEN_KEYS.has(key));
   const mainPrimary = visiblePrimary.filter(([key]) => key !== "reason");
-  const renderSingleNestedInline = mainPrimary.length === 0 && nested.length === 1;
 
   return `
     ${mainPrimary.length === 0 ? "" : `
@@ -671,18 +672,14 @@ function renderClassifierResult(name, result) {
       </div>
     `}
     ${nested.length === 0 ? "" : `
-      ${renderSingleNestedInline
-        ? `<div class="field-list">${renderClassifierDetailBody(nested[0][0], nested[0][1])}</div>`
-        : `
-          <div class="detail-stack">
-            ${nested.map(([key, value]) => `
-              <div class="object-details classifier-detail">
-                <div class="object-details-head"><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></div>
-                <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
-              </div>
-            `).join("")}
+      <div class="detail-stack">
+        ${nested.map(([key, value]) => `
+          <div class="object-details classifier-detail">
+            <div class="object-details-head"><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></div>
+            <div class="object-grid classifier-output">${renderClassifierDetailBody(value)}</div>
           </div>
-        `}
+        `).join("")}
+      </div>
     `}
   `;
 }
@@ -739,14 +736,18 @@ function filterClassifierResult(name, result) {
   return result;
 }
 
-function renderClassifierDetailBody(key, value) {
+function renderClassifierDetailBody(value) {
+  if (Array.isArray(value)) {
+    return renderValue(value);
+  }
+
   if (!isPlainObject(value)) {
-    return objectRow(key, value);
+    return `<div class="object-body-scalar"><code class="object-scalar">${escapeHtml(formatScalar(value))}</code></div>`;
   }
 
   const entries = Object.entries(value).filter(([, item]) => hasRenderableValue(item));
   if (entries.length === 0) {
-    return objectRow(key, value);
+    return `<div class="object-body-scalar"><code class="object-scalar">{}</code></div>`;
   }
 
   return entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("");

@@ -589,6 +589,11 @@ button:disabled { cursor: wait; opacity: 0.55; }
   overflow-wrap: anywhere;
 }
 
+.object-body-scalar {
+  padding: 14px 16px;
+  background: var(--bg);
+}
+
 .object-details {
   min-width: 0;
 }
@@ -1073,6 +1078,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 }
 
 .json-toggle .panel-head {
+  list-style: none;
   padding: 12px 16px;
   font-size: 13px;
   font-weight: 700;
@@ -1084,6 +1090,17 @@ button:disabled { cursor: wait; opacity: 0.55; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  cursor: pointer;
+}
+
+.json-toggle .panel-head::-webkit-details-marker { display: none; }
+
+.json-toggle:not([open]) .panel-head {
+  border-bottom: 0;
+}
+
+.json-toggle:not([open]) .json-panel {
+  display: none;
 }
 
 .copy-json {
