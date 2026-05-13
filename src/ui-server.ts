@@ -64,7 +64,7 @@ const CLASSIFIER_METADATA = REGISTRY.map((classifier) => ({
 
 const PORT = Number(process.env.OPEN_CLASSIFY_UI_PORT ?? 4317);
 const HOST = process.env.OPEN_CLASSIFY_UI_HOST ?? "127.0.0.1";
-const UI_DIR = join(process.cwd(), "ui", "dist");
+const UI_DIR = join(process.cwd(), "ui");
 const OPEN_CLASSIFY_CONFIG = loadOpenClassifyConfig(undefined, {
   optional: process.env.OPEN_CLASSIFY_CONFIG === undefined,
 });

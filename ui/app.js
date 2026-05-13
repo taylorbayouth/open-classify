@@ -8,7 +8,10 @@ const state = {
   events: [],
   eventCount: 0,
   phases: [],
+  pipelineStartedAt: null,
+  pipelineCompletedAt: null,
   tickerHandle: null,
+  lastResult: null,
 };
 
 const form = document.querySelector("#classifyForm");
@@ -164,9 +167,14 @@ function loadRandomSample() {
 function resetRunOutput() {
   state.events = [];
   state.eventCount = 0;
+  state.pipelineStartedAt = null;
+  state.pipelineCompletedAt = null;
+  state.lastResult = null;
   renderEventLog();
   resetClassifiers("idle");
   setRunState("idle");
+  state.phases = [];
+  renderPhaseTrail();
   aggregatePanel.hidden = true;
   aggregatePanel.innerHTML = "";
   jsonToggle.hidden = true;
@@ -178,6 +186,9 @@ async function classify() {
   resetClassifiers();
   state.events = [];
   state.eventCount = 0;
+  state.pipelineStartedAt = performance.now();
+  state.pipelineCompletedAt = null;
+  state.lastResult = null;
   renderEventLog();
   setRunState("running");
   aggregatePanel.hidden = true;
@@ -226,12 +237,10 @@ function createMessage() {
 }
 
 function toConversationMessage(message) {
-  const output = {
+  return {
     role: message.role || "user",
     text: message.text,
   };
-
-  return output;
 }
 
 function renderMessages() {
@@ -246,28 +255,39 @@ function renderMessage(message, index) {
   if (isFinal) {
     message.role = "user";
   }
+  const roleOptions = ["user", "assistant"]
+    .map(
+      (role) =>
+        `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`,
+    )
+    .join("");
 
   return `
-    <article class="message-editor ${isFinal ? "target-message" : "context-message"}" data-message-id="${escapeHtml(message.id)}">
-      <div class="message-editor-head">
-        <strong>Message ${index + 1}</strong>
-        <span>${isFinal ? "classified message" : "context"}</span>
-        <button class="icon-button" type="button" data-remove-message="${escapeHtml(message.id)}" title="Remove message" aria-label="Remove message"${canRemove ? "" : " disabled"}>×</button>
+    <article class="message" data-message-id="${escapeHtml(message.id)}">
+      <div class="message-head">
+        <div class="message-title">Message ${index + 1}<span class="ctx">${
+    isFinal ? "classified message" : "context"
+  }</span></div>
+        <div class="message-right">
+          <select class="role-pill" data-field="role" aria-label="Role"${isFinal ? " disabled" : ""}>${roleOptions}</select>
+          <button
+            class="message-close"
+            type="button"
+            data-remove-message="${escapeHtml(message.id)}"
+            aria-label="Remove message"
+            title="Remove message"
+            ${canRemove ? "" : "disabled"}
+          >✕</button>
+        </div>
       </div>
-      <div class="message-meta-row">
-        <label class="field">
-          <span>Role</span>
-          <select data-field="role"${isFinal ? " disabled" : ""}>
-            ${["user", "assistant"]
-              .map((role) => `<option value="${role}"${message.role === role ? " selected" : ""}>${role}</option>`)
-              .join("")}
-          </select>
-        </label>
-      </div>
-      <label class="field">
-        <span>Text</span>
-        <textarea data-field="text" rows="${isFinal ? 3 : 4}" placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}" required>${escapeHtml(message.text)}</textarea>
-      </label>
+      <div class="message-label">Text</div>
+      <textarea
+        class="message-body"
+        data-field="text"
+        rows="${isFinal ? 3 : 4}"
+        placeholder="${isFinal ? "Latest user message to classify..." : "Earlier message text..."}"
+        required
+      >${escapeHtml(message.text)}</textarea>
     </article>
   `;
 }
@@ -288,6 +308,7 @@ function handleStreamEvent(event, data) {
         state.classifierNames = data.classifiers;
       }
       state.phases = [];
+      state.pipelineStartedAt = performance.now();
       renderPhaseTrail();
       resetClassifiers();
       break;
@@ -331,6 +352,8 @@ function handleStreamEvent(event, data) {
       });
       break;
     case "pipeline_completed":
+      state.pipelineCompletedAt = performance.now();
+      state.lastResult = data;
       renderPipeline(data);
       break;
     case "pipeline_failed":
@@ -371,33 +394,66 @@ function pipelineState(result) {
   return "complete";
 }
 
+function pipelineLatencySeconds() {
+  if (state.pipelineStartedAt == null || state.pipelineCompletedAt == null) return null;
+  return (state.pipelineCompletedAt - state.pipelineStartedAt) / 1000;
+}
+
 function renderAggregate(result) {
-  const stockOutputs = stockClassifierOutputs(result);
+  const model = selectedModel(result) ?? "—";
+  const security = securityDecision(result) ?? "—";
+  const action = result.action ?? "—";
+  const tools = toolsSummary(result);
+  const latency = pipelineLatencySeconds();
+
+  const securityClass =
+    security === "allow"
+      ? "teal"
+      : security === "block"
+      ? "red"
+      : security === "needs_review"
+      ? "amber"
+      : "";
 
   aggregatePanel.hidden = false;
   aggregatePanel.innerHTML = `
-    <header class="result-banner">
-      <span class="result-banner-label">Final output</span>
-      ${resultBannerItem("Model", selectedModel(result))}
-      ${resultBannerItem("Action", result.action)}
-      ${resultBannerItem("Security", securityDecision(result))}
-    </header>
-    ${stockOutputs.length === 0 ? "" : `
-      <section class="stock-output-list" aria-label="Stock classifier outputs">
-        ${stockOutputs.map(([name, output]) => renderStockOutput(name, output)).join("")}
-      </section>
-    `}
+    <span class="final-output-eyebrow">Final Output</span>
+    <div class="final-output-grid">
+      ${foItem("Model", model)}
+      ${foItem("Action", action)}
+      ${foItem("Tools", tools)}
+      ${foItem("Security", security, securityClass)}
+      ${latency != null ? foItem("Latency", `${latency.toFixed(1)}s`) : ""}
+    </div>
   `;
+}
+
+function foItem(k, v, cls = "") {
+  return `
+    <div class="fo-item">
+      <span class="k">${escapeHtml(k)}</span>
+      <span class="v${cls ? " " + cls : ""}">${escapeHtml(String(v))}</span>
+    </div>
+  `;
+}
+
+function toolsSummary(result) {
+  const tools = result.audit?.meta?.classifiers?.tools;
+  if (!tools) return "none";
+  const list = tools.tools ?? tools.allowed ?? tools.families;
+  if (Array.isArray(list) && list.length > 0) {
+    return list.join(", ");
+  }
+  return "none";
 }
 
 function buildDisplayResult(result) {
   return {
     model: selectedModel(result),
     action: result.action,
-    security: {
-      decision: securityDecision(result),
-    },
+    security: { decision: securityDecision(result) },
     hash: result.message_id,
+    latency_seconds: pipelineLatencySeconds(),
     classifiers: Object.fromEntries(stockClassifierOutputs(result)),
   };
 }
@@ -415,7 +471,7 @@ function stockClassifierOutputs(result) {
   if (!classifiers) return [];
 
   return state.classifierNames
-    .filter((name) => CLASSIFIER_METADATA[name]?.kind === "stock" && classifiers[name])
+    .filter((name) => classifiers[name])
     .map((name) => [name, classifierDisplayOutput(classifiers[name])]);
 }
 
@@ -425,37 +481,10 @@ function classifierDisplayOutput(output) {
   );
 }
 
-function resultBannerItem(label, value) {
-  if (value === undefined || value === "") return "";
-  return `
-    <div class="result-banner-item">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(String(value))}</strong>
-    </div>
-  `;
-}
-
-function renderStockOutput(name, output) {
-  return `
-    <details class="object-details stock-output" open>
-      <summary>
-        <span>${classifierLabel(name)}</span>
-        <strong>${escapeHtml(objectSummary(output))}</strong>
-      </summary>
-      <div class="object-grid classifier-output">
-        ${Object.entries(output).map(([key, value]) => objectRow(key, value)).join("")}
-      </div>
-    </details>
-  `;
-}
-
 function cancelClassifiersExcept(keptNames) {
   const kept = new Set(keptNames);
   for (const name of state.classifierNames) {
-    if (kept.has(name)) {
-      continue;
-    }
-
+    if (kept.has(name)) continue;
     const item = state.classifiers[name] ?? { status: "pending" };
     state.classifiers[name] = {
       ...item,
@@ -502,60 +531,89 @@ function updateClassifier(name, patch) {
 }
 
 function renderClassifiers() {
-  classifierGrid.innerHTML = state.classifierNames.map(renderClassifier).join("");
+  // distribute cards across two columns in a stable, deterministic way:
+  // odd-indexed go to column 0, even-indexed to column 1
+  const col0 = [];
+  const col1 = [];
+  state.classifierNames.forEach((name, idx) => {
+    (idx % 2 === 0 ? col0 : col1).push(renderClassifier(name));
+  });
+  classifierGrid.innerHTML = `
+    <div class="col">${col0.join("")}</div>
+    <div class="col">${col1.join("")}</div>
+  `;
   updateTickers();
 }
 
 function renderClassifier(name) {
   const item = state.classifiers[name] ?? { status: "pending" };
-  const result = item.result;
-  const detailHtml = renderDetails(name, item);
-  const elapsedHtml = `<span class="elapsed" data-name="${name}">${formatElapsed(item)}</span>`;
   const metadata = CLASSIFIER_METADATA[name] ?? {};
-  const kind = metadata.kind ?? "classifier";
+  const kind = metadata.kind ?? "stock";
   const purpose = metadata.purpose ? escapeHtml(metadata.purpose) : "";
-  const purposeHtml = purpose
-    ? `
-        <div class="classifier-purpose">
-          <button
-            class="purpose-trigger"
-            type="button"
-            aria-label="Show classifier purpose for ${classifierLabel(name)}"
-          >?</button>
-          <span class="purpose-tooltip" role="tooltip">${purpose}</span>
-        </div>
-      `
+  const accent = kind === "custom" ? " accent" : "";
+
+  const reason = item.result?.reason;
+  const confidence = item.result?.confidence;
+  const reasonPill =
+    reason && (item.status === "done" || item.status === "fallback")
+      ? `<span class="pill reason" data-tooltip="${escapeHtml(reason)}" title="${escapeHtml(reason)}">Reason</span>`
+      : "";
+  const confidencePill =
+    typeof confidence === "number"
+      ? `<span class="pill-text confident">${(confidence * 100).toFixed(1)}% confident</span>`
+      : "";
+  const statusPill = renderStatusPill(item);
+  const elapsedHtml = `<span class="pill-text elapsed" data-name="${escapeHtml(name)}">${formatElapsed(item)}</span>`;
+
+  const purposeHelp = purpose
+    ? `<span class="help" data-tooltip="${purpose}" tabindex="0">?</span>`
     : "";
-  const shortCircuitHtml = item.shortCircuited
+
+  const shortCircuit = item.shortCircuited
     ? `<div class="short-circuit-note">Short-circuited pipeline</div>`
     : "";
 
   return `
-    <article class="classifier-card" data-status="${item.status}" data-kind="${escapeHtml(kind)}">
-      <div class="classifier-head">
-        <div class="title-block">
-          <div class="classifier-title-row">
-            <h2 class="classifier-title">${classifierLabel(name)}</h2>
-            ${purposeHtml}
-          </div>
-        </div>
-        <div class="status-block">
-          <span class="badge ${item.status}">
-            ${item.status === "running" ? '<span class="pulse"></span>' : ""}${item.status}
-          </span>
+    <article class="card${accent}" data-status="${escapeHtml(item.status)}" data-kind="${escapeHtml(kind)}">
+      <div class="card-head">
+        <h2 class="card-title">${classifierLabel(name)} ${purposeHelp}</h2>
+        <div class="meta">
+          ${reasonPill}
+          ${statusPill}
+          ${confidencePill}
           ${elapsedHtml}
         </div>
       </div>
-      ${shortCircuitHtml}
-      ${detailHtml}
+      ${shortCircuit}
+      ${renderDetails(name, item)}
     </article>
   `;
 }
 
-function formatElapsed(item) {
-  if (!item.startedAt) {
-    return "";
+function renderStatusPill(item) {
+  switch (item.status) {
+    case "running":
+      return `<span class="pill running"><span class="pulse"></span>Running</span>`;
+    case "done":
+      return `<span class="pill done">Done</span>`;
+    case "fallback":
+      return `<span class="pill fallback">Fallback</span>`;
+    case "failed":
+      return `<span class="pill failed">Failed</span>`;
+    case "timeout":
+      return `<span class="pill timeout">Timed out</span>`;
+    case "aborted":
+      return `<span class="pill aborted">Aborted</span>`;
+    case "idle":
+      return `<span class="pill">Idle</span>`;
+    case "pending":
+    default:
+      return `<span class="pill">Pending</span>`;
   }
+}
+
+function formatElapsed(item) {
+  if (!item.startedAt) return "";
   const end = item.finishedAt ?? performance.now();
   const seconds = (end - item.startedAt) / 1000;
   return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`;
@@ -574,81 +632,123 @@ function updateTickers() {
   for (const name of state.classifierNames) {
     const item = state.classifiers[name];
     if (!item || item.status !== "running" || !item.startedAt) continue;
-    const el = classifierGrid.querySelector(`.elapsed[data-name="${name}"]`);
+    const el = classifierGrid.querySelector(`.elapsed[data-name="${cssEscape(name)}"]`);
     if (el) el.textContent = formatElapsed(item);
   }
 }
 
 function renderDetails(name, item) {
   if (item.error) {
-    return `<div class="detail error">${escapeHtml(item.error)}</div>`;
+    return `<div class="empty-state error">${escapeHtml(item.error)}</div>`;
   }
 
   const result = item.result;
   if (!result) {
-    return `<div class="detail muted">${emptyStateText(item.status)}</div>`;
+    return `<div class="empty-state">${emptyStateText(item.status)}</div>`;
   }
 
   return renderClassifierResult(result);
 }
 
 function classifierLabel(name) {
-  return escapeHtml(CLASSIFIER_METADATA[name]?.ui?.label ?? name);
+  const raw = CLASSIFIER_METADATA[name]?.ui?.label;
+  if (raw) return escapeHtml(raw);
+  return escapeHtml(
+    String(name)
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" "),
+  );
 }
 
 function emptyStateText(status) {
   if (status === "running") return "Running…";
-  if (status === "timeout") return "Timed out; retrying";
+  if (status === "timeout") return "Timed out";
   if (status === "aborted") return "Aborted by gate";
   if (status === "failed") return "Failed";
   if (status === "pending") return "Queued";
   return "Awaiting run";
 }
 
-function objectRow(key, value) {
+function renderClassifierResult(result) {
+  const entries = Object.entries(result).filter(
+    ([key]) => key !== "version" && key !== "status" && key !== "reason" && key !== "confidence",
+  );
+  if (entries.length === 0) {
+    return `<div class="empty-state">No fields emitted.</div>`;
+  }
+
+  return entries.map(([key, value]) => renderResultField(key, value)).join("");
+}
+
+function renderResultField(key, value) {
+  if (Array.isArray(value)) {
+    return renderListField(key, value);
+  }
+  if (isPlainObject(value)) {
+    return renderObjectField(key, value);
+  }
   return `
-    <div class="object-row">
-      <span class="object-key">${escapeHtml(key)}</span>
-      ${renderValue(value, key)}
+    <div class="field">
+      <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
+      <span class="field-value">${escapeHtml(formatScalar(value))}</span>
     </div>
   `;
 }
 
-function renderValue(value, key = "") {
-  if (Array.isArray(value)) {
-    if (value.length === 0) return `<code class="object-scalar">[]</code>`;
+function renderListField(key, list) {
+  if (list.length === 0) {
     return `
-      <div class="object-list">
-        ${value.map((item, index) => `
-          <div class="object-list-item">
-            <span class="object-index">${index + 1}</span>
-            ${renderValue(item)}
-          </div>
-        `).join("")}
+      <div class="field">
+        <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
+        <span class="field-value">[]</span>
       </div>
     `;
   }
+  return `
+    <div class="list-wrap">
+      <div class="list-head">
+        <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
+        <span class="count">${list.length} item${list.length === 1 ? "" : "s"}</span>
+      </div>
+      ${list
+        .map(
+          (entry, idx) => `
+        <div class="list-item">
+          <span class="idx">${idx + 1}</span>
+          <span class="val">${escapeHtml(scalarOrInline(entry))}</span>
+        </div>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
 
-  if (isPlainObject(value)) {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return `<code class="object-scalar">{}</code>`;
-    const content = `<div class="object-nested">${entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("")}</div>`;
-    if (key === "status" || entries.length > 2) {
-      return `
-        <details class="object-details nested-details">
-          <summary>${escapeHtml(objectSummary(value))}</summary>
-          ${content}
-        </details>
-      `;
-    }
-    return content;
+function renderObjectField(key, obj) {
+  const entries = Object.entries(obj);
+  if (entries.length === 0) {
+    return `
+      <div class="field">
+        <span class="field-label">${escapeHtml(formatKeyLabel(key))}</span>
+        <span class="field-value">{}</span>
+      </div>
+    `;
   }
+  // Render nested object as section with its own fields
+  return entries.map(([k, v]) => renderResultField(`${key}.${k}`, v)).join("");
+}
 
-  return `<code class="object-scalar">${escapeHtml(formatScalar(value))}</code>`;
+function scalarOrInline(value) {
+  if (isPlainObject(value) || Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+  return formatScalar(value);
 }
 
 function formatScalar(value) {
   if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "—";
   return JSON.stringify(value);
 }
 
@@ -656,90 +756,8 @@ function isPlainObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function renderClassifierResult(result) {
-  const entries = Object.entries(result).filter(([key]) => key !== "version" && key !== "status");
-  const flattenedEntries = entries.map(([key, value]) => [key, flattenSingleScalarObject(value)]);
-  const primary = flattenedEntries.filter(([, value]) => !isExpandableValue(value));
-  const nested = flattenedEntries.filter(([, value]) => isExpandableValue(value));
-
-  const META_KEYS = new Set(["reason", "confidence"]);
-  const mainPrimary = primary.filter(([key]) => !META_KEYS.has(key));
-  const metaPrimary = primary.filter(([key]) => META_KEYS.has(key));
-
-  return `
-    ${mainPrimary.length === 0 ? "" : `
-      <div class="field-list">
-        ${mainPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
-      </div>
-    `}
-    ${nested.length === 0 ? "" : `
-      <div class="detail-stack">
-        ${nested.map(([key, value]) => `
-          <details class="object-details classifier-detail" open>
-            <summary><span>${escapeHtml(formatKeyLabel(key))}</span><strong>${escapeHtml(objectSummary(value))}</strong></summary>
-            <div class="object-grid classifier-output">${renderClassifierDetailBody(key, value)}</div>
-          </details>
-        `).join("")}
-      </div>
-    `}
-    ${metaPrimary.length === 0 ? "" : `
-      <details class="object-details classifier-detail meta-detail">
-        <summary><span>details</span></summary>
-        <div class="field-list meta-field-list">
-          ${metaPrimary.map(([key, value]) => fieldRow(key, value)).join("")}
-        </div>
-      </details>
-    `}
-  `;
-}
-
-function renderClassifierDetailBody(key, value) {
-  if (!isPlainObject(value)) {
-    return objectRow(key, value);
-  }
-
-  const entries = Object.entries(value);
-  if (entries.length === 0) {
-    return objectRow(key, value);
-  }
-
-  return entries.map(([itemKey, item]) => objectRow(itemKey, item)).join("");
-}
-
-function fieldRow(key, value) {
-  return `
-    <div class="field-row">
-      <span>${escapeHtml(formatKeyLabel(key))}</span>
-      <strong>${escapeHtml(formatScalar(value))}</strong>
-    </div>
-  `;
-}
-
-function isExpandableValue(value) {
-  return Array.isArray(value) || isPlainObject(value);
-}
-
-function flattenSingleScalarObject(value) {
-  if (!isPlainObject(value)) return value;
-  const entries = Object.entries(value);
-  if (entries.length !== 1) return value;
-  const [, child] = entries[0];
-  return isExpandableValue(child) ? value : child;
-}
-
 function formatKeyLabel(key) {
   return String(key).replaceAll("_", " ");
-}
-
-function objectSummary(value) {
-  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
-  if (!isPlainObject(value)) return formatScalar(value);
-  if ("ok" in value && "source" in value) {
-    return `${value.ok ? "ok" : "not ok"} · ${value.source}`;
-  }
-  if ("kind" in value) return String(value.kind);
-  if ("status" in value) return String(value.status);
-  return `${Object.keys(value).length} field${Object.keys(value).length === 1 ? "" : "s"}`;
 }
 
 function appendEvent(event, classifier, message) {
@@ -773,7 +791,7 @@ function renderEventLog() {
         ? `<span class="ev-classifier">${escapeHtml(e.classifier)}</span>`
         : e.message
         ? `<span class="ev-message">${escapeHtml(e.message)}</span>`
-        : "";
+        : "<span></span>";
       return `
         <li class="ev ev-${tag.kind}">
           <span class="ev-time">${time}.${ms}</span>
@@ -792,7 +810,8 @@ function resetCopyJsonButton() {
 function eventTag(name) {
   if (name.endsWith("_completed") || name === "pipeline_completed") return { kind: "ok" };
   if (name.endsWith("_failed") || name === "error") return { kind: "err" };
-  if (name.endsWith("_timed_out") || name.endsWith("_aborted") || name.endsWith("_canceled")) return { kind: "warn" };
+  if (name.endsWith("_timed_out") || name.endsWith("_aborted") || name.endsWith("_canceled"))
+    return { kind: "warn" };
   if (name.endsWith("_started")) return { kind: "info" };
   return { kind: "info" };
 }
@@ -850,7 +869,11 @@ function setRunState(value) {
 }
 
 function renderPhaseTrail() {
-  const labels = { normalizing: "normalizing", resource_check: "resource check", running: "running" };
+  const labels = {
+    normalizing: "normalizing",
+    resource_check: "resource check",
+    running: "running",
+  };
   if (state.phases.length === 0) {
     phaseTrail.hidden = true;
     phaseTrail.textContent = "";
@@ -860,9 +883,18 @@ function renderPhaseTrail() {
   phaseTrail.innerHTML = state.phases
     .map((p, i) => {
       const isLast = i === state.phases.length - 1;
-      return `<span class="phase-step${isLast ? " phase-step-active" : ""}">${labels[p] ?? p}</span>`;
+      return `<span class="phase-step${isLast ? " phase-step-active" : ""}">${escapeHtml(
+        labels[p] ?? p,
+      )}</span>`;
     })
     .join('<span class="phase-sep">→</span>');
+}
+
+function cssEscape(value) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
 function escapeHtml(value) {
