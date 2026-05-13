@@ -28,6 +28,15 @@ const eventLogList = document.querySelector("#eventLogList");
 const eventLogCount = document.querySelector("#eventLogCount");
 const phaseTrail = document.querySelector("#phaseTrail");
 
+const TOOL_PILL_COLORS = [
+  "rgb(229 203 94)",
+  "rgb(100 175 22)",
+  "rgb(223 124 209)",
+  "rgb(227 141 141)",
+  "rgb(182 129 235)",
+  "rgb(129 235 154)",
+];
+
 init();
 
 async function init() {
@@ -435,10 +444,16 @@ function resultToolsItem(tools) {
     <div class="result-banner-item result-tools-item">
       <span>${escapeHtml(classifierLabelText("tools"))}</span>
       <div class="pill-list">
-        ${items.map((tool) => `<strong class="tool-pill${tool === "none" ? " is-empty" : ""}">${escapeHtml(String(tool))}</strong>`).join("")}
+        ${items.map((tool, index) => toolPill(tool, index)).join("")}
       </div>
     </div>
   `;
+}
+
+function toolPill(tool, index) {
+  const text = String(tool);
+  const color = TOOL_PILL_COLORS[index % TOOL_PILL_COLORS.length];
+  return `<strong class="tool-pill${text === "none" ? " is-empty" : ""}" style="--tool-pill-bg: ${escapeHtml(color)}">${escapeHtml(text)}</strong>`;
 }
 
 function cancelClassifiersExcept(keptNames) {
