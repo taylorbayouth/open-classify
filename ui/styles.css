@@ -46,17 +46,17 @@
 html {
   width: 100%;
   height: 100%;
-  background-color: var(--bg);
+  background-color: #02050a;
   scroll-behavior: smooth;
   overscroll-behavior: none;
   overflow: hidden;
 }
 
 body {
-  width: 100vw;
-  height: 100vh;
-  margin: 0;
-  padding: var(--page-inset);
+  width: calc(100vw - 40px);
+  height: calc(100vh - 40px);
+  margin: 20px;
+  padding: 0;
   overflow: hidden;
   background:
     radial-gradient(1200px 600px at 80% -10%, rgba(94, 234, 212, 0.08), transparent 60%),
@@ -258,8 +258,8 @@ textarea:focus, input:focus, select:focus {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
-  padding-top: var(--panel-inset);
-  padding-right: var(--panel-inset);
+  margin-top: 10px;
+  margin-right: 10px;
   min-height: 0;
 }
 
@@ -511,8 +511,8 @@ button:disabled { cursor: wait; opacity: 0.55; }
   width: 100%;
   margin-bottom: 22px;
   border-radius: var(--radius-sm);
-  background: #101722;
-  box-shadow: 0 0 90px rgba(60, 77, 112, 0.03), 0 24px 90px rgba(60, 77, 112, 0.03);
+  background: #000;
+  box-shadow: 0 0 90px rgba(60, 77, 112, 0.06), 0 24px 90px rgba(60, 77, 112, 0.06);
   padding: 16px 18px;
 }
 
@@ -721,7 +721,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   row-gap: 0;
   align-items: start;
   min-width: 0;
-  margin-top: var(--tile-gap);
+  margin-top: 10px;
   padding-bottom: var(--tile-gap);
 }
 
@@ -732,7 +732,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
 }
 
 .classifier-column:first-child {
-  margin-right: var(--tile-gap);
+  margin-right: 10px;
 }
 
 .classifier-card {
