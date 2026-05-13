@@ -281,8 +281,8 @@ textarea:focus, input:focus, select:focus {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 18px 10px 4px;
-  scroll-padding: 8px 18px 10px 4px;
+  padding: 10px 22px 14px 12px;
+  scroll-padding: 10px 22px 14px 12px;
 }
 
 .message-editor {
@@ -712,9 +712,11 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .classifier-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  column-gap: 20px;
+  row-gap: 10px;
   align-items: start;
   min-width: 0;
+  padding: 0 8px 10px;
 }
 
 .classifier-column {
