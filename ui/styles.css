@@ -50,9 +50,9 @@ html {
 }
 
 body {
-  width: 100vw;
-  height: 100vh;
-  margin: 0;
+  width: calc(100vw - 40px);
+  height: calc(100vh - 40px);
+  margin: 20px;
   overflow: hidden;
   background:
     radial-gradient(1200px 600px at 80% -10%, rgba(94, 234, 212, 0.08), transparent 60%),
@@ -77,11 +77,11 @@ button, input, textarea, select {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 20px;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   margin: 0;
-  padding: 20px;
+  padding: 0;
   overflow: hidden;
 }
 
@@ -281,6 +281,8 @@ textarea:focus, input:focus, select:focus {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  margin-top: 10px;
+  margin-right: 10px;
   padding: 10px 22px 14px 12px;
   scroll-padding: 10px 22px 14px 12px;
 }
@@ -505,9 +507,11 @@ button:disabled { cursor: wait; opacity: 0.55; }
   align-items: center;
   flex-wrap: wrap;
   gap: 14px;
+  width: 100%;
   margin-bottom: 22px;
   border-radius: var(--radius-sm);
   background: #101722;
+  box-shadow: 0 24px 80px rgba(60, 77, 112, 0.03);
   padding: 16px 18px;
 }
 
@@ -712,18 +716,22 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .classifier-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 20px;
-  row-gap: 10px;
+  column-gap: 0;
+  row-gap: 0;
   align-items: start;
   min-width: 0;
+  margin-top: 10px;
   padding: 0 8px 10px;
 }
 
 .classifier-column {
   display: grid;
   align-content: start;
-  gap: 10px;
   min-width: 0;
+}
+
+.classifier-column:first-child {
+  margin-right: 10px;
 }
 
 .classifier-card {
@@ -735,6 +743,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   box-shadow: var(--shadow-soft);
+  margin-bottom: 10px;
   padding: 20px 21px;
   transition: border-color 200ms ease, background 200ms ease;
 }
@@ -1238,6 +1247,7 @@ button:disabled { cursor: wait; opacity: 0.55; }
     border-left: 0;
   }
   .classifier-grid { grid-template-columns: 1fr; }
+  .classifier-column:first-child { margin-right: 0; }
 }
 
 @media (max-width: 600px) {
