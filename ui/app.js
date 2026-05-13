@@ -395,7 +395,7 @@ function renderAggregate(result) {
   const model = result ? selectedModel(result) ?? "—" : "—";
   const security = result ? securityDecision(result) ?? "—" : "—";
   const action = result ? result.action ?? "—" : "—";
-  const tools = result ? toolsSummary(result) : "—";
+  const toolsList = result ? toolsList_(result) : [];
   const latency = pipelineLatencySeconds();
 
   const securityClass =
@@ -417,7 +417,7 @@ function renderAggregate(result) {
     <div class="final-output-grid">
       ${foItem("Model", model)}
       ${foItem("Action", action)}
-      ${foItem("Tools", tools)}
+      ${foToolsItem(toolsList)}
       ${foItem("Security", security, securityClass)}
       ${foItem("Latency", latency != null ? `${latency.toFixed(1)}s` : "—")}
     </div>
@@ -433,14 +433,39 @@ function foItem(k, v, cls = "") {
   `;
 }
 
-function toolsSummary(result) {
-  const tools = result.audit?.meta?.classifiers?.tools;
-  if (!tools) return "none";
-  const list = tools.tools ?? tools.allowed ?? tools.families;
-  if (Array.isArray(list) && list.length > 0) {
-    return list.join(", ");
+const TOOL_PILL_COLORS = [
+  "rgb(229 203 94)",
+  "rgb(100 175 22)",
+  "rgb(223 124 209)",
+  "rgb(227 141 141)",
+  "rgb(182 129 235)",
+  "rgb(129 235 154)",
+];
+
+function foToolsItem(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    return foItem("Tools", "none");
   }
-  return "none";
+  const pills = list
+    .map((tool, index) => {
+      const text = String(tool).replaceAll("_", " ").toLowerCase();
+      const color = TOOL_PILL_COLORS[index % TOOL_PILL_COLORS.length];
+      return `<span class="tool-pill" style="--tool-pill-bg: ${escapeHtml(color)}">${escapeHtml(text)}</span>`;
+    })
+    .join("");
+  return `
+    <div class="fo-item">
+      <span class="k">Tools</span>
+      <span class="v tool-pill-list">${pills}</span>
+    </div>
+  `;
+}
+
+function toolsList_(result) {
+  const tools = result.audit?.meta?.classifiers?.tools;
+  if (!tools) return [];
+  const list = tools.tools ?? tools.allowed ?? tools.families;
+  return Array.isArray(list) ? list.filter((entry) => entry && entry !== "none") : [];
 }
 
 function buildDisplayResult(result) {
