@@ -532,9 +532,9 @@ function renderClassifier(name) {
             <h2 class="classifier-title">${classifierLabel(name)}</h2>
             ${purposeHtml}
           </div>
-          ${reasonHtml}
         </div>
         <div class="status-block">
+          ${reasonHtml}
           <span class="badge ${item.status}">
             ${item.status === "running" ? '<span class="pulse"></span>' : ""}${escapeHtml(classifierStatusLabel(item))}
           </span>
@@ -694,7 +694,7 @@ function renderReasonPill(result) {
 
   return `
     <div class="reason-pill-wrap">
-      <span class="reason-pill" tabindex="0">Reason</span>
+      <span class="reason-pill" tabindex="0">Reason<span class="reason-pill-dot" aria-hidden="true">•</span></span>
       <span class="reason-tooltip" role="tooltip">${escapeHtml(reason)}</span>
     </div>
   `;

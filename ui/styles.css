@@ -413,9 +413,27 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .event-log .panel-head {
   list-style: none;
   cursor: pointer;
+  position: relative;
+  padding-right: 42px;
 }
 
 .event-log .panel-head::-webkit-details-marker { display: none; }
+
+.event-log .panel-head::after {
+  content: "▸";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted-2);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.event-log[open] .panel-head::after {
+  transform: translateY(-50%) rotate(90deg);
+}
 
 .event-log:not([open]) .panel-head {
   border-bottom: 0;
@@ -790,16 +808,25 @@ button:disabled { cursor: wait; opacity: 0.55; }
 .reason-pill {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--line-2);
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
-  background: #0a0d12;
-  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #ccd5e4;
   padding: 5px 10px;
+  min-height: 28px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: help;
+  white-space: nowrap;
+}
+
+.reason-pill-dot {
+  color: #91a0b6;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .reason-tooltip {
