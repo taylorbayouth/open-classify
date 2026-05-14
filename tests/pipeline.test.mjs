@@ -509,6 +509,9 @@ test("external abort signal cancels in-flight classifiers", async () => {
     baseOptions({
       signal: controller.signal,
       classifierRetryCount: 0,
+      // Lift the parallel cap so every classifier dispatches synchronously;
+      // this test exercises abort propagation, not concurrency limiting.
+      maxParallel: Object.keys(results).length,
       runClassifier(name) {
         started.push(name);
         return new Promise(() => {});

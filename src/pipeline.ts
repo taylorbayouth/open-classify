@@ -38,6 +38,10 @@ import type {
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
 export const DEFAULT_CERTAINTY_GATE = "min_score";
+// Matches the typical workstation Ollama OLLAMA_NUM_PARALLEL. Surplus
+// classifiers wait inside the pipeline until a slot frees, so their
+// timeout budget doesn't burn while queued at the backend.
+export const DEFAULT_MAX_PARALLEL = 7;
 
 export class OpenClassifyNormalizationError extends Error {
   constructor(cause: unknown) {
@@ -54,7 +58,7 @@ export interface ClassifyOptions {
   // Cap on classifier requests in flight at once. Match this to the runtime
   // parallelism of your backend (e.g. Ollama's OLLAMA_NUM_PARALLEL); otherwise
   // surplus requests sit in the backend's queue while their timeout budget
-  // burns. Defaults to the number of registered classifiers (no effective cap).
+  // burns. Defaults to DEFAULT_MAX_PARALLEL.
   maxParallel?: number;
   aggregator?: AggregatorConfig;
   signal?: AbortSignal;
@@ -431,8 +435,7 @@ async function runClassifierWithRetry(
 }
 
 function resolveMaxParallel(value: number | undefined): number {
-  const fallback = CLASSIFIER_NAMES.length;
-  if (value === undefined) return fallback;
+  if (value === undefined) return DEFAULT_MAX_PARALLEL;
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(
       `maxParallel must be a positive integer, received ${String(value)}`,
