@@ -106,6 +106,12 @@ test("starts all classifiers concurrently and returns route result", async () =>
         latest_user_message_summary: "User asks for code review.",
       },
     },
+    {
+      classifier: "context_shift",
+      reason: "The request directly continues the active code review thread.",
+      certainty: "strong",
+      output: { decision: "same_active_thread" },
+    },
   ]);
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: ["user review preferences"] },
@@ -113,6 +119,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
       history_summary: "",
       latest_user_message_summary: "User asks for code review.",
     },
+    context_shift: { decision: "same_active_thread" },
   });
 
   // reasoning + local_strong → gemma4 matches (qwen is coding-only).
@@ -580,6 +587,12 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
         latest_user_message_summary: "User asks for code review.",
       },
     },
+    {
+      classifier: "context_shift",
+      reason: "The request directly continues the active code review thread.",
+      certainty: "strong",
+      output: { decision: "same_active_thread" },
+    },
   ]);
   assert.deepEqual(result.classifier_outputs, {
     memory_retrieval_queries: { queries: [] },
@@ -587,6 +600,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
       history_summary: "",
       latest_user_message_summary: "User asks for code review.",
     },
+    context_shift: { decision: "same_active_thread" },
   });
   const memEntry = result.audit.meta.classifiers.memory_retrieval_queries;
   assert.equal(memEntry.status.ok, false);

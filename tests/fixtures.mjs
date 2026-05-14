@@ -27,6 +27,11 @@ export const validClassifierOutputs = {
       latest_user_message_summary: "User asks for code review.",
     },
   },
+  context_shift: {
+    reason: "The request directly continues the active code review thread.",
+    certainty: "strong",
+    output: { decision: "same_active_thread" },
+  },
   tools: {
     reason: "The request requires code access.",
     certainty: "very_strong",
