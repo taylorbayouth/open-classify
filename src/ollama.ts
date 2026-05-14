@@ -87,6 +87,7 @@ export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
   configPath?: string;
   openClassifyConfig?: OpenClassifyConfig;
   aggregator?: AggregatorConfig;
+  maxParallel?: number;
 }
 
 interface OllamaChatResponse {
@@ -241,10 +242,13 @@ export async function classifyWithOllama(
     config.catalogPath ?? fileConfig?.catalog ?? OLLAMA_DEFAULT_CATALOG_PATH,
   );
 
+  const maxParallel = config.maxParallel ?? runnerFileConfig?.maxParallel;
+
   return classifyOpenClassifyInput(input, {
     runClassifier: createOllamaClassifierRunner(runnerConfig),
     catalog,
     aggregator: config.aggregator ?? fileConfig?.aggregator,
+    ...(maxParallel === undefined ? {} : { maxParallel }),
   });
 }
 

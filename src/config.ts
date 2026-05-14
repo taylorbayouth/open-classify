@@ -20,6 +20,7 @@ export interface OllamaRunnerConfig {
   readonly provider: "ollama";
   readonly host?: string;
   readonly defaultModel?: string;
+  readonly maxParallel?: number;
   readonly options?: {
     readonly temperature?: number;
     readonly top_p?: number;
@@ -110,7 +111,12 @@ function validateRunner(value: unknown, path: string): OllamaRunnerConfig {
   if (!isRecord(value)) {
     throwConfig(path, "runner must be an object");
   }
-  ensureAllowedKeys(value, ["provider", "host", "defaultModel", "options", "models"], path, "runner");
+  ensureAllowedKeys(
+    value,
+    ["provider", "host", "defaultModel", "maxParallel", "options", "models"],
+    path,
+    "runner",
+  );
   const provider = value.provider === undefined
     ? "ollama"
     : requireString(value.provider, path, "runner.provider");
@@ -124,6 +130,9 @@ function validateRunner(value: unknown, path: string): OllamaRunnerConfig {
     ...(value.defaultModel === undefined
       ? {}
       : { defaultModel: requireString(value.defaultModel, path, "runner.defaultModel") }),
+    ...(value.maxParallel === undefined
+      ? {}
+      : { maxParallel: requirePositiveInteger(value.maxParallel, path, "runner.maxParallel") }),
     ...(value.options === undefined ? {} : { options: validateOptions(value.options, path) }),
     ...(value.models === undefined ? {} : { models: validateModels(value.models, path) }),
   };
@@ -206,6 +215,13 @@ function requireString(value: unknown, path: string, field: string): string {
 function requireNumber(value: unknown, path: string, field: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throwConfig(path, `${field} must be a finite number`);
+  }
+  return value;
+}
+
+function requirePositiveInteger(value: unknown, path: string, field: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throwConfig(path, `${field} must be a positive integer`);
   }
   return value;
 }

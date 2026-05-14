@@ -51,8 +51,48 @@ export interface ClassifyOptions {
   catalog: Catalog;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
+  // Cap on classifier requests in flight at once. Match this to the runtime
+  // parallelism of your backend (e.g. Ollama's OLLAMA_NUM_PARALLEL); otherwise
+  // surplus requests sit in the backend's queue while their timeout budget
+  // burns. Defaults to the number of registered classifiers (no effective cap).
+  maxParallel?: number;
   aggregator?: AggregatorConfig;
   signal?: AbortSignal;
+}
+
+// FIFO semaphore. Permit holders call release() once. Waiters are handed
+// permits directly (the permit count is not incremented before resolving),
+// so there is no permit/waiter race. tryAcquire exists so callers can take
+// the fast path without an extra microtask hop when a permit is free.
+class Semaphore {
+  private permits: number;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  tryAcquire(): boolean {
+    if (this.permits <= 0) return false;
+    this.permits -= 1;
+    return true;
+  }
+
+  acquire(): Promise<void> {
+    if (this.tryAcquire()) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  release(): void {
+    const next = this.waiters.shift();
+    if (next !== undefined) {
+      next();
+      return;
+    }
+    this.permits += 1;
+  }
 }
 
 type SettledClassifierResult =
@@ -89,8 +129,10 @@ export async function classifyOpenClassifyInput(
   const classifierInput = toClassifierInput(request);
   const classifierTimeoutMs = options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
+  const maxParallel = resolveMaxParallel(options.maxParallel);
   const threshold = certaintyThreshold(options.aggregator);
 
+  const limiter = new Semaphore(maxParallel);
   const runs = new Map<string, Promise<SettledClassifierResult>>(
     CLASSIFIER_NAMES.map((name) => [
       name,
@@ -101,6 +143,7 @@ export async function classifyOpenClassifyInput(
         controller.signal,
         classifierTimeoutMs,
         classifierRetryCount,
+        limiter,
       ),
     ]),
   );
@@ -356,19 +399,46 @@ async function runClassifierWithRetry(
   rootSignal: AbortSignal,
   timeoutMs: number,
   retryCount: number,
+  limiter: Semaphore,
 ): Promise<SettledClassifierResult> {
   let lastError: unknown = new Error(`${name} classifier did not run`);
   let lastReason: ClassifierFallbackReason = "error";
 
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     if (rootSignal.aborted) break;
-    const result = await runClassifierAttempt(name, input, runClassifier, rootSignal, timeoutMs);
-    if (result.ok) return { ok: true, name, value: result.value };
-    lastError = result.error;
-    lastReason = result.reason;
+    // Acquire before invoking the attempt so the timeout budget only starts
+    // counting once we actually hand the request to the backend. Take the
+    // synchronous fast path when a permit is free so dispatch order matches
+    // the unconstrained case for callers that abort right after kickoff.
+    if (!limiter.tryAcquire()) {
+      await limiter.acquire();
+      if (rootSignal.aborted) {
+        limiter.release();
+        break;
+      }
+    }
+    try {
+      const result = await runClassifierAttempt(name, input, runClassifier, rootSignal, timeoutMs);
+      if (result.ok) return { ok: true, name, value: result.value };
+      lastError = result.error;
+      lastReason = result.reason;
+    } finally {
+      limiter.release();
+    }
   }
 
   return { ok: false, name, error: lastError, reason: lastReason };
+}
+
+function resolveMaxParallel(value: number | undefined): number {
+  const fallback = CLASSIFIER_NAMES.length;
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new RangeError(
+      `maxParallel must be a positive integer, received ${String(value)}`,
+    );
+  }
+  return value;
 }
 
 async function runClassifierAttempt(

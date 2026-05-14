@@ -628,3 +628,65 @@ test("classifierRetryCount of 0 attempts each classifier exactly once", async ()
   assert.equal(attempts.tools, 1);
   assert.equal(result.audit.meta.classifiers.tools.status.ok, false);
 });
+
+test("maxParallel caps simultaneous classifier runs", async () => {
+  const totalClassifiers = Object.keys(results).length;
+  assert.ok(totalClassifiers > 3, "fixture must register more than 3 classifiers");
+
+  let inFlight = 0;
+  let peak = 0;
+  let released = 0;
+  const releases = [];
+
+  const promise = classifyOpenClassifyInput(
+    { messages: [userMessage("review this")] },
+    baseOptions({
+      maxParallel: 3,
+      runClassifier(name) {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        return new Promise((resolve) => {
+          releases.push(() => {
+            inFlight -= 1;
+            resolve(results[name]);
+          });
+        });
+      },
+    }),
+  );
+
+  // Drain in waves so the limiter has to refill slots repeatedly, until
+  // every classifier has been dispatched and released.
+  while (released < totalClassifiers) {
+    await new Promise((resolve) => setImmediate(resolve));
+    while (releases.length > 0) {
+      releases.shift()();
+      released += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+
+  const result = await promise;
+  assert.equal(result.action, "route");
+  assert.ok(peak <= 3, `peak in-flight should be <= 3, was ${peak}`);
+  assert.equal(inFlight, 0);
+});
+
+test("maxParallel rejects non-positive integers", async () => {
+  for (const bad of [0, -1, 1.5, Number.NaN]) {
+    await assert.rejects(
+      () =>
+        classifyOpenClassifyInput(
+          { messages: [userMessage("review this")] },
+          baseOptions({
+            maxParallel: bad,
+            async runClassifier(name) {
+              return results[name];
+            },
+          }),
+        ),
+      RangeError,
+      `maxParallel=${bad} should be rejected`,
+    );
+  }
+});
