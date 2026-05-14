@@ -6,22 +6,22 @@
 export const validClassifierOutputs = {
   preflight: {
     reason: "The latest message requires downstream work.",
-    certainty: 0.75,
+    certainty: "strong",
     ack_reply: { reply: "Let me check." },
   },
   routing: {
     reason: "The request needs moderate reasoning.",
-    certainty: 0.75,
+    certainty: "strong",
     model_tier: "local_strong",
   },
   memory_retrieval_queries: {
     reason: "Saved user review preferences could improve the response.",
-    certainty: 0.75,
+    certainty: "strong",
     output: { queries: ["user review preferences"] },
   },
   conversation_digest: {
     reason: "Conversation compression is useful downstream context.",
-    certainty: 0.88,
+    certainty: "very_strong",
     output: {
       history_summary: "",
       latest_user_message_summary: "User asks for code review.",
@@ -29,22 +29,22 @@ export const validClassifierOutputs = {
   },
   context_shift: {
     reason: "The request directly continues the active code review thread.",
-    certainty: 0.75,
+    certainty: "strong",
     output: { decision: "same_active_thread" },
   },
   tools: {
     reason: "The request requires code access.",
-    certainty: 0.88,
+    certainty: "very_strong",
     tools: ["workspace"],
   },
   model_specialization: {
     reason: "The request asks for evaluative review.",
-    certainty: 0.75,
+    certainty: "strong",
     specialization: "reasoning",
   },
   prompt_injection: {
     reason: "No notable risk.",
-    certainty: 0.97,
+    certainty: "near_certain",
     risk_level: "normal",
   },
 };

@@ -261,7 +261,7 @@ test("loadOpenClassifyConfig rejects unknown classifier names", () => {
 test("createOllamaClassifierRunner rejects unknown preflight fields", async () => {
   const runner = runnerReturning({
     reason: "Invalid.",
-    certainty: 0.75,
+    certainty: "strong",
     handoff: { kind: "final", reply: "Nope." },
   });
 
@@ -277,7 +277,7 @@ test("createOllamaClassifierRunner rejects unknown preflight fields", async () =
 test("createOllamaClassifierRunner validates preflight reply length", async () => {
   const runner = runnerReturning({
     reason: "Too long.",
-    certainty: 0.75,
+    certainty: "strong",
     ack_reply: { reply: "x".repeat(201) },
   });
 
@@ -293,7 +293,7 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
 test("createOllamaClassifierRunner rejects empty preflight replies", async () => {
   const runner = runnerReturning({
     reason: "Empty.",
-    certainty: 0.75,
+    certainty: "strong",
     ack_reply: { reply: "   " },
   });
 
@@ -309,7 +309,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
 test("createOllamaClassifierRunner validates routing enum values", async () => {
   const runner = runnerReturning({
     reason: "Invalid tier.",
-    certainty: 0.45,
+    certainty: "tentative",
     model_tier: "ultra_strong",
   });
 
@@ -325,7 +325,7 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
 test("createOllamaClassifierRunner validates memory custom output schema", async () => {
   const runner = runnerReturning({
     reason: "Bad query.",
-    certainty: 0.45,
+    certainty: "tentative",
     output: { queries: [""] },
   });
 
@@ -341,7 +341,7 @@ test("createOllamaClassifierRunner validates memory custom output schema", async
 test("createOllamaClassifierRunner rejects duplicate tools", async () => {
   const runner = runnerReturning({
     reason: "Duplicate.",
-    certainty: 0.45,
+    certainty: "tentative",
     tools: ["workspace", "workspace"],
   });
 
@@ -364,7 +364,7 @@ test("tools system prompt describes empty tools as no tools required", () => {
 test("createOllamaClassifierRunner validates model_specialization enum", async () => {
   const runner = runnerReturning({
     reason: "Invalid spec.",
-    certainty: 0.45,
+    certainty: "tentative",
     specialization: "spreadsheet_magic",
   });
 
@@ -380,7 +380,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
 test("createOllamaClassifierRunner rejects prompt_injection signals field", async () => {
   const runner = runnerReturning({
     reason: "Conflicting.",
-    certainty: 0.45,
+    certainty: "tentative",
     risk_level: "normal",
     signals: ["instruction_attack"],
   });

@@ -6,15 +6,28 @@ The aggregator merges classifier outputs into an `Envelope`, picks a concrete mo
 
 Default: `0.65`. Configurable via `aggregator.certaintyThreshold` on `classifyOpenClassifyInput`. `aggregator.confidenceThreshold` remains as a deprecated compatibility alias.
 
-Per-classifier signals are emitted with `certainty` scores from 0 to 1.
+Per-classifier signals are emitted with `certainty` tags. The aggregator maps those tags to scores:
 
-Signals below the threshold are dropped from aggregation. Missing certainty is invalid for validated classifier outputs. Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
+```ts
+{
+  no_signal: 0.00,
+  very_weak: 0.15,
+  weak: 0.30,
+  tentative: 0.45,
+  reasonable: 0.60,
+  strong: 0.75,
+  very_strong: 0.88,
+  near_certain: 0.97,
+}
+```
+
+Signals with scores below the threshold are dropped from aggregation. Missing certainty is invalid for validated classifier outputs. Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
 
 Custom classifier outputs are surfaced regardless of certainty (callers can decide what to do with them), but the value still goes through schema validation.
 
 ## Whole-run certainty gate
 
-Before returning a normal `route`, the pipeline checks certainty scores for every classifier result, including custom classifiers. Fallback outputs use explicit `certainty: 0`, which counts as `0`.
+Before returning a normal `route`, the pipeline calculates mapped certainty scores for every classifier result, including custom classifiers. Fallback outputs use explicit `certainty: "no_signal"`, which counts as `0`.
 
 `aggregator.certaintyGate` controls whether low whole-run certainty becomes `action: "block"`:
 

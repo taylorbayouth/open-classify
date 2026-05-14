@@ -56,7 +56,7 @@ Example (`src/classifiers/stock/prompt_injection/manifest.json`):
   "order": 50,
   "fallback": {
     "reason": "Classifier failed; prompt-injection risk is unknown.",
-    "certainty": 0,
+    "certainty": "no_signal",
     "risk_level": "unknown"
   }
 }
@@ -81,7 +81,7 @@ Example:
   "order": 60,
   "fallback": {
     "reason": "Classifier failed; no memory queries generated.",
-    "certainty": 0,
+    "certainty": "no_signal",
     "output": { "queries": [] }
   },
   "output_schema": {

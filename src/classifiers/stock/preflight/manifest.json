@@ -6,6 +6,6 @@
   "order": 10,
   "fallback": {
     "reason": "Classifier failed; no preflight signal.",
-    "certainty": 0
+    "certainty": "no_signal"
   }
 }

@@ -1,3 +1,3 @@
-- certainty: required number from 0 to 1.
-  Use values near 1 only when the signal is obvious, about 0.75 when confident, about 0.60 when sufficiently supported, about 0.45 when uncertain, and 0.30 or lower when guessing.
-  Missing certainty is invalid, and low certainty can cause the runtime to drop your signal, so always emit a real number.
+- certainty: required. Use one of "no_signal", "very_weak", "weak", "tentative", "reasonable", "strong", "very_strong", or "near_certain".
+  Use "near_certain" only when the signal is obvious, "strong" when confident, "reasonable" when sufficiently supported, "tentative" when uncertain, and "weak" or lower when guessing.
+  The runtime maps this tag to a numeric score for aggregation. Missing certainty is invalid, and low certainty can cause the runtime to drop your signal, so always emit a real tag.

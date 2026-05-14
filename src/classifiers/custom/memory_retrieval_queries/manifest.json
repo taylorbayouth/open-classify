@@ -6,7 +6,7 @@
   "order": 60,
   "fallback": {
     "reason": "Classifier failed; no memory queries generated.",
-    "certainty": 0,
+    "certainty": "no_signal",
     "output": {
       "queries": []
     }

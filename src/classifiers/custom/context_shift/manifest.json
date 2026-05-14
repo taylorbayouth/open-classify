@@ -6,7 +6,7 @@
   "order": 80,
   "fallback": {
     "reason": "Classifier failed; context relationship is ambiguous.",
-    "certainty": 0,
+    "certainty": "no_signal",
     "output": {
       "decision": "ambiguous"
     }

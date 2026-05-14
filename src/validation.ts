@@ -70,18 +70,6 @@ export function requireNonNegativeSafeInteger(
   return value;
 }
 
-export function requireUnitFloat(
-  value: unknown,
-  classifier: string,
-  model: string,
-  path: string,
-): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
-    throwInvalid(classifier, model, `${path} must be a finite number between 0 and 1 inclusive`);
-  }
-  return value;
-}
-
 export function requireStringArray(
   value: unknown,
   classifier: string,

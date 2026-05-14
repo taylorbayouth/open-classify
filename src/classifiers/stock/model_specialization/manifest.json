@@ -6,6 +6,6 @@
   "order": 30,
   "fallback": {
     "reason": "Classifier failed; no specialization signal.",
-    "certainty": 0
+    "certainty": "no_signal"
   }
 }

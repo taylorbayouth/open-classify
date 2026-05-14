@@ -49,8 +49,8 @@ const CATALOG = {
   ],
 };
 
-const HIGH = 0.88;
-const LOW = 0.15;
+const HIGH = "very_strong";
+const LOW = "very_weak";
 
 test("resolveModel picks the cheapest exact stock-routing match", () => {
   const rec = resolveModel(
@@ -175,12 +175,12 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
       { kind: "custom", name: "memory", order: 60 },
     ],
     results: {
-      preflight: { ack_reply: { reply: "On it." }, certainty: 0.88 },
-      routing: { model_tier: "frontier_fast", certainty: 0.88 },
-      model_specialization: { specialization: "reasoning", certainty: 0.88 },
-      tools: { tools: ["web", "workspace"], certainty: 0.88 },
-      prompt_injection: { risk_level: "suspicious", certainty: 0.88 },
-      memory: { output: { queries: ["alpha"] }, reason: "a", certainty: 0.88 },
+      preflight: { ack_reply: { reply: "On it." }, certainty: "very_strong" },
+      routing: { model_tier: "frontier_fast", certainty: "very_strong" },
+      model_specialization: { specialization: "reasoning", certainty: "very_strong" },
+      tools: { tools: ["web", "workspace"], certainty: "very_strong" },
+      prompt_injection: { risk_level: "suspicious", certainty: "very_strong" },
+      memory: { output: { queries: ["alpha"] }, reason: "a", certainty: "very_strong" },
     },
     catalog: CATALOG,
     input: { text: "x", messages: [], target_message_hash: "abc12345" },
@@ -197,14 +197,14 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
     specialization: "reasoning",
   });
   assert.deepEqual(envelope.custom_outputs, [
-    { classifier: "memory", reason: "a", certainty: 0.88, output: { queries: ["alpha"] } },
+    { classifier: "memory", reason: "a", certainty: "very_strong", output: { queries: ["alpha"] } },
   ]);
 });
 
 test("composeEnvelope is pure: same inputs produce structurally equal outputs", () => {
   const args = {
     registry: [{ kind: "stock", name: "tools", order: 40 }],
-    results: { tools: { tools: [], certainty: 0.88 } },
+    results: { tools: { tools: [], certainty: "very_strong" } },
     catalog: CATALOG,
     input: { text: "x", messages: [], target_message_hash: "abc12345" },
   };
