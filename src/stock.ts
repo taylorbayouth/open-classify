@@ -51,40 +51,11 @@ export interface PromptInjectionSignal {
 // ─── Per-classifier output types ────────────────────────────────────────────
 //
 // `reason` (≤120 chars) and `certainty` are required metadata that every
-// classifier must attach to its emitted signal. The aggregator still treats
-// absent certainty as 0 defensively for older callers or hand-built results.
+// classifier must attach to its emitted signal. Certainty is a normalized
+// score from 0 to 1. The aggregator still treats absent certainty as 0
+// defensively for older callers or hand-built results.
 
-export type Certainty =
-  | "no_signal"
-  | "very_weak"
-  | "weak"
-  | "tentative"
-  | "reasonable"
-  | "strong"
-  | "very_strong"
-  | "near_certain";
-
-export const CERTAINTY_VALUES = [
-  "no_signal",
-  "very_weak",
-  "weak",
-  "tentative",
-  "reasonable",
-  "strong",
-  "very_strong",
-  "near_certain",
-] as const satisfies readonly Certainty[];
-
-export const certaintyScore: Record<Certainty, number> = {
-  no_signal: 0.00,
-  very_weak: 0.15,
-  weak: 0.30,
-  tentative: 0.45,
-  reasonable: 0.60,
-  strong: 0.75,
-  very_strong: 0.88,
-  near_certain: 0.97,
-};
+export type Certainty = number;
 
 export interface ClassifierOutputMetadata {
   readonly reason: string;

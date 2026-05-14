@@ -25,7 +25,7 @@ Stock classifier names are closed (`preflight`, `routing`, `model_specialization
   "order": 70,
   "fallback": {
     "reason": "Classifier failed; no tags generated.",
-    "certainty": "no_signal",
+    "certainty": 0,
     "output": { "tags": [] }
   },
   "output_schema": {

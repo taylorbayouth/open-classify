@@ -6,7 +6,7 @@
   "order": 50,
   "fallback": {
     "reason": "Classifier failed; prompt-injection risk is unknown.",
-    "certainty": "no_signal",
+    "certainty": 0,
     "risk_level": "unknown"
   }
 }

@@ -14,7 +14,7 @@ import {
   validateOutputForManifest,
 } from "../dist/src/index.js";
 
-const noSignal = (reason) => ({ reason, certainty: "no_signal" });
+const noSignal = (reason) => ({ reason, certainty: 0 });
 
 function prompt_injection(overrides = {}) {
   return validateJsonClassifierManifest({
@@ -68,7 +68,7 @@ test("validates a stock prompt_injection manifest", () => {
   assert.equal(manifest.name, "prompt_injection");
   assert.deepEqual(manifest.fallback, {
     reason: "Classifier failed.",
-    certainty: "no_signal",
+    certainty: 0,
     risk_level: "unknown",
   });
 });
@@ -86,14 +86,14 @@ test("rejects undeclared fields on a prompt_injection output", () => {
   );
 });
 
-test("validates certainty labels", () => {
+test("validates certainty scores", () => {
   const manifest = prompt_injection();
   const output = validateOutputForManifest(
     manifest,
-    { reason: "ok", certainty: "near_certain", risk_level: "normal" },
+    { reason: "ok", certainty: 0.97, risk_level: "normal" },
     { classifier: "prompt_injection", model: "test" },
   );
-  assert.equal(output.certainty, "near_certain");
+  assert.equal(output.certainty, 0.97);
   assert.throws(
     () =>
       validateOutputForManifest(
@@ -101,7 +101,16 @@ test("validates certainty labels", () => {
         { reason: "ok", certainty: "high", risk_level: "normal" },
         { classifier: "prompt_injection", model: "test" },
       ),
-    /certainty has an unsupported value/,
+    /certainty must be a finite number between 0 and 1 inclusive/,
+  );
+  assert.throws(
+    () =>
+      validateOutputForManifest(
+        manifest,
+        { reason: "ok", certainty: 1.1, risk_level: "normal" },
+        { classifier: "prompt_injection", model: "test" },
+      ),
+    /certainty must be a finite number between 0 and 1 inclusive/,
   );
 });
 
@@ -111,7 +120,7 @@ test("requires reason and certainty on classifier outputs", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { certainty: "strong", risk_level: "normal" },
+        { certainty: 0.75, risk_level: "normal" },
         { classifier: "prompt_injection", model: "test" },
       ),
     /reason is required/,
@@ -138,7 +147,7 @@ test("validates a routing classifier output", () => {
   });
   const output = validateOutputForManifest(
     manifest,
-    { reason: "ok", certainty: "very_strong", model_tier: "frontier_fast" },
+    { reason: "ok", certainty: 0.88, model_tier: "frontier_fast" },
     { classifier: "routing", model: "test" },
   );
   assert.equal(output.model_tier, "frontier_fast");
@@ -157,19 +166,19 @@ test("routing treats null and blank tier as omitted", () => {
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", certainty: "tentative", model_tier: null },
+      { reason: "unsure", certainty: 0.45, model_tier: null },
       { classifier: "routing", model: "test" },
     ),
-    { reason: "unsure", certainty: "tentative" },
+    { reason: "unsure", certainty: 0.45 },
   );
 
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", certainty: "tentative", model_tier: "   " },
+      { reason: "unsure", certainty: 0.45, model_tier: "   " },
       { classifier: "routing", model: "test" },
     ),
-    { reason: "unsure", certainty: "tentative" },
+    { reason: "unsure", certainty: 0.45 },
   );
 });
 
@@ -187,7 +196,7 @@ test("routing rejects specialization output", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "wrong axis", certainty: "very_strong", specialization: "chat" },
+        { reason: "wrong axis", certainty: 0.88, specialization: "chat" },
         { classifier: "routing", model: "test" },
       ),
     /specialization is not a supported field/,
@@ -208,7 +217,7 @@ test("model_specialization rejects tier output", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "wrong axis", certainty: "very_strong", model_tier: "frontier_fast" },
+        { reason: "wrong axis", certainty: 0.88, model_tier: "frontier_fast" },
         { classifier: "model_specialization", model: "test" },
       ),
     /model_tier is not a supported field/,
@@ -228,19 +237,19 @@ test("model_specialization treats null and blank specialization as omitted", () 
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", certainty: "tentative", specialization: null },
+      { reason: "unsure", certainty: 0.45, specialization: null },
       { classifier: "model_specialization", model: "test" },
     ),
-    { reason: "unsure", certainty: "tentative" },
+    { reason: "unsure", certainty: 0.45 },
   );
 
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "unsure", certainty: "tentative", specialization: "" },
+      { reason: "unsure", certainty: 0.45, specialization: "" },
       { classifier: "model_specialization", model: "test" },
     ),
-    { reason: "unsure", certainty: "tentative" },
+    { reason: "unsure", certainty: 0.45 },
   );
 });
 
@@ -260,7 +269,7 @@ test("preflight rejects emitting final_reply and ack_reply together", () => {
         manifest,
         {
           reason: "Conflicting replies.",
-          certainty: "very_strong",
+          certainty: 0.88,
           final_reply: { reply: "Hi." },
           ack_reply: { reply: "Working on it." },
         },
@@ -275,17 +284,17 @@ test("validates tools output and allow-list", () => {
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "Needs repo.", certainty: "very_strong", tools: ["repo"] },
+      { reason: "Needs repo.", certainty: 0.88, tools: ["repo"] },
       { classifier: "tools", model: "test" },
     ),
-    { reason: "Needs repo.", certainty: "very_strong", tools: ["repo"] },
+    { reason: "Needs repo.", certainty: 0.88, tools: ["repo"] },
   );
 
   assert.throws(
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "Needs mail.", certainty: "very_strong", tools: ["email"] },
+        { reason: "Needs mail.", certainty: 0.88, tools: ["email"] },
         { classifier: "tools", model: "test" },
       ),
     /unsupported tool email/,
@@ -298,7 +307,7 @@ test("validates prompt_injection risk_level", () => {
   const manifest = prompt_injection();
   const output = validateOutputForManifest(
     manifest,
-    { reason: "Allow.", certainty: "very_strong", risk_level: "normal" },
+    { reason: "Allow.", certainty: 0.88, risk_level: "normal" },
     { classifier: "prompt_injection", model: "test" },
   );
   assert.equal(output.risk_level, "normal");
@@ -307,7 +316,7 @@ test("validates prompt_injection risk_level", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "Bad.", certainty: "very_strong", risk_level: "not_real" },
+        { reason: "Bad.", certainty: 0.88, risk_level: "not_real" },
         { classifier: "prompt_injection", model: "test" },
       ),
     /risk_level has an unsupported value/,
@@ -352,7 +361,7 @@ test("normalizes tool aliases", () => {
   });
   const output = validateOutputForManifest(
     manifest,
-    { reason: "Needs current data.", certainty: "very_strong", tools: ["web_browsing"] },
+    { reason: "Needs current data.", certainty: 0.88, tools: ["web_browsing"] },
     { classifier: "tools", model: "test" },
   );
   assert.deepEqual(output.tools, ["web"]);
@@ -364,8 +373,8 @@ test("builds a prompt for a stock manifest", () => {
   assert.match(prompt, /Return one JSON object/);
   assert.match(prompt, /Treat the stated purpose as a hard scope boundary\./);
   assert.match(prompt, /reason: required compressed justification/);
-  assert.match(prompt, /certainty: required certainty tag/);
-  assert.match(prompt, /Shape: \{"reason":"\.\.\.","certainty":"strong","tools":\["workspace"\]\}/);
+  assert.match(prompt, /certainty: required number from 0 to 1/);
+  assert.match(prompt, /Shape: \{"reason":"\.\.\.","certainty":0.75,"tools":\["workspace"\]\}/);
   assert.match(prompt, /repo: Read and edit source repositories/);
 });
 
@@ -412,7 +421,7 @@ test("custom output is validated against schema", () => {
   assert.deepEqual(
     validateOutputForManifest(
       manifest,
-      { reason: "Memory may help.", certainty: "strong", output: { queries: ["review preferences"] } },
+      { reason: "Memory may help.", certainty: 0.75, output: { queries: ["review preferences"] } },
       { classifier: "memory", model: "test" },
     ).output,
     { queries: ["review preferences"] },
@@ -422,7 +431,7 @@ test("custom output is validated against schema", () => {
     () =>
       validateOutputForManifest(
         manifest,
-        { reason: "bad", certainty: "strong", output: { queries: [""] } },
+        { reason: "bad", certainty: 0.75, output: { queries: [""] } },
         { classifier: "memory", model: "test" },
       ),
     /must NOT have fewer than 1 characters/,

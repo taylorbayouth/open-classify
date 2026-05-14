@@ -6,7 +6,7 @@
   "order": 70,
   "fallback": {
     "reason": "Classifier failed; no conversation summary generated.",
-    "certainty": "no_signal",
+    "certainty": 0,
     "output": {
       "history_summary": "",
       "latest_user_message_summary": ""

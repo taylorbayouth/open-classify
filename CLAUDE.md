@@ -68,12 +68,12 @@ Short-circuit gates: only preflight `final_reply` and prompt_injection `risk_lev
 
 Every classifier returns metadata like:
 ```ts
-{ reason: string /* ≤120 chars */, certainty: "no_signal" | "very_weak" | "weak" | "tentative" | "reasonable" | "strong" | "very_strong" | "near_certain" }
+{ reason: string /* ≤120 chars */, certainty: number /* 0..1 */ }
 ```
 
 Custom classifiers add an `output` value validated by their manifest's `output_schema`.
 
-Certainty scoring: the aggregator maps certainty tags to numeric scores for threshold checks and model-resolution audit data.
+Certainty scoring: classifiers emit numeric scores directly for threshold checks and model-resolution audit data.
 The default certainty threshold is `0.65`; the default whole-run gate is `certaintyGate: "min_score"`, which blocks when any stock or custom classifier score is below threshold.
 
 Classifiers that fail use their manifest `fallback` output; failures are recorded in `audit.meta.classifiers[name].status`.

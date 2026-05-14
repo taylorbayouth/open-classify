@@ -25,7 +25,7 @@ import type {
   ToolsClassifierOutput,
   ToolsSignal,
 } from "./stock.js";
-import { certaintyScore, isCustomManifest, isStockManifest } from "./stock.js";
+import { isCustomManifest, isStockManifest } from "./stock.js";
 import type { ClassifierInput } from "./types.js";
 
 export const DEFAULT_CERTAINTY_THRESHOLD = 0.65;
@@ -229,7 +229,7 @@ function hasLowConfidenceAxis(
 }
 
 function scoreCertainty(certainty: Certainty | undefined): number {
-  return certainty === undefined ? 0 : certaintyScore[certainty];
+  return typeof certainty === "number" && Number.isFinite(certainty) ? certainty : 0;
 }
 
 export function resolveModelFromRouting(

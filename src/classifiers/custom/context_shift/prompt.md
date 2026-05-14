@@ -9,4 +9,4 @@ Use `new_thread` when it starts a materially independent topic that does not rel
 Use `ambiguous` when the visible history is insufficient to choose one of the other labels.
 
 Do not infer hidden conversations, saved memories, external thread ids, or user intent that is not visible in the provided messages.
-Certainty should reflect confidence in the chosen label; `ambiguous` may have high certainty when ambiguity is the correct judgment.
+Certainty should reflect confidence in the chosen decision; `ambiguous` may have high certainty when ambiguity is the correct judgment.

@@ -94,13 +94,13 @@ test("starts all classifiers concurrently and returns route result", async () =>
     {
       classifier: "memory_retrieval_queries",
       reason: "Saved user review preferences could improve the response.",
-      certainty: "strong",
+      certainty: 0.75,
       output: { queries: ["user review preferences"] },
     },
     {
       classifier: "conversation_digest",
       reason: "Conversation compression is useful downstream context.",
-      certainty: "very_strong",
+      certainty: 0.88,
       output: {
         history_summary: "",
         latest_user_message_summary: "User asks for code review.",
@@ -109,7 +109,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
     {
       classifier: "context_shift",
       reason: "The request directly continues the active code review thread.",
-      certainty: "strong",
+      certainty: 0.75,
       output: { decision: "same_active_thread" },
     },
   ]);
@@ -177,7 +177,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
         if (name === "preflight") {
           return Promise.resolve({
             reason: "The message is a closing acknowledgement.",
-            certainty: "near_certain",
+            certainty: 0.97,
             final_reply: { reply: "Anytime." },
           });
         }
@@ -206,7 +206,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.audit.meta.classifiers.preflight, {
     reason: "The message is a closing acknowledgement.",
-    certainty: "near_certain",
+    certainty: 0.97,
     final_reply: { reply: "Anytime." },
     status: { ok: true, source: "model" },
     version: "1.0.0",
@@ -219,7 +219,7 @@ test("high risk prompt_injection aborts non-gate classifiers and returns block",
   const aborted = [];
   const prompt_injection = {
     reason: "The message attempts to override instructions.",
-    certainty: "near_certain",
+    certainty: 0.97,
     risk_level: "high_risk",
   };
 
@@ -230,7 +230,7 @@ test("high risk prompt_injection aborts non-gate classifiers and returns block",
         if (name === "preflight") {
           return Promise.resolve({
             reason: "The message requires downstream handling.",
-            certainty: "strong",
+            certainty: 0.75,
             ack_reply: { reply: "Let me check." },
           });
         }
@@ -276,7 +276,7 @@ test("unknown prompt_injection risk aborts non-gate classifiers and returns bloc
   const aborted = [];
   const prompt_injection = {
     reason: "The request may contain hidden instructions, but risk is unknown.",
-    certainty: "near_certain",
+    certainty: 0.97,
     risk_level: "unknown",
   };
 
@@ -287,7 +287,7 @@ test("unknown prompt_injection risk aborts non-gate classifiers and returns bloc
         if (name === "preflight") {
           return Promise.resolve({
             reason: "The message requires downstream handling.",
-            certainty: "strong",
+            certainty: 0.75,
             ack_reply: { reply: "Let me check." },
           });
         }
@@ -338,7 +338,7 @@ test("low-certainty prompt_injection risk does not short-circuit and triggers ce
         if (name === "prompt_injection") {
           return {
             reason: "The risk is too uncertain to act on.",
-            certainty: "weak",
+            certainty: 0.30,
             risk_level: "suspicious",
           };
         }
@@ -363,7 +363,7 @@ test("low-certainty preflight without final_reply triggers certainty gate", asyn
         if (name === "preflight") {
           return {
             reason: "The message is too ambiguous to classify confidently.",
-            certainty: "weak",
+            certainty: 0.30,
           };
         }
         return results[name];
@@ -385,7 +385,7 @@ test("certaintyGate off preserves route behavior with low certainty", async () =
         if (name === "preflight") {
           return {
             reason: "The message is too ambiguous to classify confidently.",
-            certainty: "weak",
+            certainty: 0.30,
           };
         }
         return results[name];
@@ -405,7 +405,7 @@ test("avg certainty gate blocks only when average is below threshold", async () 
       aggregator: { certaintyGate: "avg_score", certaintyThreshold: 0.8 },
       async runClassifier(name) {
         if (name === "memory_retrieval_queries") {
-          return { ...results.memory_retrieval_queries, certainty: "weak" };
+          return { ...results.memory_retrieval_queries, certainty: 0.30 };
         }
         return results[name];
       },
@@ -421,7 +421,7 @@ test("avg certainty gate blocks only when average is below threshold", async () 
       aggregator: { certaintyGate: "avg_score", certaintyThreshold: 0.7 },
       async runClassifier(name) {
         if (name === "memory_retrieval_queries") {
-          return { ...results.memory_retrieval_queries, certainty: "weak" };
+          return { ...results.memory_retrieval_queries, certainty: 0.30 };
         }
         return results[name];
       },
@@ -575,13 +575,13 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
     {
       classifier: "memory_retrieval_queries",
       reason: "Classifier failed; no memory queries generated.",
-      certainty: "no_signal",
+      certainty: 0,
       output: { queries: [] },
     },
     {
       classifier: "conversation_digest",
       reason: "Conversation compression is useful downstream context.",
-      certainty: "very_strong",
+      certainty: 0.88,
       output: {
         history_summary: "",
         latest_user_message_summary: "User asks for code review.",
@@ -590,7 +590,7 @@ test("memory_retrieval_queries fallback yields fallback custom output", async ()
     {
       classifier: "context_shift",
       reason: "The request directly continues the active code review thread.",
-      certainty: "strong",
+      certainty: 0.75,
       output: { decision: "same_active_thread" },
     },
   ]);

@@ -19,7 +19,7 @@ import type {
   ClassifierOutput,
   ToolDefinition,
 } from "./stock.js";
-import { CERTAINTY_VALUES, STOCK_CLASSIFIER_NAMES } from "./stock.js";
+import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import {
   ensureNoDuplicates,
   isRecord,
@@ -28,6 +28,7 @@ import {
   requireNonNegativeSafeInteger,
   requireString,
   requireStringArray,
+  requireUnitFloat,
   throwInvalid,
 } from "./validation.js";
 
@@ -252,7 +253,7 @@ function validateMetadata(
   }
   return {
     reason: truncateText(requireString(value.reason, classifier, model, "reason"), STOCK_REASON_MAX_CHARS),
-    certainty: requireEnum(value.certainty, CERTAINTY_VALUES, classifier, model, "certainty"),
+    certainty: requireUnitFloat(value.certainty, classifier, model, "certainty"),
   };
 }
 

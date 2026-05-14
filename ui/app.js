@@ -1,16 +1,5 @@
 let CLASSIFIER_METADATA = {};
 
-const CERTAINTY_SCORE = {
-  no_signal: 0.00,
-  very_weak: 0.15,
-  weak: 0.30,
-  tentative: 0.45,
-  reasonable: 0.60,
-  strong: 0.75,
-  very_strong: 0.88,
-  near_certain: 0.97,
-};
-
 const state = {
   messages: [createMessage()],
   samples: [],
@@ -548,7 +537,7 @@ function classifierScores(result) {
 }
 
 function confidenceScore(certainty) {
-  return typeof certainty === "string" ? CERTAINTY_SCORE[certainty] ?? 0 : 0;
+  return typeof certainty === "number" && Number.isFinite(certainty) ? certainty : 0;
 }
 
 function average(values) {

@@ -6,6 +6,6 @@
   "order": 20,
   "fallback": {
     "reason": "Classifier failed; no routing signal.",
-    "certainty": "no_signal"
+    "certainty": 0
   }
 }

@@ -1,17 +1,9 @@
 # Signal contracts
 
-Stock classifier outputs are typed signals. Every classifier output must include `reason` (≤120 chars) and `certainty`. The aggregator maps certainty tags to numeric scores and drops below-threshold signals (default threshold: `0.65`).
+Stock classifier outputs are typed signals. Every classifier output must include `reason` (≤120 chars) and `certainty` as a number from 0 to 1. The aggregator drops below-threshold signals (default threshold: `0.65`).
 
 ```ts
-type Certainty =
-  | "no_signal"
-  | "very_weak"
-  | "weak"
-  | "tentative"
-  | "reasonable"
-  | "strong"
-  | "very_strong"
-  | "near_certain";
+type Certainty = number; // finite 0..1
 ```
 
 ## `preflight` — `FinalReplySignal | AckReplySignal`

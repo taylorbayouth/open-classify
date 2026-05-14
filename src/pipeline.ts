@@ -28,7 +28,7 @@ import type {
   PromptInjectionClassifierOutput,
   PromptInjectionSignal,
 } from "./stock.js";
-import { certaintyScore, isCustomManifest } from "./stock.js";
+import { isCustomManifest } from "./stock.js";
 import type {
   ClassifierFallbackReason,
   NormalizedOpenClassifyInput,
@@ -215,7 +215,7 @@ function classifierScores(results: ClassifierResults): Record<string, number> {
 }
 
 function scoreCertainty(certainty: Certainty | undefined): number {
-  return certainty === undefined ? 0 : certaintyScore[certainty];
+  return typeof certainty === "number" && Number.isFinite(certainty) ? certainty : 0;
 }
 
 function extractPromptInjection(value: PromptInjectionClassifierOutput): PromptInjectionSignal {
