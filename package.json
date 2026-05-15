@@ -1,6 +1,6 @@
 {
   "name": "open-classify",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Manifest-driven classifier runtime for routing user messages to downstream AI models",
   "license": "MIT",
   "author": "Taylor Bayouth",
@@ -43,9 +43,7 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc && node scripts/copy-classifier-assets.mjs",
     "setup": "node scripts/setup.mjs",
-    "start": "node scripts/start.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "ui": "npm run build && node dist/src/ui-server.js",
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {

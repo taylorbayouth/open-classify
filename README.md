@@ -224,14 +224,13 @@ The resolver picks the cheapest model matching `specialization` and `tier`, rela
 - Open Classify keeps whole messages only, drops oldest first to fit a 5,000-char budget, and caps history at 20 messages.
 - Unknown fields are rejected, not passed through.
 
-## Local workbench
+## Local setup
 
 ```sh
 npm run setup
-npm run start
 ```
 
-UI opens at `http://127.0.0.1:4317/`. Classifier cards use classifier names from the runtime, displayed with underscores as spaces; result rendering remains generic.
+Checks prerequisites (Node, npm, Ollama), confirms the base model is pulled, installs dependencies, and builds. Idempotent — safe to re-run.
 
 Optional Ollama runtime config:
 
@@ -262,7 +261,7 @@ cp open-classify.config.example.json open-classify.config.json
 }
 ```
 
-`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. `aggregator.certaintyGate` can be `"min_score"` (lowest score across all stock and custom classifiers), `"avg_score"`, or `"off"`. The setup and start scripts read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
+`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit entry. `runner.models.stock` configures built-in classifiers; `runner.models.custom` configures custom classifiers by manifest name. `aggregator.certaintyGate` can be `"min_score"` (lowest score across all stock and custom classifiers), `"avg_score"`, or `"off"`. The setup script and `loadOpenClassifyConfig()` read `open-classify.config.json`, or `OPEN_CLASSIFY_CONFIG` when you want a different path.
 
 ## Bring your own backend
 
@@ -300,10 +299,5 @@ For the lowest-level entry point, `classifyOpenClassifyInput(input, { runClassif
 ## Development
 
 ```sh
-npm test      # build + run the Node test runner suite
-npm run ui    # build + serve the local workbench
+npm test    # build + run the Node test runner suite
 ```
-
-## Screenshot
-
-![Open Classify local workbench](https://raw.githubusercontent.com/taylorbayouth/open-classify/main/open-classify-screenshot.png)
