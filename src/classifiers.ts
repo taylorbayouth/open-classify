@@ -89,17 +89,14 @@ function loadClassifierManifest(
 }
 
 function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): void {
+  // Duplicate orders are allowed: same-order classifiers schedule adjacent
+  // and run in parallel when concurrency permits, sequentially otherwise.
   const names = new Set<string>();
-  const orders = new Set<number>();
   for (const manifest of manifests) {
     if (names.has(manifest.name)) {
       throw new ClassifierManifestError(`duplicate classifier name: ${manifest.name}`);
     }
     names.add(manifest.name);
-    if (orders.has(manifest.order)) {
-      throw new ClassifierManifestError(`duplicate classifier order: ${manifest.order}`);
-    }
-    orders.add(manifest.order);
   }
 }
 

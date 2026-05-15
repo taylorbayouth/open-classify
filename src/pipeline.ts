@@ -1,6 +1,5 @@
-import { certaintyThreshold, composeEnvelope } from "./aggregator.js";
+import { composeEnvelope } from "./aggregator.js";
 import {
-  CLASSIFIER_NAMES,
   MODULES_BY_NAME,
   REGISTRY,
   type RunClassifier,
@@ -9,24 +8,19 @@ import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
   AggregatorConfig,
   Catalog,
+  CertaintySummary,
   ClassifierEntry,
   ClassifierCustomOutputs,
   ClassifierResults,
   DownstreamPayload,
   Envelope,
-  LowCertaintyBlockReason,
   PipelineMeta,
   PipelineResult,
-  PromptInjectionBlockReason,
 } from "./manifest.js";
 import type {
   Certainty,
   ClassifierOutput,
   CustomClassifierOutputValue,
-  FinalReplySignal,
-  PreflightClassifierOutput,
-  PromptInjectionClassifierOutput,
-  PromptInjectionSignal,
 } from "./stock.js";
 import { certaintyScore, isCustomManifest } from "./stock.js";
 import type {
@@ -37,7 +31,7 @@ import type {
 
 export const DEFAULT_CLASSIFIER_TIMEOUT_MS = 15_000;
 export const DEFAULT_CLASSIFIER_RETRY_COUNT = 1;
-export const DEFAULT_CERTAINTY_GATE = "min_score";
+export const DEFAULT_MAX_CONCURRENCY = 7;
 
 export class OpenClassifyNormalizationError extends Error {
   constructor(cause: unknown) {
@@ -51,6 +45,10 @@ export interface ClassifyOptions {
   catalog: Catalog;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
+  // Upper bound on classifier dispatches in flight at any time. Classifiers
+  // are scheduled in manifest `order` ascending; same-order entries are
+  // adjacent in the queue, so they run together when slots are available.
+  maxConcurrency?: number;
   aggregator?: AggregatorConfig;
   signal?: AbortSignal;
 }
@@ -58,12 +56,6 @@ export interface ClassifyOptions {
 type SettledClassifierResult =
   | { ok: true; name: string; value: ClassifierOutput }
   | { ok: false; name: string; error: unknown; reason: ClassifierFallbackReason };
-
-// Short-circuit gates are intrinsic to specific stock signals — not configured
-// per-manifest. preflight.final_reply ⇒ reply; confident high_risk or unknown
-// prompt-injection risk ⇒ block. Order matters: preflight is
-// cheaper to evaluate, so we check it first.
-const SHORT_CIRCUIT_GATES = ["preflight", "prompt_injection"] as const;
 
 export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
@@ -89,38 +81,29 @@ export async function classifyOpenClassifyInput(
   const classifierInput = toClassifierInput(request);
   const classifierTimeoutMs = options.classifierTimeoutMs ?? DEFAULT_CLASSIFIER_TIMEOUT_MS;
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
-  const threshold = certaintyThreshold(options.aggregator);
+  const maxConcurrency = resolveMaxConcurrency(options.maxConcurrency);
 
-  const runs = new Map<string, Promise<SettledClassifierResult>>(
-    CLASSIFIER_NAMES.map((name) => [
-      name,
-      runClassifierWithRetry(
-        name,
-        classifierInput,
-        options.runClassifier,
-        controller.signal,
-        classifierTimeoutMs,
-        classifierRetryCount,
-      ),
-    ]),
-  );
+  // REGISTRY is already sorted by `order` ascending (see classifiers.ts).
+  // The worker pool dispatches in array order, so classifiers with the same
+  // order are scheduled adjacent and run together when slots are free.
+  const queue: ReadonlyArray<string> = REGISTRY.map((m) => m.name);
 
   try {
-    for (const gate of SHORT_CIRCUIT_GATES) {
-      const gateRun = runs.get(gate);
-      if (gateRun === undefined) continue;
-      const settled = await gateRun;
-      if (!settled.ok) continue;
+    const settled = await runWithConcurrency(
+      queue,
+      maxConcurrency,
+      controller.signal,
+      (name) =>
+        runClassifierWithRetry(
+          name,
+          classifierInput,
+          options.runClassifier,
+          controller.signal,
+          classifierTimeoutMs,
+          classifierRetryCount,
+        ),
+    );
 
-      const verdict = shortCircuitVerdict(gate, settled.value, threshold);
-      if (!verdict) continue;
-
-      controller.abort();
-      await settleClassifierRunsExcept(runs, [gate]);
-      return buildShortCircuitResult(gate, verdict, settled, request.target_message_hash);
-    }
-
-    const settled = await Promise.all([...runs.values()]);
     const { results, meta } = collectFullEntries(settled);
     const envelope = composeEnvelope({
       registry: REGISTRY,
@@ -129,10 +112,6 @@ export async function classifyOpenClassifyInput(
       input: classifierInput,
       config: options.aggregator,
     });
-    const certaintyGate = certaintyGateBlock(options.aggregator, results);
-    if (certaintyGate) {
-      return buildCertaintyGateBlockResult(request, envelope, results, meta, certaintyGate);
-    }
 
     return buildRouteResult(request, envelope, results, meta);
   } finally {
@@ -140,133 +119,48 @@ export async function classifyOpenClassifyInput(
   }
 }
 
-type ShortCircuitVerdict =
-  | { kind: "reply"; final_reply: FinalReplySignal }
-  | { kind: "block"; prompt_injection: PromptInjectionSignal; reason: PromptInjectionBlockReason };
+function resolveMaxConcurrency(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_CONCURRENCY;
+  if (!Number.isFinite(value) || value < 1) {
+    throw new RangeError(`maxConcurrency must be a positive integer; received ${value}`);
+  }
+  return Math.floor(value);
+}
 
-function shortCircuitVerdict(
-  gate: (typeof SHORT_CIRCUIT_GATES)[number],
-  result: ClassifierOutput,
-  threshold: number,
-): ShortCircuitVerdict | null {
-  const score = scoreCertainty(result.certainty);
-  if (score < threshold) return null;
+async function runWithConcurrency(
+  names: ReadonlyArray<string>,
+  maxConcurrency: number,
+  signal: AbortSignal,
+  start: (name: string) => Promise<SettledClassifierResult>,
+): Promise<SettledClassifierResult[]> {
+  const results = new Array<SettledClassifierResult>(names.length);
+  let next = 0;
 
-  if (gate === "preflight") {
-    const preflight = result as PreflightClassifierOutput;
-    if (preflight.final_reply !== undefined) {
-      return { kind: "reply", final_reply: preflight.final_reply };
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = next;
+      next += 1;
+      if (i >= names.length) return;
+      const name = names[i];
+      if (signal.aborted) {
+        // Queued classifiers that never started are reported as not-run so
+        // the audit shows their fallback in `meta.classifiers`. In-flight
+        // classifiers receive the abort signal directly and resolve normally.
+        results[i] = {
+          ok: false,
+          name,
+          error: signal.reason ?? new Error(`${name} classifier aborted before start`),
+          reason: "error",
+        };
+        continue;
+      }
+      results[i] = await start(name);
     }
-    return null;
-  }
-
-  if (gate === "prompt_injection") {
-    const promptInjection = result as PromptInjectionClassifierOutput;
-    if (promptInjection.risk_level === "high_risk" || promptInjection.risk_level === "unknown") {
-      const promptInjectionSignal = extractPromptInjection(promptInjection);
-      return {
-        kind: "block",
-        prompt_injection: promptInjectionSignal,
-        reason: {
-          kind: "prompt_injection",
-          risk_level: promptInjectionSignal.risk_level,
-        },
-      };
-    }
-  }
-
-  return null;
-}
-
-function certaintyGateBlock(
-  config: AggregatorConfig | undefined,
-  results: ClassifierResults,
-): LowCertaintyBlockReason | undefined {
-  const mode = config?.certaintyGate ?? DEFAULT_CERTAINTY_GATE;
-  if (mode === "off") return undefined;
-
-  const threshold = certaintyThreshold(config);
-  const classifier_scores = classifierScores(results);
-  const scores = Object.values(classifier_scores);
-  const score = mode === "min_score"
-    ? Math.min(...scores)
-    : scores.reduce((sum, value) => sum + value, 0) / scores.length;
-  if (score >= threshold) return undefined;
-
-  return {
-    kind: "low_certainty",
-    mode,
-    threshold,
-    score,
-    classifier_scores,
-    low_classifiers: Object.entries(classifier_scores)
-      .filter(([, value]) => value < threshold)
-      .map(([name]) => name),
   };
-}
 
-function classifierScores(results: ClassifierResults): Record<string, number> {
-  return Object.fromEntries(
-    REGISTRY.map((manifest) => [
-      manifest.name,
-      scoreCertainty(results[manifest.name]?.certainty),
-    ]),
-  );
-}
-
-function scoreCertainty(certainty: Certainty | undefined): number {
-  return certainty === undefined ? 0 : certaintyScore[certainty];
-}
-
-function extractPromptInjection(value: PromptInjectionClassifierOutput): PromptInjectionSignal {
-  return {
-    risk_level: value.risk_level,
-  };
-}
-
-function buildShortCircuitResult(
-  name: string,
-  verdict: ShortCircuitVerdict,
-  settled: SettledClassifierResult,
-  target_message_hash: string,
-): PipelineResult {
-  const manifest = MODULES_BY_NAME[name];
-  const value = settled.ok ? settled.value : manifest.fallback;
-  const entry: ClassifierEntry = {
-    ...value,
-    status: classifierRunStatus(settled),
-    version: manifest.version,
-  } as ClassifierEntry;
-  const meta: PipelineMeta = { classifiers: { [name]: entry } };
-  const classifier_outputs = classifierCustomOutputs({ [name]: value });
-
-  if (verdict.kind === "reply") {
-    const preflight = value as PreflightClassifierOutput;
-    return {
-      action: "reply",
-      target_message_hash,
-      reply: { text: verdict.final_reply.text },
-      reason: "preflight_reply",
-      classifier_outputs,
-      audit: {
-        fired_by: name,
-        ...(preflight.final_reply === undefined ? {} : { final_reply: preflight.final_reply }),
-        meta,
-      },
-    };
-  }
-  return {
-    action: "block",
-    target_message_hash,
-    fired_by: name,
-    reason: verdict.reason,
-    classifier_outputs,
-    audit: {
-      fired_by: name,
-      prompt_injection: verdict.prompt_injection,
-      meta,
-    },
-  };
+  const workerCount = Math.max(1, Math.min(maxConcurrency, names.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 function collectFullEntries(settled: SettledClassifierResult[]): {
@@ -285,7 +179,19 @@ function collectFullEntries(settled: SettledClassifierResult[]): {
       version: manifest.version,
     } as ClassifierEntry;
   }
-  return { results, meta: { classifiers } };
+  return { results, meta: { classifiers, certainty: certaintySummary(results) } };
+}
+
+function certaintySummary(results: ClassifierResults): CertaintySummary {
+  const scores = REGISTRY.map((m) => scoreCertainty(results[m.name]?.certainty));
+  if (scores.length === 0) return { min: 0, avg: 0 };
+  const min = Math.min(...scores);
+  const avg = scores.reduce((sum, v) => sum + v, 0) / scores.length;
+  return { min, avg };
+}
+
+function scoreCertainty(certainty: Certainty | undefined): number {
+  return certainty === undefined ? 0 : certaintyScore[certainty];
 }
 
 function buildRouteResult(
@@ -311,28 +217,6 @@ function buildRouteResult(
     classifier_outputs: classifierCustomOutputs(results),
     audit: {
       ...envelope,
-      meta,
-    },
-  };
-}
-
-function buildCertaintyGateBlockResult(
-  request: NormalizedOpenClassifyInput,
-  envelope: Envelope,
-  results: ClassifierResults,
-  meta: PipelineMeta,
-  certaintyGate: LowCertaintyBlockReason,
-): PipelineResult {
-  return {
-    action: "block",
-    target_message_hash: request.target_message_hash,
-    fired_by: "certainty_gate",
-    reason: certaintyGate,
-    classifier_outputs: classifierCustomOutputs(results),
-    audit: {
-      ...envelope,
-      fired_by: "certainty_gate",
-      certainty_gate: certaintyGate,
       meta,
     },
   };
@@ -411,16 +295,6 @@ async function runClassifierAttempt(
     if (timeout !== undefined) clearTimeout(timeout);
     if (abortAttempt !== undefined) rootSignal.removeEventListener("abort", abortAttempt);
   }
-}
-
-async function settleClassifierRunsExcept(
-  runs: ReadonlyMap<string, Promise<SettledClassifierResult>>,
-  keep: ReadonlyArray<string>,
-): Promise<void> {
-  const keepSet = new Set(keep);
-  await Promise.all(
-    [...runs].filter(([name]) => !keepSet.has(name)).map(([, run]) => run.catch(() => undefined)),
-  );
 }
 
 function classifierRunStatus(settled: SettledClassifierResult) {

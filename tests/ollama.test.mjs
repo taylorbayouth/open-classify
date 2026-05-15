@@ -191,7 +191,6 @@ test("loadOpenClassifyConfig validates stock and custom model maps", () => {
     },
     aggregator: {
       certaintyThreshold: 0.7,
-      certaintyGate: "avg_score",
     },
     catalog: "downstream-models.json",
   }));
@@ -201,7 +200,6 @@ test("loadOpenClassifyConfig validates stock and custom model maps", () => {
   assert.equal(config.runner.defaultModel, "default-model");
   assert.deepEqual(config.aggregator, {
     certaintyThreshold: 0.7,
-    certaintyGate: "avg_score",
   });
   assert.deepEqual(classifierModelsFromConfig(config), {
     preflight: "stock-model",
@@ -214,12 +212,10 @@ test("loadOpenClassifyConfig validates aggregator options", () => {
     validateOpenClassifyConfig({
       aggregator: {
         certaintyThreshold: 0.65,
-        certaintyGate: "min_score",
       },
     }).aggregator,
     {
       certaintyThreshold: 0.65,
-      certaintyGate: "min_score",
     },
   );
 
@@ -231,10 +227,10 @@ test("loadOpenClassifyConfig validates aggregator options", () => {
   );
 
   assert.throws(
-    () => validateOpenClassifyConfig({ aggregator: { certaintyGate: "sometimes" } }),
+    () => validateOpenClassifyConfig({ aggregator: { certaintyGate: "min_score" } }),
     (error) =>
       error instanceof OpenClassifyConfigError &&
-      /aggregator\.certaintyGate must be one of/.test(error.message),
+      /aggregator\.certaintyGate is not a supported field/.test(error.message),
   );
 });
 
@@ -521,7 +517,6 @@ test("createClassifier picks up models and aggregator from the config file", asy
     },
     aggregator: {
       certaintyThreshold: 0.9,
-      certaintyGate: "min_score",
     },
   }));
 
@@ -548,8 +543,11 @@ test("createClassifier picks up models and aggregator from the config file", asy
 
   assert.ok(seenModels.has("config-preflight"));
   assert.ok(seenModels.has("config-default"));
-  assert.equal(result.action, "block");
-  assert.equal(result.fired_by, "certainty_gate");
+  // Aggregator threshold of 0.9 drops most signals from the envelope, but the
+  // pipeline always returns a route — the caller can decide what to do based
+  // on the certainty summary and per-classifier scores.
+  assert.equal(result.action, "route");
+  assert.ok(result.audit.meta.certainty.min < 0.9);
 });
 
 test("resource check can fail before fetch is called", async () => {

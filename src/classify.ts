@@ -45,6 +45,7 @@ export interface CreateClassifierOptions {
   // Pipeline tuning, applied to every classify() call.
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
+  maxConcurrency?: number;
   aggregator?: AggregatorConfig;
 }
 
@@ -99,6 +100,7 @@ export function createClassifier(
       catalog,
       classifierTimeoutMs: options.classifierTimeoutMs,
       classifierRetryCount: options.classifierRetryCount,
+      maxConcurrency: options.maxConcurrency,
       aggregator,
       signal: callOptions?.signal,
     });

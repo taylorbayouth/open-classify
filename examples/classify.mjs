@@ -23,16 +23,18 @@ const result = await classify({
 
 console.log(JSON.stringify(result, null, 2));
 
-if (result.action === "answer") {
-  console.error(`\nAction: answer — assistant should reply with: "${result.final_reply.reply}"`);
-} else if (result.action === "block") {
-  console.error(`\nAction: block — ${result.reason.risk_level ?? result.reason.code ?? "blocked"}`);
-} else if (result.action === "needs_review") {
-  console.error(`\nAction: needs_review — ${result.reason.risk_level ?? "review required"}`);
-} else {
-  console.error(
-    `\nAction: route` +
-      ` | model: ${result.downstream.model_id}` +
-      ` | tools: ${result.downstream.tools.tools.join(", ") || "none"}`,
-  );
+const { min, avg } = result.audit.meta.certainty;
+console.error(
+  `\nAction: route` +
+    ` | model: ${result.downstream.model_id}` +
+    ` | tools: ${result.downstream.tools.tools.join(", ") || "none"}` +
+    ` | certainty min=${min.toFixed(2)} avg=${avg.toFixed(2)}`,
+);
+
+if (result.audit.final_reply) {
+  console.error(`Preflight suggested a final reply: "${result.audit.final_reply.text}"`);
+}
+if (result.audit.prompt_injection?.risk_level === "high_risk" ||
+    result.audit.prompt_injection?.risk_level === "unknown") {
+  console.error(`Prompt-injection risk: ${result.audit.prompt_injection.risk_level}`);
 }

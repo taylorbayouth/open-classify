@@ -19,12 +19,6 @@ import type {
 
 export type ClassifierName = string;
 export type ClassifierResults = Record<ClassifierName, ClassifierOutput>;
-export const CERTAINTY_GATE_MODES = [
-  "min_score",
-  "avg_score",
-  "off",
-] as const;
-export type CertaintyGateMode = (typeof CERTAINTY_GATE_MODES)[number];
 
 export type RunClassifier = (
   name: ClassifierName,
@@ -102,72 +96,35 @@ export type ClassifierEntry = ClassifierOutput & {
   readonly version: string;
 };
 
+// Summary of certainty across the run. The aggregator never blocks on these —
+// they're reported so the caller can decide whether to act on the route or
+// fall back to a safer behavior.
+export interface CertaintySummary {
+  readonly min: number;
+  readonly avg: number;
+}
+
 export interface PipelineMeta {
   readonly classifiers: Record<string, ClassifierEntry>;
+  readonly certainty: CertaintySummary;
 }
 
 export interface PipelineAudit extends Envelope {
   readonly meta: PipelineMeta;
-  readonly fired_by?: string;
-  readonly certainty_gate?: LowCertaintyBlockReason;
 }
 
-export type BlockReason =
-  | PromptInjectionBlockReason
-  | LowCertaintyBlockReason;
-
-export interface PromptInjectionBlockReason {
-  readonly kind: "prompt_injection";
-  readonly risk_level: PromptInjectionSignal["risk_level"];
-}
-
-export interface LowCertaintyBlockReason {
-  readonly kind: "low_certainty";
-  readonly mode: Exclude<CertaintyGateMode, "off">;
-  readonly threshold: number;
-  readonly score: number;
-  readonly classifier_scores: Readonly<Record<string, number>>;
-  readonly low_classifiers: ReadonlyArray<string>;
-}
-
-export type ReplyPipelineResult = {
-  readonly action: "reply";
-  readonly target_message_hash: string;
-  readonly reply: {
-    readonly text: string;
-  };
-  readonly reason: "preflight_reply";
-  readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "final_reply" | "meta" | "fired_by">;
-};
-
-export type BlockPipelineResult = {
-  readonly action: "block";
-  readonly target_message_hash: string;
-  readonly fired_by: string;
-  readonly reason: BlockReason;
-  readonly classifier_outputs: ClassifierCustomOutputs;
-  readonly audit: Pick<PipelineAudit, "prompt_injection" | "meta" | "fired_by" | "certainty_gate">;
-};
-
-export type RoutePipelineResult = {
+export interface PipelineResult {
   readonly action: "route";
   readonly target_message_hash: string;
   readonly downstream: DownstreamPayload;
   readonly classifier_outputs: ClassifierCustomOutputs;
   readonly audit: PipelineAudit;
-};
-
-export type PipelineResult =
-  | ReplyPipelineResult
-  | BlockPipelineResult
-  | RoutePipelineResult;
+}
 
 export interface AggregatorConfig {
   readonly certaintyThreshold?: number;
   /** @deprecated Use certaintyThreshold. */
   readonly confidenceThreshold?: number;
-  readonly certaintyGate?: CertaintyGateMode;
 }
 
 export type ClassifierRegistry = ReadonlyArray<RuntimeClassifierManifest>;

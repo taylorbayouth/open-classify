@@ -1,10 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { REGISTRY, type ClassifierName } from "./classifiers.js";
-import {
-  CERTAINTY_GATE_MODES,
-  type AggregatorConfig,
-  type CertaintyGateMode,
-} from "./manifest.js";
+import { type AggregatorConfig } from "./manifest.js";
 import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import { isRecord } from "./validation.js";
 
@@ -92,7 +88,7 @@ function validateAggregator(value: unknown, path: string): AggregatorConfig {
   if (!isRecord(value)) {
     throwConfig(path, "aggregator must be an object");
   }
-  ensureAllowedKeys(value, ["certaintyThreshold", "confidenceThreshold", "certaintyGate"], path, "aggregator");
+  ensureAllowedKeys(value, ["certaintyThreshold", "confidenceThreshold"], path, "aggregator");
   return {
     ...(value.certaintyThreshold === undefined
       ? {}
@@ -100,9 +96,6 @@ function validateAggregator(value: unknown, path: string): AggregatorConfig {
     ...(value.confidenceThreshold === undefined
       ? {}
       : { confidenceThreshold: requireUnitFloat(value.confidenceThreshold, path, "aggregator.confidenceThreshold") }),
-    ...(value.certaintyGate === undefined
-      ? {}
-      : { certaintyGate: requireCertaintyGateMode(value.certaintyGate, path, "aggregator.certaintyGate") }),
   };
 }
 
@@ -216,17 +209,6 @@ function requireUnitFloat(value: unknown, path: string, field: string): number {
     throwConfig(path, `${field} must be a finite number between 0 and 1 inclusive`);
   }
   return number;
-}
-
-function requireCertaintyGateMode(
-  value: unknown,
-  path: string,
-  field: string,
-): CertaintyGateMode {
-  if (typeof value !== "string" || !CERTAINTY_GATE_MODES.includes(value as CertaintyGateMode)) {
-    throwConfig(path, `${field} must be one of ${CERTAINTY_GATE_MODES.join(", ")}`);
-  }
-  return value as CertaintyGateMode;
 }
 
 function ensureAllowedKeys(
