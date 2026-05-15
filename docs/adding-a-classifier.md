@@ -71,7 +71,7 @@ Rules:
 - `name` must match the directory name.
 - Reserved field names cannot appear in `output_schema.properties`; declare them in `reserved_fields` instead.
 - `reason` and `certainty` are added to the composed schema by the runtime — don't declare them.
-- `fallback` must validate against the composed schema. Reserved fields are optional in fallback (a "no signal" fallback usually omits them).
+- `fallback` must validate against the composed schema. Only `reason` and `certainty` are required in fallback; reserved fields and `output_schema.required` fields are exempt (a "no signal" fallback usually omits them).
 - `output_schema.examples` (JSON Schema standard) must validate against the composed schema at load time, so a broken example fails the build, not the model call.
 
 See [manifests.md](manifests.md) for the full field list.
@@ -107,7 +107,7 @@ const result = await classify(input);
 const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 ```
 
-`result.audit.classifier_outputs[]` carries the same data with `reason` and `certainty` attached if you need to inspect them.
+`classifier_outputs[name]` includes all payload fields plus `reason` (string) and `certainty` (float).
 
 ## Targeting the assistant response
 
@@ -117,7 +117,7 @@ Classifiers run against the user message by default. To run a classifier against
 - `"assistant"` — only `inspect()` runs it.
 - `"both"` — both passes run it.
 
-Use `inspect()` from `createClassifier()` for the assistant-side pass. It returns a lean shape (`target_message_hash` + `classifier_outputs`) — no routing, no audit envelope. The built-in `prompt_injection` ships tagged `"both"` so it runs on both sides.
+Use `inspect()` from `createClassifier()` for the assistant-side pass. It returns a lean shape: `target_message_hash`, the `message` that was inspected, and `classifier_outputs`. No routing, no action, no block logic.
 
 ```ts
 const { inspect } = createClassifier({ catalog });
@@ -129,6 +129,8 @@ const post = await inspect({
 });
 const risk = post.classifier_outputs.prompt_injection?.risk_level;
 ```
+
+The built-in `prompt_injection` ships tagged `"both"` so it runs on both sides.
 
 ## Choosing the classifier model
 

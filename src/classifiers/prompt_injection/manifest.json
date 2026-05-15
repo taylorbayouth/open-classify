@@ -9,8 +9,7 @@
     "required": ["risk_level"]
   },
   "fallback": {
-    "reason": "Classifier failed; prompt-injection risk is unknown.",
-    "certainty": "no_signal",
-    "risk_level": "unknown"
+    "reason": "Classifier failed; prompt-injection risk could not be assessed.",
+    "certainty": "no_signal"
   }
 }

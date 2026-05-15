@@ -11,7 +11,6 @@ import {
   type OpenClassifyConfig,
 } from "./config.js";
 import type {
-  AggregatorConfig,
   Catalog,
   InspectResult,
   PipelineResult,
@@ -64,7 +63,6 @@ export interface CreateClassifierOptions {
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
   maxConcurrency?: number;
-  aggregator?: AggregatorConfig;
 }
 
 export function createClassifier(
@@ -101,8 +99,6 @@ export function createClassifier(
       options.catalogPath ?? fileConfig?.catalog ?? OLLAMA_DEFAULT_CATALOG_PATH,
     );
 
-  const aggregator = options.aggregator ?? fileConfig?.aggregator;
-
   let resourceCheck: Promise<void> | undefined;
   const ensureResources = async (): Promise<void> => {
     if (!needsResourceCheck) return;
@@ -121,7 +117,6 @@ export function createClassifier(
       classifierTimeoutMs: options.classifierTimeoutMs,
       classifierRetryCount: options.classifierRetryCount,
       maxConcurrency: options.maxConcurrency,
-      aggregator,
       signal: callOptions?.signal,
     });
   };

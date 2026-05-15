@@ -6,7 +6,7 @@
   Decide what should happen to a user message <em>before</em> it reaches your downstream model.
 </p>
 
-Open Classify is a pre-routing layer for AI products. It runs a small set of fast classifiers in parallel against the latest user message, then returns a single decision envelope your app can act on: a downstream model recommendation, a tool exposure list, an optional acknowledgement, and any custom signals your own classifiers contribute.
+Open Classify is a pre-routing layer for AI products. It runs a small set of fast classifiers in parallel against the latest user message, then returns a single `PipelineResult` your app can act on: an action (`route`, `block`, or `reply`), a downstream model recommendation, a tool exposure list, an optional immediate reply, and any custom signals your own classifiers contribute.
 
 Use it when your frontier model should not be the first thing every request touches. Open Classify can handle tiny terminal replies before they hit an expensive model, recommend the right downstream model for the actual task, suggest what tools or context the downstream model should receive, and add a focused prompt-injection pass.
 
@@ -17,7 +17,7 @@ message
 normalize + trim classifier context
   │
   ├─► preflight ─────────────► final_reply? / ack_reply?
-  ├─► routing ───────────────► model_tier?
+  ├─► model_tier ────────────► model_tier?
   ├─► model_specialization ──► model_specialization?
   ├─► tools ─────────────────► tools?
   ├─► prompt_injection ─────► risk_level?
@@ -28,18 +28,18 @@ normalize + trim classifier context
 aggregator + model catalog
   │
   ▼
-route
+PipelineResult { action, model_id, tools, reply, ... }
 ```
 
 Every classifier uses the same manifest shape and emits the same output envelope: `{ reason, certainty, ...payload }`. Some payload fields are **reserved** — like `model_tier`, `final_reply`, and `risk_level` — and the aggregator knows how to consume them into a routing decision. Everything else is your classifier's own data and passes through to the caller untouched.
 
 ## Why Open Classify
 
-- **Spend frontier tokens only when they matter.** Simple greetings, thanks, spelling checks, and small arithmetic can be answered immediately via `audit.final_reply` without sending the request downstream.
-- **Keep the user interface responsive.** For complex work, preflight can suggest an `ack_reply` while your app routes the request to the real worker.
+- **Spend frontier tokens only when they matter.** Simple greetings, thanks, spelling checks, and small arithmetic can be answered immediately (`action: "reply"`) without sending the request downstream.
+- **Keep the user interface responsive.** For complex work, preflight emits an `ack_reply` — a task-specific acknowledgement your UI can show while routing the real request.
 - **Pick the right model per message.** Classifiers emit soft constraints like tier and specialization; your catalog turns those into a concrete model optimized for cost, capability, and fit.
 - **Shape downstream context intentionally.** Built-in and custom classifiers can recommend tools, retrieval queries, summaries, or other context hints without passing the full conversation history back to the caller.
-- **Add another defensive layer.** The `prompt_injection` classifier surfaces instruction-override attempts so your app can decide whether to continue.
+- **Add another defensive layer.** The `prompt_injection` classifier surfaces instruction-override attempts. High-risk or unknown injection risk automatically sets `action: "block"`.
 
 ## Install
 
@@ -62,10 +62,18 @@ const result = await classify({
   ],
 });
 
-// result.action is always "route". Use the audit envelope and the per-classifier
-// outputs to decide what to do next.
-const { model_id, target_message, tools } = result.downstream;
-const ackReply = result.audit.ack_reply?.text;
+if (result.action === "block") {
+  // classification error or prompt injection — handle appropriately
+  console.error(result.block_reason, result.failed_classifiers);
+} else if (result.action === "reply") {
+  // preflight can answer this immediately — skip the downstream model
+  respondToUser(result.reply.text);
+} else {
+  // route to the downstream model
+  callDownstream(result.model_id, result.tools);
+  respondToUser(result.reply?.text); // show the ack while it works
+}
+
 const queries = result.classifier_outputs.memory_retrieval_queries?.queries;
 ```
 
@@ -73,36 +81,39 @@ const queries = result.classifier_outputs.memory_retrieval_queries?.queries;
 
 ### Classifying assistant output
 
-`inspect()` is a lean second pass for the **assistant's reply**. It only runs classifiers tagged `applies_to: "both"` (or `"assistant"`) in their manifest, and returns just the per-classifier outputs — no routing, no model resolution, no audit envelope.
+`inspect()` is a lean second pass for the **assistant's reply**. It only runs classifiers tagged `applies_to: "both"` (or `"assistant"`) in their manifest, and returns the per-classifier outputs plus the message that was inspected — no routing, no action, no block logic.
 
 ```ts
-const reply = await inspect({
+const result = await inspect({
   messages: [
     { role: "user", text: "Summarize the contract." },
     { role: "assistant", text: "The contract has three notable risks…" },
   ],
 });
 
-const risk = reply.classifier_outputs.prompt_injection?.risk_level;
+// result.message is { role: "assistant", text: "..." }
+const risk = result.classifier_outputs.prompt_injection?.risk_level;
 ```
 
-Use it for things like prompt-injection checks on model output, summarized slugs, or any classifier you want to apply post-hoc. The built-in `prompt_injection` classifier ships tagged `"both"`, so it runs in both passes; everything else is `"user"` by default. Tag your own classifiers with `applies_to` in their manifest to opt into either side.
+Use it for things like prompt-injection checks on model output, summarized slugs, or any classifier you want to apply post-hoc. The built-in `prompt_injection` classifier ships tagged `"both"`, so it runs in both passes; everything else is `"user"` by default.
 
 ## What you get back
 
-Every call returns a `PipelineResult`:
+Every `classify()` call returns a `PipelineResult`:
 
 | Field | What it is |
 |---|---|
-| `action` | Always `"route"` — the worker pool always runs every classifier and returns aggregated results |
+| `action` | `"route"` \| `"block"` \| `"reply"` |
+| `block_reason` | `"prompt_injection"` \| `"classification_error"` (only when `action === "block"`) |
 | `target_message_hash` | Stable 8-hex fingerprint of the target message |
-| `downstream.model_id` | Concrete model id chosen from your catalog |
-| `downstream.target_message` | The sanitized target message that should be sent downstream |
-| `downstream.tools` | The recommended tool exposure (may be `{ tools: [] }`) |
-| `classifier_outputs[name]` | Each classifier's payload (reserved + custom fields) with `reason` and `certainty` stripped |
-| `audit` | The full envelope: reserved-field slots, every classifier's full output, model resolution details, and run metadata |
-
-For complex requests, look for `audit.ack_reply` — that's the immediate acknowledgement your UI can show while the downstream model works. For trivial requests, `audit.final_reply.text` is a tiny terminal answer your app can return directly without ever calling the downstream model. The pipeline never decides for you; the caller chooses what to act on.
+| `model_id` | Concrete model id chosen from your catalog (or `null` if unresolvable) |
+| `tools` | Recommended tool ids (always an array; empty if not emitted) |
+| `reply` | `{ text }` — the `ack_reply` or `final_reply` text, if any |
+| `prompt_injection` | `{ risk_level }` from the injection classifier, or `null` |
+| `avg_certainty` | Arithmetic mean certainty score (float 0–1) across all classifiers |
+| `min_certainty` | Minimum certainty score (float 0–1) across all classifiers |
+| `failed_classifiers` | Names of classifiers that errored or timed out (always present; may be empty) |
+| `classifier_outputs` | Each classifier's payload with `reason` (string) and `certainty` (float) |
 
 Example result:
 
@@ -110,30 +121,19 @@ Example result:
 {
   "action": "route",
   "target_message_hash": "b11d5268",
-  "downstream": {
-    "model_id": "gpt-5.5",
-    "tools": { "tools": ["workspace"] },
-    "target_message": { "role": "user", "text": "...", "hash": "b11d5268" }
-  },
+  "model_id": "gpt-5.5",
+  "tools": ["workspace"],
+  "reply": { "text": "On it — I'll review the contract now." },
+  "prompt_injection": { "risk_level": "normal" },
+  "avg_certainty": 0.84,
+  "min_certainty": 0.75,
+  "failed_classifiers": [],
   "classifier_outputs": {
-    "routing": { "model_tier": "frontier_strong" },
-    "model_specialization": { "model_specialization": "coding" },
-    "tools": { "tools": ["workspace"] },
-    "prompt_injection": { "risk_level": "normal" },
-    "memory_retrieval_queries": { "queries": ["user code review preferences"] }
-  },
-  "audit": {
-    "ack_reply": { "text": "Let me check." },
-    "routing": { "model_tier": "frontier_strong", "model_specialization": "coding" },
-    "tools": { "tools": ["workspace"] },
-    "prompt_injection": { "risk_level": "normal" },
-    "classifier_outputs": [ /* every classifier's full output, with reason + certainty */ ],
-    "model_recommendation": {
-      "id": "gpt-5.5",
-      "context_window": 1050000,
-      "resolution": { "...": "..." }
-    },
-    "meta": { "classifiers": { "...": "..." } }
+    "model_tier": { "model_tier": "frontier_strong", "reason": "...", "certainty": 0.88 },
+    "model_specialization": { "model_specialization": "coding", "reason": "...", "certainty": 0.75 },
+    "tools": { "tools": ["workspace"], "reason": "...", "certainty": 0.88 },
+    "prompt_injection": { "risk_level": "normal", "reason": "...", "certainty": 0.97 },
+    "memory_retrieval_queries": { "queries": ["user code review preferences"], "reason": "...", "certainty": 0.75 }
   }
 }
 ```
@@ -142,16 +142,16 @@ Example result:
 
 Open Classify ships with eight built-in classifiers; all use the same manifest shape. There is no distinction between "stock" and "custom" — the runtime only cares about which **reserved fields** a classifier declares.
 
-| Name | Reserved fields | What the aggregator does with it |
-|---|---|---|
-| `preflight` | `final_reply`, `ack_reply` | Surfaces the highest-certainty reply in `audit.final_reply` / `audit.ack_reply` |
-| `routing` | `model_tier` | Feeds the catalog resolver as a soft constraint |
-| `model_specialization` | `model_specialization` | Feeds the catalog resolver as a soft constraint |
-| `tools` | `tools` | Sets `downstream.tools` |
-| `prompt_injection` | `risk_level` | Surfaces in `audit.prompt_injection` |
-| `memory_retrieval_queries` | — | Passes through to `classifier_outputs.memory_retrieval_queries` |
-| `conversation_digest` | — | Passes through |
-| `context_shift` | — | Passes through |
+| Name | dispatch_order | Reserved fields | What the aggregator does with it |
+|---|---|---|---|
+| `preflight` | 10 | `final_reply`, `ack_reply` | Sets `action: "reply"` or populates `result.reply` |
+| `model_tier` | 20 | `model_tier` | Feeds the catalog resolver as a soft constraint |
+| `model_specialization` | 30 | `model_specialization` | Feeds the catalog resolver as a soft constraint |
+| `tools` | 40 | `tools` | Sets `result.tools` |
+| `prompt_injection` | 50 | `risk_level` | High-risk/unknown → `action: "block"`; suspicious → advisory |
+| `memory_retrieval_queries` | 60 | — | Passes through to `classifier_outputs` |
+| `conversation_digest` | 70 | — | Passes through |
+| `context_shift` | 80 | — | Passes through |
 
 Reserved fields are well-known output keys with canonical JSON Schemas and prompt fragments baked into the runtime. When you declare one in your manifest, you don't have to redeclare its enum values or shape — the runtime injects them.
 
@@ -198,7 +198,7 @@ Rules:
 
 - `name` must match the directory name.
 - Reserved field names cannot appear in `output_schema.properties` — declare them in `reserved_fields` instead.
-- `fallback` must validate against the composed schema; reserved fields are optional in fallback since "I failed" means "no signal."
+- `fallback` requires only `reason` and `certainty`; reserved and custom required fields are exempt from the fallback check.
 - If you want hand-picked examples (preflight does this), add an `output_schema.examples` array. Each entry must validate against the composed schema at load time. Otherwise the runtime synthesizes a skeleton example for you.
 
 Consume your output:
@@ -212,7 +212,7 @@ See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for a full walkth
 
 ## Using reserved fields in your own classifier
 
-Any classifier can emit reserved fields. If you write your own `task_router` that emits `model_tier`, the aggregator will fold it into the model resolution alongside the built-in `routing` classifier — highest-certainty contributor wins, ties broken by manifest `dispatch_order` ascending.
+Any classifier can emit reserved fields. If you write your own `task_router` that emits `model_tier`, the aggregator will fold it into the model resolution alongside the built-in `model_tier` classifier — highest-certainty contributor wins, ties broken by manifest `dispatch_order` ascending.
 
 ```json
 {
@@ -262,7 +262,7 @@ Classifiers never emit model ids. They emit constraints; your catalog maps const
 }
 ```
 
-The resolver picks the cheapest model matching `model_specialization` and `model_tier`, relaxing constraints in order when nothing fits, and reports what it dropped on `audit.model_recommendation.resolution`. See [docs/resolver.md](docs/resolver.md) for ranking details.
+The resolver picks the cheapest model matching `model_specialization` and `model_tier`, relaxing constraints in order when nothing fits. See [docs/resolver.md](docs/resolver.md) for ranking details.
 
 ## Input contract
 
@@ -292,13 +292,10 @@ cp open-classify.config.example.json open-classify.config.json
     "provider": "ollama",
     "defaultModel": "gemma4:e4b-it-q4_K_M",
     "models": {
-      "routing": "qwen2.5:7b-instruct-q4_K_M",
+      "model_tier": "qwen2.5:7b-instruct-q4_K_M",
       "prompt_injection": "llama-guard3:8b",
       "memory_retrieval_queries": "qwen2.5:7b-instruct-q4_K_M"
     }
-  },
-  "aggregator": {
-    "certaintyThreshold": 0.65
   },
   "catalog": "downstream-models.json"
 }

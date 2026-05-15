@@ -1,29 +1,30 @@
 {
   "name": "preflight",
-  "version": "1.0.0",
-  "purpose": "Determine whether the latest message can be answered immediately or should continue downstream.",
+  "version": "1.1.0",
+  "purpose": "Assess whether the latest message can be answered immediately (final_reply) or should route downstream with an acknowledgement (ack_reply). Always emits exactly one.",
   "dispatch_order": 10,
   "reserved_fields": ["final_reply", "ack_reply"],
   "output_schema": {
     "examples": [
       {
-        "reason": "Greeting.",
+        "reason": "Simple greeting — answerable directly.",
         "certainty": "near_certain",
         "final_reply": { "text": "Hi!" }
       },
       {
-        "reason": "Trivial arithmetic.",
+        "reason": "Trivial arithmetic — answerable directly.",
         "certainty": "very_strong",
         "final_reply": { "text": "4" }
       },
       {
-        "reason": "Generated writing task.",
+        "reason": "Code review task requires substantive downstream work.",
         "certainty": "very_strong",
-        "ack_reply": { "text": "On it." }
+        "ack_reply": { "text": "On it — reviewing the code now." }
       },
       {
-        "reason": "Ambiguous; needs downstream model.",
-        "certainty": "strong"
+        "reason": "Reminder request requires downstream action.",
+        "certainty": "strong",
+        "ack_reply": { "text": "Got it, I'll set that reminder for 3pm." }
       }
     ]
   },

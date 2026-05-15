@@ -45,7 +45,7 @@ Minimum required fields are `name`, `version`, `purpose`, and `fallback`. Everyt
 | Field | Required | Notes |
 |---|---|---|
 | `name` | yes | Must match the directory name |
-| `version` | yes | Surfaced in `meta.classifiers[name].version` |
+| `version` | yes | Contract version string for this classifier |
 | `purpose` | yes | One sentence. The runtime tells the LLM to treat it as a hard scope boundary |
 | `dispatch_order` | no | Lower runs first; ties run adjacent. Omit to schedule this classifier last |
 | `applies_to` | no | `"user"` (default), `"assistant"`, or `"both"`. Controls whether the classifier runs in `classify()`, `inspect()`, or both passes |
@@ -84,14 +84,14 @@ A reserved field is a well-known output key the aggregator knows how to consume.
 
 | Reserved field | Shape | What the aggregator does with it |
 |---|---|---|
-| `final_reply` | `{ text: string ≤200 chars }` | Surfaced in `audit.final_reply` |
-| `ack_reply` | `{ text: string ≤200 chars }` | Surfaced in `audit.ack_reply` |
+| `final_reply` | `{ text: string ≤200 chars }` | Sets `result.action = "reply"` and `result.reply` |
+| `ack_reply` | `{ text: string ≤200 chars }` | Sets `result.reply` (when action is `"route"`) |
 | `model_tier` | enum (`local_fast`, `local_strong`, `frontier_strong`, …) | Soft constraint for the catalog resolver |
 | `model_specialization` | enum (`chat`, `coding`, `reasoning`, …) | Soft constraint for the catalog resolver |
-| `tools` | array of allowed tool ids | Sets `downstream.tools.tools`. Requires `allowed_tools` on the manifest |
-| `risk_level` | enum (`normal`, `suspicious`, `high_risk`, `unknown`) | Surfaced in `audit.prompt_injection` |
+| `tools` | array of allowed tool ids | Sets `result.tools`. Requires `allowed_tools` on the manifest |
+| `risk_level` | enum (`normal`, `suspicious`, `high_risk`, `unknown`) | Sets `result.prompt_injection`; high_risk/unknown → `action: "block"` |
 
-When multiple classifiers emit the same reserved field, the aggregator picks the highest-certainty contributor above threshold. Ties are broken by manifest `dispatch_order` ascending (first wins).
+When multiple classifiers emit the same reserved field, the aggregator picks the highest-certainty contributor. Ties are broken by manifest `dispatch_order` ascending (first wins).
 
 `final_reply` and `ack_reply` are mutually exclusive — a single output may contain at most one.
 
@@ -126,7 +126,7 @@ So your `prompt.md` only has to cover the parts that aren't already in the schem
 
 ## Which pass runs the classifier (`applies_to`)
 
-`classify()` is the user-input pass — it routes a user message to a downstream model. `inspect()` is the assistant-output pass — a lean post-hoc pass over the model's reply (no routing, no audit envelope).
+`classify()` is the user-input pass — it routes a user message to a downstream model. `inspect()` is the assistant-output pass — a lean post-hoc pass over the model's reply (no routing, no action, no block logic).
 
 | `applies_to` | `classify()` | `inspect()` |
 |---|---|---|

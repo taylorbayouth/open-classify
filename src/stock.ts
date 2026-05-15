@@ -21,12 +21,10 @@ export interface ClassifierMessageWindowInput {
   readonly messages: ReadonlyArray<ClassifierMessageInput>;
 }
 
-// ─── Envelope signal types (kept for caller-side audit ergonomics) ──────────
+// ─── Reply signal type ───────────────────────────────────────────────────────
 //
-// The aggregator extracts each reserved field from classifier outputs and
-// puts them in named envelope slots. Callers read `audit.routing.model_tier`
-// rather than digging through `classifier_outputs.routing.model_tier`, but
-// both surfaces carry the same value.
+// Shared shape for final_reply and ack_reply reserved fields.
+// The aggregator promotes the highest-certainty contributor into result.reply.
 
 export interface FinalReplySignal {
   readonly text: string;

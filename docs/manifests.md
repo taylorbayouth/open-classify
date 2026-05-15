@@ -17,7 +17,7 @@ The loader skips any top-level directory whose name starts with `_` (those are s
 | Field | Required | Description |
 |---|---|---|
 | `name` | yes | Classifier id. Must match the directory name. |
-| `version` | yes | Contract version surfaced in `meta.classifiers[name].version`. |
+| `version` | yes | Contract version string for this classifier. |
 | `purpose` | yes | Human-readable description of the classifier's job. Treated as a hard scope boundary in the prompt. |
 | `dispatch_order` | no | Non-negative integer scheduling priority. Lower runs first. Omit to schedule this classifier last (treated as +Infinity). Duplicate names are rejected; duplicate dispatch_orders are allowed and schedule adjacent. |
 | `applies_to` | no | One of `"user"`, `"assistant"`, `"both"`. Controls which pipeline pass the classifier participates in: `classify()` runs `"user"` + `"both"`; `inspect()` runs `"assistant"` + `"both"`. Defaults to `"user"`. |
@@ -34,12 +34,12 @@ Reserved fields are well-known output keys the aggregator knows how to consume. 
 
 | Reserved field | Shape | What the aggregator does with it |
 |---|---|---|
-| `final_reply` | `{ text: string ≤200 chars }` | Surfaced in `audit.final_reply`; caller can return as the terminal reply |
-| `ack_reply` | `{ text: string ≤200 chars }` | Surfaced in `audit.ack_reply`; caller can show as an acknowledgement |
+| `final_reply` | `{ text: string ≤200 chars }` | Sets `result.action = "reply"` and `result.reply`; caller returns it as the terminal reply |
+| `ack_reply` | `{ text: string ≤200 chars }` | Sets `result.reply` (when action is `"route"`); caller shows it as an acknowledgement while downstream works |
 | `model_tier` | one of `DOWNSTREAM_MODEL_TIER_VALUES` | Soft constraint for catalog resolver |
 | `model_specialization` | one of `MODEL_SPECIALIZATION_VALUES` | Soft constraint for catalog resolver |
-| `tools` | array of allowed tool ids | Sets `downstream.tools` |
-| `risk_level` | one of `PROMPT_INJECTION_RISK_LEVEL_VALUES` | Surfaced in `audit.prompt_injection` |
+| `tools` | array of allowed tool ids | Sets `result.tools` |
+| `risk_level` | one of `PROMPT_INJECTION_RISK_LEVEL_VALUES` | Surfaced in `result.prompt_injection`; `"high_risk"` or `"unknown"` triggers `action: "block"` |
 
 `final_reply` and `ack_reply` are mutually exclusive — a single output may contain at most one.
 
@@ -49,7 +49,7 @@ When multiple classifiers emit the same reserved field, the highest-certainty co
 
 ```json
 {
-  "name": "routing",
+  "name": "model_tier",
   "version": "1.0.0",
   "purpose": "Recommend the downstream model tier.",
   "dispatch_order": 20,

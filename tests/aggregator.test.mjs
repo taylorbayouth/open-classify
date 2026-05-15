@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  DEFAULT_CERTAINTY_THRESHOLD,
-  composeEnvelope,
-  resolveModel,
+  assembleResult,
+  buildPublicOutputs,
 } from "../dist/src/aggregator.js";
+import { certaintyScore } from "../dist/src/stock.js";
 
 const CATALOG = {
   default: "gpt-5.4-mini",
@@ -49,205 +49,250 @@ const CATALOG = {
   ],
 };
 
-const HIGH = "very_strong";
-const LOW = "very_weak";
-
-// Construct a fake registry entry. Only `name`, `dispatch_order`, and
-// `reservedFields` are read by the aggregator.
+// Minimal registry entry — only fields read by assembleResult.
 function fake(name, dispatch_order, reservedFields = []) {
   return { name, dispatch_order, reservedFields };
 }
 
-test("resolveModel picks the cheapest exact routing match", () => {
-  const rec = resolveModel(
-    {
-      routing: { model_tier: "frontier_fast", certainty: HIGH },
-      model_specialization: { model_specialization: "coding", certainty: HIGH },
-    },
-    CATALOG,
-    DEFAULT_CERTAINTY_THRESHOLD,
-  );
-  assert.equal(rec.id, "gpt-5.3-codex");
-  assert.deepEqual(rec.resolution.constraints_used, {
-    model_specialization: "coding",
-    model_tier: "frontier_fast",
+const baseRegistry = [
+  fake("preflight", 10, ["final_reply", "ack_reply"]),
+  fake("model_tier", 20, ["model_tier"]),
+  fake("model_specialization", 30, ["model_specialization"]),
+  fake("tools", 40, ["tools"]),
+  fake("prompt_injection", 50, ["risk_level"]),
+  fake("memory", 60, []),
+];
+
+const baseResults = {
+  preflight: { reason: "ack", certainty: "very_strong", ack_reply: { text: "On it." } },
+  model_tier: { reason: "tier", certainty: "very_strong", model_tier: "frontier_strong" },
+  model_specialization: { reason: "spec", certainty: "very_strong", model_specialization: "reasoning" },
+  tools: { reason: "tools", certainty: "very_strong", tools: ["web", "workspace"] },
+  prompt_injection: { reason: "risk", certainty: "very_strong", risk_level: "normal" },
+  memory: { reason: "a", certainty: "very_strong", queries: ["alpha"] },
+};
+
+test("assembleResult returns route when all classifiers succeed", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: baseResults,
+    failedClassifiers: [],
+    catalog: CATALOG,
   });
+
+  assert.equal(result.action, "route");
+  assert.equal(result.block_reason, undefined);
+  assert.equal(result.model_id, "gpt-5.5");
+  assert.deepEqual(result.tools, ["web", "workspace"]);
+  assert.deepEqual(result.reply, { text: "On it." });
+  assert.deepEqual(result.prompt_injection, { risk_level: "normal" });
+  assert.deepEqual(result.failed_classifiers, []);
 });
 
-test("resolveModel ignores low-certainty routing constraints", () => {
-  const rec = resolveModel(
-    {
-      routing: { model_tier: "frontier_fast", certainty: LOW },
-      model_specialization: { model_specialization: "coding", certainty: LOW },
+test("assembleResult returns reply when preflight emits final_reply", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: {
+      ...baseResults,
+      preflight: { reason: "trivial", certainty: "near_certain", final_reply: { text: "Hi!" } },
     },
-    CATALOG,
-    DEFAULT_CERTAINTY_THRESHOLD,
-  );
-  assert.equal(rec.id, "qwen2.5-coder");
-  assert.deepEqual(rec.resolution.constraints_used, {});
-  assert.deepEqual(rec.resolution.constraints_dropped, [
-    { axis: "model_tier", reason: "low_confidence" },
-    { axis: "model_specialization", reason: "low_confidence" },
-  ]);
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.equal(result.action, "reply");
+  assert.deepEqual(result.reply, { text: "Hi!" });
 });
 
-test("resolveModel relaxes tier before specialization", () => {
-  const rec = resolveModel(
-    {
-      routing: { model_tier: "local_fast", certainty: HIGH },
-      model_specialization: { model_specialization: "reasoning", certainty: HIGH },
+test("assembleResult blocks on high_risk prompt_injection", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: {
+      ...baseResults,
+      prompt_injection: { reason: "injection", certainty: "near_certain", risk_level: "high_risk" },
     },
-    CATALOG,
-    DEFAULT_CERTAINTY_THRESHOLD,
-  );
-  assert.equal(rec.id, "gpt-5.4-mini");
-  assert.deepEqual(rec.resolution.constraints_used, { model_specialization: "reasoning" });
-  assert.deepEqual(rec.resolution.constraints_dropped, [
-    { axis: "model_tier", reason: "no_match_relaxed" },
-  ]);
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.equal(result.action, "block");
+  assert.equal(result.block_reason, "prompt_injection");
+  assert.deepEqual(result.prompt_injection, { risk_level: "high_risk" });
+  // model_id and reply still present for caller to store
+  assert.ok(result.model_id !== null);
+  assert.ok(result.reply !== null);
 });
 
-test("resolveModel relaxes specialization and tier when no constraint matches", () => {
-  const rec = resolveModel(
-    {
-      routing: { model_tier: "local_strong", certainty: HIGH },
-      model_specialization: { model_specialization: "coding", certainty: HIGH },
+test("assembleResult blocks on unknown prompt_injection risk", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: {
+      ...baseResults,
+      prompt_injection: { reason: "unclear", certainty: "near_certain", risk_level: "unknown" },
     },
-    {
-      default: "fallback",
-      models: [
-        {
-          id: "fallback",
-          specializations: ["chat"],
-          tier: "frontier_fast",
-          params_in_billions: 15,
-          context_window: 200_000,
-          input_tokens_cpm: 0.25,
-          cached_tokens_cpm: 0.03,
-          output_tokens_cpm: 1.25,
-        },
-      ],
-    },
-    DEFAULT_CERTAINTY_THRESHOLD,
-  );
-  assert.equal(rec.id, "fallback");
-  assert.equal(rec.resolution.fell_back_to_default, false);
-  assert.deepEqual(rec.resolution.constraints_dropped, [
-    { axis: "model_specialization", reason: "no_match_relaxed" },
-    { axis: "model_tier", reason: "no_match_relaxed" },
-  ]);
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.equal(result.action, "block");
+  assert.equal(result.block_reason, "prompt_injection");
 });
 
-test("resolveModel ties on price by picking the larger model", () => {
-  const catalog = {
-    default: "small",
-    models: [
-      {
-        id: "small",
-        specializations: ["chat"],
-        tier: "local_strong",
-        params_in_billions: 4,
-        context_window: 200_000,
-      },
-      {
-        id: "large",
-        specializations: ["chat"],
-        tier: "local_strong",
-        params_in_billions: 14,
-        context_window: 128_000,
-      },
-    ],
-  };
-  const rec = resolveModel(
-    {
-      routing: { model_tier: "local_strong", certainty: HIGH },
-      model_specialization: { model_specialization: "chat", certainty: HIGH },
+test("assembleResult suspicious risk_level routes (not a block trigger)", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: {
+      ...baseResults,
+      prompt_injection: { reason: "weak", certainty: "weak", risk_level: "suspicious" },
     },
-    catalog,
-    DEFAULT_CERTAINTY_THRESHOLD,
-  );
-  assert.equal(rec.id, "large");
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.equal(result.action, "route");
+  assert.deepEqual(result.prompt_injection, { risk_level: "suspicious" });
 });
 
-test("composeEnvelope merges reserved fields and lists every classifier output", () => {
-  const envelope = composeEnvelope({
+test("assembleResult blocks with classification_error when classifiers fail", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: {
+      ...baseResults,
+      model_tier: { reason: "failed", certainty: "no_signal" },
+    },
+    failedClassifiers: ["model_tier"],
+    catalog: CATALOG,
+  });
+
+  assert.equal(result.action, "block");
+  assert.equal(result.block_reason, "classification_error");
+  assert.deepEqual(result.failed_classifiers, ["model_tier"]);
+});
+
+test("assembleResult blocks when preflight emits no reply", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: {
+      ...baseResults,
+      preflight: { reason: "unclear", certainty: "no_signal" },
+    },
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.equal(result.action, "block");
+  assert.equal(result.block_reason, "classification_error");
+  assert.equal(result.reply, null);
+});
+
+test("assembleResult picks highest-certainty contributor when two classifiers share a field", () => {
+  const result = assembleResult({
     registry: [
       fake("preflight", 10, ["final_reply", "ack_reply"]),
-      fake("routing", 20, ["model_tier"]),
-      fake("model_specialization", 30, ["model_specialization"]),
-      fake("tools", 40, ["tools"]),
+      fake("model_tier", 20, ["model_tier"]),
+      fake("secondary_tier", 25, ["model_tier"]),
       fake("prompt_injection", 50, ["risk_level"]),
-      fake("memory", 60, []),
     ],
     results: {
       preflight: { reason: "ack", certainty: "very_strong", ack_reply: { text: "On it." } },
-      routing: { reason: "tier", certainty: "very_strong", model_tier: "frontier_fast" },
-      model_specialization: { reason: "spec", certainty: "very_strong", model_specialization: "reasoning" },
-      tools: { reason: "tools", certainty: "very_strong", tools: ["web", "workspace"] },
-      prompt_injection: { reason: "risk", certainty: "very_strong", risk_level: "suspicious" },
-      memory: { reason: "a", certainty: "very_strong", queries: ["alpha"] },
+      model_tier: { reason: "weak", certainty: "reasonable", model_tier: "local_fast" },
+      secondary_tier: { reason: "strong", certainty: "near_certain", model_tier: "frontier_strong" },
+      prompt_injection: { reason: "ok", certainty: "very_strong", risk_level: "normal" },
     },
+    failedClassifiers: [],
     catalog: CATALOG,
-    input: { text: "x", messages: [], target_message_hash: "abc12345" },
   });
 
-  assert.deepEqual(envelope.ack_reply, { text: "On it." });
-  assert.equal(envelope.final_reply, undefined);
-  assert.deepEqual(envelope.tools, { tools: ["web", "workspace"] });
-  assert.deepEqual(envelope.prompt_injection, { risk_level: "suspicious" });
-  assert.deepEqual(envelope.routing, {
-    model_tier: "frontier_fast",
-    model_specialization: "reasoning",
-  });
-  assert.equal(envelope.classifier_outputs.length, 6);
-  assert.equal(envelope.classifier_outputs[0].classifier, "preflight");
-  assert.equal(envelope.classifier_outputs[5].classifier, "memory");
-  assert.deepEqual(envelope.classifier_outputs[5], {
-    classifier: "memory",
-    reason: "a",
-    certainty: "very_strong",
-    queries: ["alpha"],
-  });
+  // frontier_strong wins over local_fast
+  assert.equal(result.model_id, "gpt-5.5");
 });
 
-test("composeEnvelope picks highest-certainty contributor when two classifiers share a reserved field", () => {
-  const envelope = composeEnvelope({
+test("assembleResult breaks ties by registry order (first wins)", () => {
+  const result = assembleResult({
     registry: [
-      fake("routing", 20, ["model_tier"]),
-      fake("secondary_router", 25, ["model_tier"]),
+      fake("preflight", 10, ["final_reply", "ack_reply"]),
+      fake("model_tier", 20, ["model_tier"]),
+      fake("secondary_tier", 25, ["model_tier"]),
+      fake("prompt_injection", 50, ["risk_level"]),
     ],
     results: {
-      routing: { reason: "weak", certainty: "reasonable", model_tier: "local_fast" },
-      secondary_router: { reason: "strong", certainty: "near_certain", model_tier: "frontier_strong" },
+      preflight: { reason: "ack", certainty: "very_strong", ack_reply: { text: "On it." } },
+      model_tier: { reason: "first", certainty: "very_strong", model_tier: "local_fast" },
+      secondary_tier: { reason: "second", certainty: "very_strong", model_tier: "frontier_strong" },
+      prompt_injection: { reason: "ok", certainty: "very_strong", risk_level: "normal" },
     },
+    failedClassifiers: [],
     catalog: CATALOG,
-    input: { text: "x", messages: [], target_message_hash: "abc12345" },
   });
-  assert.deepEqual(envelope.routing, { model_tier: "frontier_strong" });
+
+  // local_fast wins (same certainty, first in registry order)
+  assert.equal(result.model_id, "qwen2.5-coder");
 });
 
-test("composeEnvelope breaks ties by registry order (first wins)", () => {
-  const envelope = composeEnvelope({
+test("assembleResult picks cheapest exact model match", () => {
+  const result = assembleResult({
     registry: [
-      fake("routing", 20, ["model_tier"]),
-      fake("secondary_router", 25, ["model_tier"]),
+      fake("preflight", 10, ["final_reply", "ack_reply"]),
+      fake("model_tier", 20, ["model_tier"]),
+      fake("model_specialization", 30, ["model_specialization"]),
+      fake("prompt_injection", 50, ["risk_level"]),
     ],
     results: {
-      routing: { reason: "first", certainty: "very_strong", model_tier: "local_fast" },
-      secondary_router: { reason: "second", certainty: "very_strong", model_tier: "frontier_strong" },
+      preflight: { reason: "ack", certainty: "very_strong", ack_reply: { text: "On it." } },
+      model_tier: { reason: "tier", certainty: "very_strong", model_tier: "frontier_fast" },
+      model_specialization: { reason: "spec", certainty: "very_strong", model_specialization: "coding" },
+      prompt_injection: { reason: "ok", certainty: "very_strong", risk_level: "normal" },
     },
+    failedClassifiers: [],
     catalog: CATALOG,
-    input: { text: "x", messages: [], target_message_hash: "abc12345" },
   });
-  assert.deepEqual(envelope.routing, { model_tier: "local_fast" });
+
+  assert.equal(result.model_id, "gpt-5.3-codex");
 });
 
-test("composeEnvelope is pure: same inputs produce structurally equal outputs", () => {
-  const args = {
-    registry: [fake("tools", 40, ["tools"])],
-    results: { tools: { reason: "tools", certainty: "very_strong", tools: [] } },
-    catalog: CATALOG,
-    input: { text: "x", messages: [], target_message_hash: "abc12345" },
+test("buildPublicOutputs converts certainty labels to floats and keeps reason", () => {
+  const registry = [fake("preflight", 10, ["final_reply", "ack_reply"]), fake("memory", 60, [])];
+  const results = {
+    preflight: { reason: "ack", certainty: "strong", ack_reply: { text: "On it." } },
+    memory: { reason: "mem", certainty: "very_strong", queries: ["q1"] },
   };
-  assert.deepEqual(composeEnvelope(args), composeEnvelope(args));
+
+  const out = buildPublicOutputs(registry, results);
+
+  assert.equal(out.preflight.certainty, certaintyScore.strong);
+  assert.equal(out.preflight.reason, "ack");
+  assert.deepEqual(out.preflight.ack_reply, { text: "On it." });
+  assert.equal(out.memory.certainty, certaintyScore.very_strong);
+  assert.deepEqual(out.memory.queries, ["q1"]);
+});
+
+test("assembleResult avg and min certainty are floats", () => {
+  const result = assembleResult({
+    registry: baseRegistry,
+    results: baseResults,
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.equal(typeof result.avg_certainty, "number");
+  assert.equal(typeof result.min_certainty, "number");
+  assert.ok(result.avg_certainty > 0 && result.avg_certainty <= 1);
+  assert.equal(result.min_certainty, certaintyScore.very_strong);
+});
+
+test("assembleResult tools defaults to empty array when not emitted", () => {
+  const result = assembleResult({
+    registry: [
+      fake("preflight", 10, ["final_reply", "ack_reply"]),
+      fake("prompt_injection", 50, ["risk_level"]),
+    ],
+    results: {
+      preflight: { reason: "ack", certainty: "very_strong", ack_reply: { text: "On it." } },
+      prompt_injection: { reason: "ok", certainty: "very_strong", risk_level: "normal" },
+    },
+    failedClassifiers: [],
+    catalog: CATALOG,
+  });
+
+  assert.deepEqual(result.tools, []);
 });

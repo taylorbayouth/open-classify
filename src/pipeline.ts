@@ -1,4 +1,4 @@
-import { composeEnvelope } from "./aggregator.js";
+import { assembleResult, buildPublicOutputs } from "./aggregator.js";
 import {
   MODULES_BY_NAME,
   REGISTRY,
@@ -6,17 +6,11 @@ import {
 } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
-  AggregatorConfig,
   Catalog,
-  CertaintySummary,
-  ClassifierEntry,
   ClassifierPublicOutputs,
   ClassifierRegistry,
   ClassifierResults,
-  DownstreamPayload,
-  Envelope,
   InspectResult,
-  PipelineMeta,
   PipelineResult,
 } from "./manifest.js";
 import type {
@@ -25,7 +19,6 @@ import type {
   ClassifierOutput,
   RuntimeClassifierManifest,
 } from "./stock.js";
-import { certaintyScore } from "./stock.js";
 import type {
   ClassifierFallbackReason,
   NormalizedOpenClassifyInput,
@@ -48,11 +41,7 @@ export interface ClassifyOptions {
   catalog: Catalog;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
-  // Upper bound on classifier dispatches in flight at any time. Classifiers
-  // are scheduled in manifest `order` ascending; same-order entries are
-  // adjacent in the queue, so they run together when slots are available.
   maxConcurrency?: number;
-  aggregator?: AggregatorConfig;
   signal?: AbortSignal;
 }
 
@@ -72,18 +61,20 @@ export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
   options: ClassifyOptions,
 ): Promise<PipelineResult> {
-  const { request, results, meta } = await runPipeline(input, "user", options);
+  const { request, results, failedClassifiers } = await runPipeline(input, "user", options);
 
-  const classifierInput = toClassifierInput(request);
-  const envelope = composeEnvelope({
-    registry: filteredRegistry("user"),
+  const reg = filteredRegistry("user");
+  const assembled = assembleResult({
+    registry: reg,
     results,
+    failedClassifiers,
     catalog: options.catalog,
-    input: classifierInput,
-    config: options.aggregator,
   });
 
-  return buildRouteResult(request, envelope, results, meta);
+  return {
+    ...assembled,
+    target_message_hash: request.target_message_hash,
+  };
 }
 
 export async function inspectOpenClassifyInput(
@@ -91,17 +82,21 @@ export async function inspectOpenClassifyInput(
   options: InspectOptions,
 ): Promise<InspectResult> {
   const { request, results } = await runPipeline(input, "assistant", options);
+  const reg = filteredRegistry("assistant");
+
+  const lastMsg = request.messages[request.messages.length - 1];
 
   return {
     target_message_hash: request.target_message_hash,
-    classifier_outputs: classifierPublicOutputs(filteredRegistry("assistant"), results),
+    message: { role: "assistant", text: lastMsg.text },
+    classifier_outputs: buildPublicOutputs(reg, results),
   };
 }
 
 interface PipelineRunResult {
   readonly request: NormalizedOpenClassifyInput;
   readonly results: ClassifierResults;
-  readonly meta: PipelineMeta;
+  readonly failedClassifiers: ReadonlyArray<string>;
 }
 
 interface SharedPipelineOptions {
@@ -139,9 +134,6 @@ async function runPipeline(
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
   const maxConcurrency = resolveMaxConcurrency(options.maxConcurrency);
 
-  // REGISTRY is already sorted by `dispatch_order` ascending. Filter by
-  // applies_to so we only dispatch classifiers relevant to this role; the
-  // worker pool then runs them in the remaining order.
   const registry = filteredRegistry(role);
   const queue: ReadonlyArray<string> = registry.map((m) => m.name);
 
@@ -161,8 +153,8 @@ async function runPipeline(
         ),
     );
 
-    const { results, meta } = collectFullEntries(settled, registry);
-    return { request, results, meta };
+    const { results, failedClassifiers } = collectResults(settled);
+    return { request, results, failedClassifiers };
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
   }
@@ -200,9 +192,6 @@ async function runWithConcurrency(
       if (i >= names.length) return;
       const name = names[i];
       if (signal.aborted) {
-        // Queued classifiers that never started are reported as not-run so
-        // the audit shows their fallback in `meta.classifiers`. In-flight
-        // classifiers receive the abort signal directly and resolve normally.
         results[i] = {
           ok: false,
           name,
@@ -220,95 +209,18 @@ async function runWithConcurrency(
   return results;
 }
 
-function collectFullEntries(
-  settled: SettledClassifierResult[],
-  registry: ReadonlyArray<RuntimeClassifierManifest>,
-): {
+function collectResults(settled: SettledClassifierResult[]): {
   results: ClassifierResults;
-  meta: PipelineMeta;
+  failedClassifiers: ReadonlyArray<string>;
 } {
   const results: ClassifierResults = {};
-  const classifiers: Record<string, ClassifierEntry> = {};
+  const failedClassifiers: string[] = [];
   for (const s of settled) {
     const manifest = MODULES_BY_NAME[s.name];
-    const value = s.ok ? s.value : manifest.fallback;
-    results[s.name] = value;
-    classifiers[s.name] = {
-      ...value,
-      status: classifierRunStatus(s),
-      version: manifest.version,
-    } as ClassifierEntry;
+    results[s.name] = s.ok ? s.value : manifest.fallback;
+    if (!s.ok) failedClassifiers.push(s.name);
   }
-  return { results, meta: { classifiers, certainty: certaintySummary(results, registry) } };
-}
-
-function certaintySummary(
-  results: ClassifierResults,
-  registry: ReadonlyArray<RuntimeClassifierManifest>,
-): CertaintySummary {
-  const scores = registry.map((m) => scoreCertainty(results[m.name]?.certainty));
-  if (scores.length === 0) return { min: 0, avg: 0 };
-  const min = Math.min(...scores);
-  const avg = scores.reduce((sum, v) => sum + v, 0) / scores.length;
-  return { min, avg };
-}
-
-function scoreCertainty(certainty: Certainty | undefined): number {
-  return certainty === undefined ? 0 : certaintyScore[certainty];
-}
-
-function buildRouteResult(
-  request: NormalizedOpenClassifyInput,
-  envelope: Envelope,
-  results: ClassifierResults,
-  meta: PipelineMeta,
-): PipelineResult {
-  const downstream: DownstreamPayload = {
-    model_id: envelope.model_recommendation.id,
-    target_message: {
-      role: "user",
-      text: request.text,
-      hash: request.target_message_hash,
-    },
-    tools: envelope.tools ?? { tools: [] },
-  };
-
-  return {
-    action: "route",
-    target_message_hash: request.target_message_hash,
-    downstream,
-    classifier_outputs: classifierPublicOutputs(filteredRegistry("user"), results),
-    audit: {
-      ...envelope,
-      meta,
-    },
-  };
-}
-
-// Expose each classifier's payload — every output field except `reason` and
-// `certainty`. Iterates the supplied registry so we only surface classifiers
-// that actually ran for this role.
-function classifierPublicOutputs(
-  registry: ReadonlyArray<RuntimeClassifierManifest>,
-  results: ClassifierResults,
-): ClassifierPublicOutputs {
-  const out: ClassifierPublicOutputs = {};
-  for (const manifest of registry) {
-    const result = results[manifest.name];
-    if (result === undefined) continue;
-    out[manifest.name] = stripMetadata(result);
-  }
-  return out;
-}
-
-function stripMetadata(output: ClassifierOutput): Record<string, unknown> {
-  const { reason, certainty, ...payload } = output as ClassifierOutput & {
-    reason: unknown;
-    certainty: unknown;
-  };
-  void reason;
-  void certainty;
-  return payload;
+  return { results, failedClassifiers };
 }
 
 async function runClassifierWithRetry(
@@ -373,16 +285,6 @@ async function runClassifierAttempt(
     if (timeout !== undefined) clearTimeout(timeout);
     if (abortAttempt !== undefined) rootSignal.removeEventListener("abort", abortAttempt);
   }
-}
-
-function classifierRunStatus(settled: SettledClassifierResult) {
-  if (settled.ok) return { ok: true, source: "model" as const };
-  return {
-    ok: false,
-    source: "fallback" as const,
-    reason: settled.reason,
-    error: errorMessage(settled.error),
-  };
 }
 
 function errorMessage(error: unknown): string {

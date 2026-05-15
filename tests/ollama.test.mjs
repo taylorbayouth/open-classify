@@ -189,48 +189,24 @@ test("loadOpenClassifyConfig validates the flat per-classifier model map", () =>
         memory_retrieval_queries: "tier-b",
       },
     },
-    aggregator: {
-      certaintyThreshold: 0.7,
-    },
     catalog: "downstream-models.json",
   }));
 
   const config = loadOpenClassifyConfig(path);
 
   assert.equal(config.runner.defaultModel, "default-model");
-  assert.deepEqual(config.aggregator, {
-    certaintyThreshold: 0.7,
-  });
   assert.deepEqual(classifierModelsFromConfig(config), {
     preflight: "tier-a",
     memory_retrieval_queries: "tier-b",
   });
 });
 
-test("loadOpenClassifyConfig validates aggregator options", () => {
-  assert.deepEqual(
-    validateOpenClassifyConfig({
-      aggregator: {
-        certaintyThreshold: 0.65,
-      },
-    }).aggregator,
-    {
-      certaintyThreshold: 0.65,
-    },
-  );
-
+test("loadOpenClassifyConfig rejects aggregator field (removed)", () => {
   assert.throws(
-    () => validateOpenClassifyConfig({ aggregator: { certaintyThreshold: 1.1 } }),
+    () => validateOpenClassifyConfig({ aggregator: { certaintyThreshold: 0.65 } }),
     (error) =>
       error instanceof OpenClassifyConfigError &&
-      /aggregator\.certaintyThreshold must be a finite number between 0 and 1 inclusive/.test(error.message),
-  );
-
-  assert.throws(
-    () => validateOpenClassifyConfig({ aggregator: { certaintyGate: "min_score" } }),
-    (error) =>
-      error instanceof OpenClassifyConfigError &&
-      /aggregator\.certaintyGate is not a supported field/.test(error.message),
+      /aggregator is not a supported field/.test(error.message),
   );
 });
 
@@ -300,7 +276,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
   );
 });
 
-test("createOllamaClassifierRunner validates routing enum values", async () => {
+test("createOllamaClassifierRunner validates model_tier enum values", async () => {
   const runner = runnerReturning({
     reason: "Invalid tier.",
     certainty: "tentative",
@@ -308,10 +284,10 @@ test("createOllamaClassifierRunner validates routing enum values", async () => {
   });
 
   await assert.rejects(
-    runner("routing", classifierInput(), new AbortController().signal),
+    runner("model_tier", classifierInput(), new AbortController().signal),
     (error) =>
       error instanceof OllamaClassifierError &&
-      error.classifier === "routing" &&
+      error.classifier === "model_tier" &&
       /unsupported value/.test(error.message),
   );
 });
@@ -464,15 +440,11 @@ test("createClassifier wires the Ollama runner into the pipeline", async () => {
 
   assert.equal(result.action, "route");
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
-  for (const [name, expected] of Object.entries(validOutputs)) {
-    const entry = result.audit.meta.classifiers[name];
-    for (const [field, value] of Object.entries(expected)) {
-      assert.deepEqual(entry[field], value, `meta.classifiers.${name}.${field}`);
-    }
-    assert.equal(entry.status.ok, true);
-  }
+  assert.deepEqual(result.failed_classifiers, []);
   // reasoning + local_strong → gemma4.
-  assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
+  assert.equal(result.model_id, "gemma4:e4b-it-q4_K_M");
+  assert.deepEqual(result.prompt_injection, { risk_level: "normal" });
+  assert.deepEqual(result.reply, { text: "Let me check." });
 });
 
 test("createClassifier reuses the runner and catalog across calls", async () => {
@@ -502,7 +474,7 @@ test("createClassifier reuses the runner and catalog across calls", async () => 
   assert.equal(fetchCount, callsAfterFirst * 2);
 });
 
-test("createClassifier picks up models and aggregator from the config file", async () => {
+test("createClassifier picks up models from the config file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
   const path = join(dir, "open-classify.config.json");
   writeFileSync(path, JSON.stringify({
@@ -510,9 +482,6 @@ test("createClassifier picks up models and aggregator from the config file", asy
       provider: "ollama",
       defaultModel: "config-default",
       models: { preflight: "config-preflight" },
-    },
-    aggregator: {
-      certaintyThreshold: 0.9,
     },
   }));
 
@@ -539,11 +508,8 @@ test("createClassifier picks up models and aggregator from the config file", asy
 
   assert.ok(seenModels.has("config-preflight"));
   assert.ok(seenModels.has("config-default"));
-  // Aggregator threshold of 0.9 drops most signals from the envelope, but the
-  // pipeline always returns a route — the caller can decide what to do based
-  // on the certainty summary and per-classifier scores.
   assert.equal(result.action, "route");
-  assert.ok(result.audit.meta.certainty.min < 0.9);
+  assert.deepEqual(result.failed_classifiers, []);
 });
 
 test("resource check can fail before fetch is called", async () => {

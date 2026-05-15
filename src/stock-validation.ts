@@ -347,10 +347,14 @@ function validateFallback(
   if (!isRecord(raw)) {
     throwInvalid(classifier, model, "fallback must be a JSON object");
   }
-  // Fallback represents the "I have no signal" state, so reserved fields are
-  // optional. The composed schema already marks them optional except for
-  // reason/certainty.
-  const validate = ajv.compile(composedSchema as AnySchema);
+  // Fallback is the "no signal" state: only reason and certainty are required.
+  // Strip any custom `required` entries beyond those two so that reserved fields
+  // and output_schema.required fields don't force the fallback to emit values
+  // it cannot meaningfully provide when the classifier has failed.
+  const fallbackSchema = isRecord(composedSchema)
+    ? { ...composedSchema, required: ["reason", "certainty"] }
+    : composedSchema;
+  const validate = ajv.compile(fallbackSchema as AnySchema);
   if (!validate(raw)) {
     const message = formatSchemaErrors(validate.errors, "fallback");
     throwInvalid(classifier, model, `fallback is invalid: ${message}`);

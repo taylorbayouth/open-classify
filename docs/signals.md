@@ -14,7 +14,7 @@ type Certainty =
   | "near_certain";
 ```
 
-The aggregator maps certainty tags to numeric scores. Reserved-field values from classifiers below the configured threshold (default `0.65`) are dropped from the envelope; the underlying output still appears in `audit.classifier_outputs` and `meta.classifiers` so the caller can decide whether to trust the run.
+The aggregator maps certainty tags to numeric scores. `classifier_outputs[name].certainty` is a float; `avg_certainty` and `min_certainty` on the top-level result are also floats. Certainty labels are internal to classifier prompts; floats are what callers see.
 
 ## Reserved fields
 
@@ -26,9 +26,9 @@ A manifest declares which reserved fields its classifier may emit via the `reser
 { text: string }  // 1–200 chars; must contain at least one non-whitespace character
 ```
 
-Use only for tiny terminal answers (greetings, thanks, spelling, simple arithmetic). The text IS the complete answer to the user — nothing else happens after this. Mutually exclusive with `ack_reply`.
+Use only for tiny terminal answers (greetings, thanks, spelling, simple arithmetic). The text IS the complete answer — nothing else happens after this. Mutually exclusive with `ack_reply`.
 
-When emitted with sufficient certainty, the highest-certainty value is surfaced in `audit.final_reply`. The pipeline does not short-circuit; the caller decides whether to return the reply or continue to the downstream model.
+When emitted, the pipeline sets `action: "reply"` and surfaces the text in `result.reply`. All other classifiers still run to completion.
 
 ### `ack_reply`
 
@@ -36,7 +36,9 @@ When emitted with sufficient certainty, the highest-certainty value is surfaced 
 { text: string }  // 1–200 chars; must contain at least one non-whitespace character
 ```
 
-A brief acknowledgement to show while downstream work continues. Surfaced in `audit.ack_reply`. Mutually exclusive with `final_reply`.
+A brief, task-specific acknowledgement to show while downstream work continues. Mutually exclusive with `final_reply`.
+
+When emitted (and the action is `"route"`), the text is surfaced in `result.reply`. This is the immediate response your UI can show while the downstream model works.
 
 ### `model_tier`
 
@@ -62,9 +64,11 @@ Soft constraint for the catalog resolver. The resolver picks the cheapest catalo
 string[]   // each id must appear in the manifest's allowed_tools list
 ```
 
-Sets `downstream.tools.tools`. Any classifier emitting this reserved field must declare `allowed_tools` on its manifest — that menu of allowed ids becomes both the JSON Schema constraint and the prompt listing.
+Sets `result.tools`. Any classifier emitting this reserved field must declare `allowed_tools` on its manifest — that menu of allowed ids becomes both the JSON Schema constraint and the prompt listing.
 
 Common tool-id aliases (`browser`, `browsing`, `internet`, `web_browsing`, `web_search`) are normalized to `web` before validation, so the model can drift on phrasing without breaking.
+
+`result.tools` is always an array (empty if no classifier emitted it or no tools were selected).
 
 ### `risk_level`
 
@@ -72,12 +76,18 @@ Common tool-id aliases (`browser`, `browsing`, `internet`, `web_browsing`, `web_
 "normal" | "suspicious" | "high_risk" | "unknown"
 ```
 
-Prompt-injection posture for the target message. Surfaced in `audit.prompt_injection`. The pipeline does not short-circuit; the caller decides whether to block based on the risk level and certainty.
+Prompt-injection posture for the target message. Surfaced in `result.prompt_injection`.
+
+`"high_risk"` and `"unknown"` trigger `action: "block"` with `block_reason: "prompt_injection"`, regardless of certainty. `"suspicious"` is advisory — the pipeline routes normally and the caller decides whether to act on it.
+
+When the `prompt_injection` classifier fails (runtime error or timeout), it uses its fallback which does **not** include `risk_level`. The pipeline then blocks with `block_reason: "classification_error"`, not `"prompt_injection"` — a classifier failure is distinct from an assessed injection risk.
 
 ## Custom fields
 
-Anything not in the reserved list lives in your manifest's `output_schema.properties`. The runtime validates each output against the composed schema (custom properties + reserved sub-schemas + `reason` + `certainty`) at runtime, and surfaces the full output on `result.classifier_outputs[name]` with `reason` and `certainty` stripped for ergonomic access. The full output, including metadata, appears in `result.audit.classifier_outputs[]` and `result.audit.meta.classifiers[name]`.
+Anything not in the reserved list lives in your manifest's `output_schema.properties`. The runtime validates each output against the composed schema (custom properties + reserved sub-schemas + `reason` + `certainty`) at runtime, and surfaces the full output on `result.classifier_outputs[name]`.
+
+`classifier_outputs[name]` contains all payload fields plus `reason` (string) and `certainty` (float). The raw certainty label is not exposed; only the float score.
 
 ## Picking between reserved-field contributors
 
-When two classifiers declare the same reserved field, the aggregator picks the highest-certainty value above the threshold. Ties are broken by manifest `dispatch_order` ascending (first in registry order keeps the slot). Both classifiers' full outputs still appear in `audit.classifier_outputs` regardless of which one "won" the slot.
+When two classifiers declare the same reserved field, the aggregator picks the highest-certainty value. Ties are broken by manifest `dispatch_order` ascending (first in registry order keeps the slot). Both classifiers' full outputs still appear in `classifier_outputs` regardless of which one "won" the slot.

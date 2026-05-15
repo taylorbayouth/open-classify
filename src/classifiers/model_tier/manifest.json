@@ -1,11 +1,11 @@
 {
-  "name": "routing",
+  "name": "model_tier",
   "version": "1.0.0",
   "purpose": "Recommend the downstream model tier.",
   "dispatch_order": 20,
   "reserved_fields": ["model_tier"],
   "fallback": {
-    "reason": "Classifier failed; no routing signal.",
+    "reason": "Classifier failed; no model tier signal.",
     "certainty": "no_signal"
   }
 }

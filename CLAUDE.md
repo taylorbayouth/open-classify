@@ -17,7 +17,7 @@ node --test tests/pipeline.test.mjs
 
 ## Architecture
 
-Open Classify is a **manifest-driven classifier runtime** that routes user messages to downstream AI models. Given a conversation, it runs classifiers concurrently through a bounded worker pool and aggregates their outputs into a `PipelineResult` whose `action` is always `"route"`. The caller decides whether to act on `audit.final_reply`, `audit.prompt_injection`, etc.
+Open Classify is a **manifest-driven classifier runtime** that routes user messages to downstream AI models. Given a conversation, it runs classifiers concurrently through a bounded worker pool and aggregates their outputs into a flat `PipelineResult`.
 
 ### Pipeline flow
 
@@ -29,7 +29,7 @@ OpenClassifyInput
   → PipelineResult
 ```
 
-There are no short-circuit gates. Every classifier always runs; advisory signals (final_reply, risk_level, etc.) are surfaced in the audit envelope for the caller to consume.
+Every classifier always runs. The result `action` is `"route"`, `"block"`, or `"reply"` — determined by the aggregator after all classifiers complete.
 
 ### Classifiers
 
@@ -46,7 +46,7 @@ The built-in classifiers (by dispatch_order):
 | Name | dispatch_order | Reserved fields | applies_to |
 |---|---|---|---|
 | `preflight` | 10 | `final_reply`, `ack_reply` | `user` |
-| `routing` | 20 | `model_tier` | `user` |
+| `model_tier` | 20 | `model_tier` | `user` |
 | `model_specialization` | 30 | `model_specialization` | `user` |
 | `tools` | 40 | `tools` | `user` |
 | `prompt_injection` | 50 | `risk_level` | **`both`** |
@@ -56,22 +56,53 @@ The built-in classifiers (by dispatch_order):
 
 ### Two passes: `classify()` and `inspect()`
 
-`createClassifier()` returns `{ classify, inspect }`. `classify()` is the user-input pass (full `PipelineResult` with `downstream` + `audit`). `inspect()` is the lean assistant-output pass (`{ target_message_hash, classifier_outputs }` only — no routing, no audit). Each pass runs only the classifiers tagged for it via `applies_to` (default `"user"`).
+`createClassifier()` returns `{ classify, inspect }`. `classify()` is the user-input pass (full `PipelineResult`). `inspect()` is the lean assistant-output pass (`{ target_message_hash, message, classifier_outputs }` — no routing, no action). Each pass runs only the classifiers tagged for it via `applies_to` (default `"user"`).
 
 ### Key source files
 
-- `src/pipeline.ts` — Worker-pool dispatch; assembles `PipelineResult.classifier_outputs` (every classifier's payload, reason/certainty stripped)
-- `src/aggregator.ts` — Extracts reserved fields by name (highest-certainty wins; ties broken by manifest `dispatch_order` ascending); resolves concrete model from catalog
+- `src/pipeline.ts` — Worker-pool dispatch; calls `assembleResult`; returns `PipelineResult`
+- `src/aggregator.ts` — `assembleResult()`: picks reserved fields by certainty, determines action, resolves model; `buildPublicOutputs()`: converts certainty to float
 - `src/classifiers.ts` — Loads manifests from `src/classifiers/<name>/`; composes prompt and validation schema; validates registry
 - `src/stock-validation.ts` — Single validation path: manifest validation + per-output validation against the composed schema
 - `src/stock-prompt.ts` — Single prompt builder: base sections + classifier header + auto-injected reserved-field fragments + `prompt.md` + `output_schema.examples`
 - `src/reserved-fields.ts` — Central registry of reserved field definitions (canonical sub-schemas + prompt fragments)
 - `src/ollama.ts` — Reference LLM backend; packs prompts, handles timeouts, parses JSON
 - `src/catalog.ts` — Loads `downstream-models.json`; model resolver picks concrete model
-- `src/manifest.ts` — Pipeline result types (`PipelineResult`, `Catalog`, `Envelope`, etc.)
+- `src/manifest.ts` — Pipeline result types (`PipelineResult`, `InspectResult`, `Catalog`, etc.)
 - `src/stock.ts` — Classifier-facing types (signals, certainty, manifest interfaces). The "stock" name is historical; types apply to all classifiers.
 - `src/enums.ts` — Categorical enums (model tiers, specializations, risk levels)
 - `src/input.ts` — Input normalization and validation
+
+### PipelineResult shape
+
+```ts
+{
+  action: "route" | "block" | "reply";
+  block_reason?: "prompt_injection" | "classification_error";
+  target_message_hash: string;
+  model_id: string | null;
+  tools: ReadonlyArray<string>;
+  reply: { text: string } | null;
+  prompt_injection: { risk_level: PromptInjectionRiskLevel } | null;
+  avg_certainty: number;
+  min_certainty: number;
+  failed_classifiers: ReadonlyArray<string>;
+  classifier_outputs: ClassifierPublicOutputs;
+}
+```
+
+- `action: "reply"` — `preflight` emitted `final_reply`; return `reply.text` to the user directly.
+- `action: "block"` — either injection risk (`block_reason: "prompt_injection"`) or runtime failure (`block_reason: "classification_error"`). `model_id` and `reply` are still populated when available.
+- `action: "route"` — route to `model_id` with `tools`; show `reply.text` (the ack) while downstream works.
+- `classifier_outputs[name]` includes all payload fields plus `reason` (string) and `certainty` (float).
+- `tools` is always an array (empty if no classifier emitted it).
+
+### Block triggers
+
+- **`prompt_injection`**: `risk_level` is `"high_risk"` or `"unknown"`, regardless of certainty. This takes priority.
+- **`classification_error`**: any classifier failed/timed out (listed in `failed_classifiers`), or preflight provided no reply, or `model_id` could not be resolved.
+
+When `prompt_injection` classifier itself fails at runtime, its fallback has **no `risk_level`** — so the block fires as `classification_error`, not `prompt_injection`. A classifier failure is distinct from an assessed risk.
 
 ### Classifier output contract
 
@@ -88,18 +119,18 @@ Every classifier returns a flat JSON object:
 
 There is no `output` wrapper. Reserved fields and custom fields sit alongside `reason` and `certainty` at the top level.
 
-Certainty scoring: the aggregator maps certainty tags to numeric scores. Reserved-field values below the configured threshold (default `0.65`) are dropped from the envelope's named slots but still appear in `audit.classifier_outputs[]` and `meta.classifiers[name]`. There is no whole-run certainty gate that blocks routing — `min` and `avg` are reported in `audit.meta.certainty` for the caller to act on.
-
-Classifiers that fail use their manifest `fallback` output; failures are recorded in `audit.meta.classifiers[name].status`.
+Certainty: labels stay internal (LLM understands them); floats appear in the final `PipelineResult`. The aggregator picks the highest-certainty contributor when multiple classifiers emit the same reserved field — no threshold gate. Classifiers that fail use their manifest `fallback`; failures appear in `failed_classifiers`.
 
 ### Reserved fields
 
 `final_reply`, `ack_reply`, `model_tier`, `model_specialization`, `tools`, `risk_level`. The runtime owns their canonical JSON Schema sub-schemas and prompt fragments — manifests just declare opt-in via the `reserved_fields` array. Multiple classifiers can emit the same reserved field; highest certainty wins, ties broken by manifest `dispatch_order` ascending (classifiers without `dispatch_order` sort last).
 
+Fallback validation: only `reason` and `certainty` are required in a fallback object. Reserved fields and `output_schema.required` entries are exempt — the "no signal" state cannot meaningfully populate them.
+
 ### Configuration files
 
 - `downstream-models.json` — Required catalog of available downstream models
-- `open-classify.config.example.json` — Example runtime config: Ollama model overrides (flat `models: { [name]: model_id }`), aggregator settings, catalog path
+- `open-classify.config.example.json` — Example runtime config: Ollama model overrides (flat `models: { [name]: model_id }`), catalog path
 - Base classifier model: `gemma4:e4b-it-q4_K_M`
 
 ### Design constraints

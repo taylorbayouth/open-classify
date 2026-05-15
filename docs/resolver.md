@@ -1,12 +1,10 @@
 # Aggregation and model resolution
 
-The aggregator merges classifier outputs into an `Envelope`, picks a concrete model from the catalog, and returns a `PipelineResult`.
+The aggregator merges classifier outputs into a `PipelineResult` with a flat shape — no nested `audit` or `downstream` envelope.
 
-## Certainty threshold
+## Certainty labels
 
-Default: `0.65`. Configurable via `aggregator.certaintyThreshold` on `classifyOpenClassifyInput`.
-
-Per-classifier outputs carry `certainty` tags. The aggregator maps tags to scores:
+Classifier outputs carry a `certainty` label. The aggregator maps labels to numeric scores for comparison and reporting:
 
 ```ts
 {
@@ -21,23 +19,27 @@ Per-classifier outputs carry `certainty` tags. The aggregator maps tags to score
 }
 ```
 
-Reserved-field values from below-threshold classifiers are dropped from the named envelope slots. The full underlying output still appears in `audit.classifier_outputs[]` and `audit.meta.classifiers[name]`, so the caller can inspect or override.
-
-Dropped routing axes are reported on `audit.model_recommendation.resolution.constraints_dropped` with `reason: "low_confidence"`.
-
-Custom (non-reserved) outputs are surfaced regardless of certainty — callers can decide what to do with them — but the value still goes through schema validation.
+Labels stay in classifier prompts (the model understands them as semantic grades). Floats appear only in the final `PipelineResult` fields: `avg_certainty`, `min_certainty`, and `classifier_outputs[name].certainty`.
 
 ## Reserved-field merging
 
-When multiple classifiers emit the same reserved field, the aggregator picks the highest-certainty contributor that meets the threshold. Ties are broken by manifest `dispatch_order` ascending (first wins). Classifiers without `dispatch_order` sort last for tie-break purposes.
+When multiple classifiers emit the same reserved field, the aggregator picks the highest-certainty contributor. Ties are broken by manifest `dispatch_order` ascending (first wins). Classifiers without `dispatch_order` sort last for tie-break purposes.
 
-The built-in classifiers each own a distinct reserved field, so the tie-break only matters if you add your own classifier that emits a field already covered by a built-in.
+There is no certainty threshold gate — the highest-certainty value always wins, regardless of score. Values below any particular threshold are still reported in `classifier_outputs` for the caller to inspect.
 
-## Whole-run certainty summary
+## Action
 
-Every run includes `audit.meta.certainty.{min, avg}`. These are the lowest and arithmetic-mean certainty scores across all classifiers, including failed classifiers that fell back to their manifest fallback (which use `no_signal` and score 0).
+Every result has `action: "route" | "block" | "reply"`.
 
-The pipeline does not block based on this summary — the worker pool always returns a `route` action. Callers inspect `audit.meta.certainty` and decide whether to trust the result or fall back to a safer behavior (e.g., force a frontier model, return an apology).
+**`"reply"`** — `preflight` emitted `final_reply`. The classifier determined it can answer the message immediately; no downstream model is needed. `result.reply` contains the text. All other classifiers still ran.
+
+**`"block"`** — something prevented routing. `result.block_reason` names the cause:
+- `"prompt_injection"` — `risk_level` is `"high_risk"` or `"unknown"`, regardless of certainty. This takes priority over other causes.
+- `"classification_error"` — one or more classifiers failed or timed out, or preflight provided no reply (which means the pipeline cannot fulfill its reply contract), or no model could be resolved.
+
+**`"route"`** — all classifiers succeeded and `result.model_id` names the downstream model to call.
+
+Even on `"block"`, `model_id` and `reply` are populated when they can be (the caller may want to store them). `failed_classifiers` lists every classifier that errored or timed out.
 
 ## Model resolution
 
@@ -60,36 +62,10 @@ Within a pass, candidates are ranked:
 3. larger `context_window`
 4. earlier catalog order
 
-If every pass returns no candidates, the resolver returns `catalog.default` with `fell_back_to_default: true`. (In practice the no-constraints pass always finds at least one model unless the catalog is empty, so the default-fallback path is defensive.)
+If every pass returns no candidates, the resolver uses `catalog.default`. In practice the no-constraints pass always finds at least one model unless the catalog is empty, so the default-fallback path is defensive.
 
-## Resolution audit
+## Whole-run certainty summary
 
-Every result carries a resolution report:
+Every run includes `avg_certainty` and `min_certainty` at the top level of `PipelineResult`. These are the arithmetic mean and minimum certainty scores across all classifiers, including failed classifiers that fell back to their manifest fallback (which use `no_signal` and score `0`).
 
-```ts
-{
-  constraints_used: { model_specialization?: ..., model_tier?: ... },
-  constraints_dropped: Array<{
-    axis: "model_specialization" | "model_tier",
-    reason: "low_confidence" | "no_match_relaxed" | "default_fallback"
-  }>,
-  confidences: { routing?: number },
-  fell_back_to_default: boolean,
-}
-```
-
-Drop reasons:
-
-- `low_confidence` — a classifier emitted the axis but its certainty was below threshold.
-- `no_match_relaxed` — the axis was requested but no model matched, so the resolver relaxed it.
-- `default_fallback` — every pass failed; the resolver used `catalog.default`.
-
-## Audit envelope
-
-The full `audit` envelope contains:
-
-- Reserved-field slots that survived the certainty threshold: `final_reply`, `ack_reply`, `routing`, `tools`, `prompt_injection`
-- `classifier_outputs[]` — every classifier's full output, in registry order, including `reason`, `certainty`, all reserved fields, and all custom fields
-- `model_recommendation` with the resolution audit above
-- `meta.classifiers[name]` — per-classifier full output plus `status` and `version`
-- `meta.certainty.{min, avg}` — whole-run certainty summary
+The pipeline does not block based on these values — the caller inspects them and decides whether to trust the result or fall back to a safer behavior.

@@ -9,7 +9,7 @@ export const validClassifierOutputs = {
     certainty: "strong",
     ack_reply: { text: "Let me check." },
   },
-  routing: {
+  model_tier: {
     reason: "The request needs moderate reasoning.",
     certainty: "strong",
     model_tier: "local_strong",

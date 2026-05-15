@@ -131,9 +131,9 @@ test("requires reason and certainty on classifier outputs", () => {
   );
 });
 
-test("validates a routing classifier output", () => {
+test("validates a model_tier classifier output", () => {
   const manifest = buildManifest({
-    name: "routing",
+    name: "model_tier",
     version: "1.0.0",
     purpose: "Pick a tier.",
     dispatch_order: 20,
@@ -143,14 +143,14 @@ test("validates a routing classifier output", () => {
   const output = validateOutputForManifest(
     manifest,
     { reason: "ok", certainty: "very_strong", model_tier: "frontier_fast" },
-    { classifier: "routing", model: "test" },
+    { classifier: "model_tier", model: "test" },
   );
   assert.equal(output.model_tier, "frontier_fast");
 });
 
-test("routing treats null and blank tier as omitted", () => {
+test("model_tier treats null and blank tier as omitted", () => {
   const manifest = buildManifest({
-    name: "routing",
+    name: "model_tier",
     version: "1.0.0",
     purpose: "Pick a tier.",
     dispatch_order: 20,
@@ -162,7 +162,7 @@ test("routing treats null and blank tier as omitted", () => {
     validateOutputForManifest(
       manifest,
       { reason: "unsure", certainty: "tentative", model_tier: null },
-      { classifier: "routing", model: "test" },
+      { classifier: "model_tier", model: "test" },
     ),
     { reason: "unsure", certainty: "tentative" },
   );
@@ -171,7 +171,7 @@ test("routing treats null and blank tier as omitted", () => {
     validateOutputForManifest(
       manifest,
       { reason: "unsure", certainty: "tentative", model_tier: "   " },
-      { classifier: "routing", model: "test" },
+      { classifier: "model_tier", model: "test" },
     ),
     { reason: "unsure", certainty: "tentative" },
   );
@@ -179,7 +179,7 @@ test("routing treats null and blank tier as omitted", () => {
 
 test("classifier with only model_tier reserved rejects model_specialization", () => {
   const manifest = buildManifest({
-    name: "routing",
+    name: "model_tier",
     version: "1.0.0",
     purpose: "Pick a tier.",
     dispatch_order: 20,
@@ -192,7 +192,7 @@ test("classifier with only model_tier reserved rejects model_specialization", ()
       validateOutputForManifest(
         manifest,
         { reason: "wrong axis", certainty: "very_strong", model_specialization: "chat" },
-        { classifier: "routing", model: "test" },
+        { classifier: "model_tier", model: "test" },
       ),
     /model_specialization/,
   );
@@ -423,7 +423,7 @@ test("manifest accepts missing dispatch_order", () => {
 
 test("synthesizes a JSON example when the manifest omits output_schema.examples", () => {
   const manifest = buildManifest({
-    name: "routing",
+    name: "model_tier",
     version: "1.0.0",
     purpose: "Pick a tier.",
     dispatch_order: 20,
@@ -443,7 +443,7 @@ test("synthesizes a JSON example when the manifest omits output_schema.examples"
 
 test("uses manifest examples when provided instead of the synthesized one", () => {
   const manifest = buildManifest({
-    name: "routing",
+    name: "model_tier",
     version: "1.0.0",
     purpose: "Pick a tier.",
     dispatch_order: 20,
@@ -469,7 +469,7 @@ test("manifest validates examples against the composed schema", () => {
   assert.throws(
     () =>
       validateJsonClassifierManifest({
-        name: "routing",
+        name: "model_tier",
         version: "1.0.0",
         purpose: "Pick a tier.",
         dispatch_order: 20,
