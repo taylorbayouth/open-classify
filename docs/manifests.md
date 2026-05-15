@@ -1,127 +1,168 @@
 # Manifest reference
 
-Every classifier directory contains a `manifest.json`. Custom classifiers also contain a `prompt.md`. Stock prompt markdown lives in `src/classifiers/stock/prompts/` and is assembled at runtime.
-
-## Layout
+Every classifier lives in `src/classifiers/<name>/` and contains exactly two files:
 
 ```
 src/classifiers/
-  stock/prompts/              # built-in prompt markdown
-    base.md
-    confidence.md
-    reason.md
-    tier.md
-    specialty.md
-    tools-output.md
-    tools.md
-  stock/<name>/                # built-in classifier
-    manifest.json
-  custom/<name>/               # caller-defined classifier
+  _prompts/                   # shared base markdown (base.md, reason.md, confidence.md)
+  <classifier_name>/
     manifest.json
     prompt.md
 ```
 
-The `kind` field in the manifest must match the parent directory (`stock` or `custom`). Mismatches are rejected at load time.
+The loader skips any top-level directory whose name starts with `_` (those are shared assets, not classifiers).
 
-## Common fields
+## Fields
 
 | Field | Required | Description |
 |---|---|---|
-| `kind` | yes | `"stock"` or `"custom"` |
 | `name` | yes | Classifier id. Must match the directory name. |
 | `version` | yes | Contract version surfaced in `meta.classifiers[name].version`. |
-| `purpose` | yes | Human-readable description. |
-| `order` | yes | Integer sort key. Duplicate orders are rejected. |
-| `fallback` | yes | Output emitted when the classifier errors or times out. Must validate against the kind's output contract. |
+| `purpose` | yes | Human-readable description of the classifier's job. Treated as a hard scope boundary in the prompt. |
+| `dispatch_order` | no | Non-negative integer scheduling priority. Lower runs first. Omit to schedule this classifier last (treated as +Infinity). Duplicate names are rejected; duplicate dispatch_orders are allowed and schedule adjacent. |
+| `applies_to` | no | One of `"user"`, `"assistant"`, `"both"`. Controls which pipeline pass the classifier participates in: `classify()` runs `"user"` + `"both"`; `inspect()` runs `"assistant"` + `"both"`. Defaults to `"user"`. |
+| `reserved_fields` | no | Array of reserved field names this classifier may emit at the top level of its output. |
+| `allowed_tools` | conditional | Required if `reserved_fields` includes `"tools"`; rejected otherwise. Array of `{ id, description }` listing the tool ids the classifier may pick from. |
+| `output_schema` | no | JSON Schema (Ajv-validated). Describes only the custom (non-reserved) properties. The runtime composes this with canonical sub-schemas for any declared reserved fields plus `reason` and `certainty`. |
+| `output_schema.examples` | no | Array of full example outputs (reserved + custom + `reason` + `certainty`). Validated against the composed schema at load time. Omit it and the runtime synthesizes a JSON skeleton example from the schema. |
+| `fallback` | yes | Output emitted when the classifier errors or times out. Must validate against the composed schema; reserved fields are optional in fallback. |
 | `backend.ollama.base_model` | no | Packaged Ollama model hint for this classifier. User config and function options take precedence. |
 
-## Stock manifests
+## Reserved fields
 
-Stock manifests use a closed set of names (`preflight`, `routing`, `model_specialization`, `tools`, `prompt_injection`). The runtime knows each name's signal type, so there's no `emits` field. Fallbacks must satisfy the signal contract for that name (see [signals.md](signals.md)).
+Reserved fields are well-known output keys the aggregator knows how to consume. The runtime owns their JSON Schema sub-schemas and prompt fragments — your manifest just opts in.
 
-The `tools` classifier additionally takes:
-
-| Field | Required | Description |
+| Reserved field | Shape | What the aggregator does with it |
 |---|---|---|
-| `tools` | no | Array of `{ id, description }`. Restricts which tool ids the classifier may emit. |
+| `final_reply` | `{ text: string ≤200 chars }` | Surfaced in `audit.final_reply`; caller can return as the terminal reply |
+| `ack_reply` | `{ text: string ≤200 chars }` | Surfaced in `audit.ack_reply`; caller can show as an acknowledgement |
+| `model_tier` | one of `DOWNSTREAM_MODEL_TIER_VALUES` | Soft constraint for catalog resolver |
+| `model_specialization` | one of `MODEL_SPECIALIZATION_VALUES` | Soft constraint for catalog resolver |
+| `tools` | array of allowed tool ids | Sets `downstream.tools` |
+| `risk_level` | one of `PROMPT_INJECTION_RISK_LEVEL_VALUES` | Surfaced in `audit.prompt_injection` |
 
-Example (`src/classifiers/stock/prompt_injection/manifest.json`):
+`final_reply` and `ack_reply` are mutually exclusive — a single output may contain at most one.
+
+When multiple classifiers emit the same reserved field, the highest-certainty contributor wins. Ties are broken by manifest `dispatch_order` ascending (the first encountered in registry order keeps the slot). Classifiers without `dispatch_order` sort last for tie-break purposes too.
+
+## Example: reserved-only manifest
 
 ```json
 {
-  "kind": "stock",
-  "name": "prompt_injection",
+  "name": "routing",
   "version": "1.0.0",
-  "purpose": "Assess whether the target message contains prompt-injection attempts.",
-  "order": 50,
+  "purpose": "Recommend the downstream model tier.",
+  "dispatch_order": 20,
+  "reserved_fields": ["model_tier"],
+  "output_schema": {
+    "examples": [
+      { "reason": "Simple factual question.", "certainty": "near_certain", "model_tier": "local_fast" },
+      { "reason": "Multi-step refactor.", "certainty": "very_strong", "model_tier": "frontier_coding" }
+    ]
+  },
   "fallback": {
-    "reason": "Classifier failed; prompt-injection risk is unknown.",
-    "certainty": "no_signal",
-    "risk_level": "unknown"
+    "reason": "Classifier failed; no routing signal.",
+    "certainty": "no_signal"
   }
 }
 ```
 
-## Custom manifests
+The runtime injects the `model_tier` enum and the canonical prompt fragment automatically. Your `prompt.md` only needs to explain the classification rule.
 
-| Field | Required | Description |
-|---|---|---|
-| `output_schema` | yes | JSON Schema (Ajv-validated) for the `output` payload. |
-
-Custom classifier names must not collide with any stock classifier name.
-
-Example:
+## Example: custom-only manifest
 
 ```json
 {
-  "kind": "custom",
   "name": "memory_retrieval_queries",
   "version": "1.0.0",
-  "purpose": "Generate saved-memory query hints for caller-owned memory retrieval.",
-  "order": 60,
-  "fallback": {
-    "reason": "Classifier failed; no memory queries generated.",
-    "certainty": "no_signal",
-    "output": { "queries": [] }
-  },
+  "purpose": "Generate retrieval queries likely to surface helpful user-specific context for the downstream model.",
+  "dispatch_order": 60,
   "output_schema": {
-    "type": "object",
-    "additionalProperties": false,
     "required": ["queries"],
     "properties": {
       "queries": {
         "type": "array", "maxItems": 5,
-        "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+        "items": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "uniqueItems": true
       }
-    }
+    },
+    "examples": [
+      {
+        "reason": "Saved code-review preferences could improve the response.",
+        "certainty": "strong",
+        "queries": ["user code review preferences"]
+      },
+      {
+        "reason": "No saved memories likely to help.",
+        "certainty": "very_strong",
+        "queries": []
+      }
+    ]
+  },
+  "fallback": {
+    "reason": "Classifier failed; no memory queries generated.",
+    "certainty": "no_signal",
+    "queries": []
+  }
+}
+```
+
+## Example: hybrid manifest
+
+A manifest may declare both reserved fields and custom properties; they sit alongside each other at the top level of every output.
+
+```json
+{
+  "name": "task_router",
+  "version": "1.0.0",
+  "purpose": "Pick the downstream tier and estimate token usage.",
+  "dispatch_order": 25,
+  "reserved_fields": ["model_tier", "model_specialization"],
+  "output_schema": {
+    "required": ["estimated_tokens"],
+    "properties": {
+      "estimated_tokens": { "type": "integer", "minimum": 0 }
+    },
+    "examples": [
+      {
+        "reason": "Code refactor needs reasoning.",
+        "certainty": "very_strong",
+        "model_tier": "frontier_strong",
+        "model_specialization": "coding",
+        "estimated_tokens": 12000
+      }
+    ]
+  },
+  "fallback": {
+    "reason": "Classifier failed.",
+    "certainty": "no_signal",
+    "estimated_tokens": 0
   }
 }
 ```
 
 ## Prompt files
 
-Stock prompt files live together in `src/classifiers/stock/prompts/`. The runtime assembles shared markdown (`base.md`, `reason.md`, `confidence.md`, `classifier-header.md`) with focused stock sections such as `tier.md`, `specialty.md`, `tools-output.md`, and the stock classifier file (`preflight.md`, `routing.md`, `model_specialization.md`, `tools.md`, or `prompt_injection.md`).
+`prompt.md` is the classifier-specific instruction text. The runtime composes the system prompt at load time from:
 
-Dynamic prompt sections use small markdown slots. For example, `tools.md` contains `{{allowed_tools}}`, and the runtime renders the allowed tool list from the tools manifest.
+1. Shared base sections (JSON-only contract, `reason` + `certainty` rules) from `src/classifiers/_prompts/`
+2. The classifier header (name and purpose, with the purpose stated as a hard scope boundary)
+3. Auto-injected fragments for each declared reserved field (canonical enum values included, so you can't drift)
+4. Your `prompt.md`
+5. A JSON example of a complete output: the `output_schema.examples` if you provided any, otherwise a synthesized skeleton derived from the schema
 
-Custom `prompt.md` is the classifier-specific instruction text. The runtime composes it with the shared JSON output envelope, so prompts can stay focused on classifier behavior:
-
-- what the classifier decides
-- when to emit each declared field
-- when to omit optional fields
-- short examples only when they clarify a boundary
-
-Do not put aggregation or model-id rules in prompts — those live in the runtime and catalog.
+Keep `prompt.md` focused on classification behavior — when to emit each field, when to omit, when to abstain. Don't paste enum values for reserved fields; the runtime does that for you.
 
 ## Validation rejections
 
 The loader rejects manifests that:
 
-- declare unsupported fields
-- collide on `name` or `order`
-- have an empty custom `prompt.md`
-- declare a custom name that matches a stock classifier
-- declare `kind` that doesn't match the parent directory
-- have a `fallback` that doesn't satisfy the signal or `output_schema`
-- are missing `output_schema` on a custom classifier
-- declare `tools` on any classifier other than the `tools` stock classifier
+- declare unsupported fields at the manifest root
+- collide with another classifier on `name`
+- include a reserved field name in `output_schema.properties`
+- include `reason` or `certainty` in `output_schema.properties`
+- list `allowed_tools` without `tools` in `reserved_fields` (or vice versa)
+- have a `fallback` that doesn't validate against the composed schema
+- have an `output_schema.examples[]` entry that doesn't validate against the composed schema
+- have an empty `prompt.md`
+- have a `name` that doesn't match the parent directory

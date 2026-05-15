@@ -68,13 +68,22 @@ function hashCanonicalValue(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex").slice(0, 8);
 }
 
+export interface NormalizeOptions {
+  // Role the final message must carry. Defaults to "user" — that's the
+  // classify() path. inspect() passes "assistant" to require the final
+  // message to be an assistant reply.
+  readonly expectedRole?: "user" | "assistant";
+}
+
 export function normalizeOpenClassifyInput(
   input: OpenClassifyInput,
+  options: NormalizeOptions = {},
 ): NormalizedOpenClassifyInput {
   assertPlainObject(input, "input");
   rejectUnknownFields(input, INPUT_FIELDS, "input");
 
-  const messages = normalizeMessages(input.messages);
+  const expectedRole = options.expectedRole ?? "user";
+  const messages = normalizeMessages(input.messages, expectedRole);
   const target = messages[messages.length - 1];
   const text = target.text;
 
@@ -85,7 +94,7 @@ export function normalizeOpenClassifyInput(
   };
 
   normalized.target_message_hash = hashCanonicalValue({
-    role: target.role ?? "user",
+    role: target.role ?? expectedRole,
     text,
   });
 
@@ -104,6 +113,7 @@ export function toClassifierInput(
 
 function normalizeMessages(
   messages: ConversationMessageInput[] | undefined,
+  expectedRole: "user" | "assistant",
 ): ConversationMessageInput[] {
   if (!Array.isArray(messages)) {
     throw new TypeError("input.messages must be an array");
@@ -112,7 +122,7 @@ function normalizeMessages(
     throw new Error("input.messages must contain at least one message");
   }
 
-  return takeNewestWholeMessagesThatFit(messages);
+  return takeNewestWholeMessagesThatFit(messages, expectedRole);
 }
 
 function normalizeConversationMessage(
@@ -143,13 +153,15 @@ function normalizeConversationMessage(
 // Walk the message history newest → oldest, keeping whole messages while
 // we're under both the count cap and the character budget. The final
 // message is non-negotiable (it's what we're classifying) — we validate it
-// stricter, force role=user, and never drop it on length grounds.
+// stricter, force role to the expected one, and never drop it on length
+// grounds.
 //
 // We never slice text inside a message: classifiers depend on the full
 // final message, and slicing earlier ones at arbitrary boundaries tends to
 // confuse models more than it helps.
 function takeNewestWholeMessagesThatFit(
   messages: ConversationMessageInput[],
+  expectedRole: "user" | "assistant",
 ): ConversationMessageInput[] {
   const selected: ConversationMessageInput[] = [];
   let totalChars = 0;
@@ -165,10 +177,10 @@ function takeNewestWholeMessagesThatFit(
       if (normalized.text.length === 0) {
         throw new Error("final message is empty after sanitization");
       }
-      if (normalized.role !== undefined && normalized.role !== "user") {
-        throw new Error("final message must have role user");
+      if (normalized.role !== undefined && normalized.role !== expectedRole) {
+        throw new Error(`final message must have role ${expectedRole}`);
       }
-      normalized.role = "user";
+      normalized.role = expectedRole;
       if (normalized.text.length > CONVERSATION_TEXT_MAX_CHARS) {
         throw new RangeError(
           `final message must be ${CONVERSATION_TEXT_MAX_CHARS} characters or fewer`,

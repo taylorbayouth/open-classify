@@ -1,23 +1,32 @@
+// Classifier type contracts.
+//
+// Every classifier — reserved-field-bearing or not — uses the same manifest
+// shape and emits the same output envelope: `{ reason, certainty, ...payload }`
+// where `payload` may include any subset of the classifier's declared
+// reserved fields plus its custom (schema-validated) properties.
+
 import type {
   DownstreamModelTier,
   ModelSpecialization,
+  PromptInjectionRiskLevel,
 } from "./enums.js";
+import type { ReservedFieldName } from "./reserved-fields.js";
 
-export interface StockClassifierMessageInput {
+export interface ClassifierMessageInput {
   readonly role: "user" | "assistant";
   readonly text: string;
 }
 
-export interface StockClassifierInput {
-  readonly messages: ReadonlyArray<StockClassifierMessageInput>;
+export interface ClassifierMessageWindowInput {
+  readonly messages: ReadonlyArray<ClassifierMessageInput>;
 }
 
-// ─── Stock signal types ─────────────────────────────────────────────────────
+// ─── Envelope signal types (kept for caller-side audit ergonomics) ──────────
 //
-// Each stock signal is the canonical shape for the corresponding Envelope
-// slot. Stock classifier outputs extend their signal with required reason +
-// certainty — those metadata live on the signal itself, not on a separate
-// wrapper, so every classifier result is auditable and scoreable.
+// The aggregator extracts each reserved field from classifier outputs and
+// puts them in named envelope slots. Callers read `audit.routing.model_tier`
+// rather than digging through `classifier_outputs.routing.model_tier`, but
+// both surfaces carry the same value.
 
 export interface FinalReplySignal {
   readonly text: string;
@@ -29,15 +38,7 @@ export interface AckReplySignal {
 
 export interface RoutingSignal {
   readonly model_tier?: DownstreamModelTier;
-  readonly specialization?: ModelSpecialization;
-}
-
-export interface TierSignal {
-  readonly model_tier?: DownstreamModelTier;
-}
-
-export interface SpecializationSignal {
-  readonly specialization?: ModelSpecialization;
+  readonly model_specialization?: ModelSpecialization;
 }
 
 export interface ToolsSignal {
@@ -45,14 +46,10 @@ export interface ToolsSignal {
 }
 
 export interface PromptInjectionSignal {
-  readonly risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
+  readonly risk_level: PromptInjectionRiskLevel;
 }
 
-// ─── Per-classifier output types ────────────────────────────────────────────
-//
-// `reason` (≤120 chars) and `certainty` are required metadata that every
-// classifier must attach to its emitted signal. The aggregator still treats
-// absent certainty as 0 defensively for older callers or hand-built results.
+// ─── Certainty contract ─────────────────────────────────────────────────────
 
 export type Certainty =
   | "no_signal"
@@ -86,48 +83,19 @@ export const certaintyScore: Record<Certainty, number> = {
   near_certain: 0.97,
 };
 
+// ─── Classifier output ──────────────────────────────────────────────────────
+
 export interface ClassifierOutputMetadata {
   readonly reason: string;
   readonly certainty: Certainty;
 }
 
-export interface PreflightClassifierOutput extends ClassifierOutputMetadata {
-  readonly final_reply?: FinalReplySignal;
-  readonly ack_reply?: AckReplySignal;
+// What every classifier emits: required metadata plus any reserved or custom
+// payload fields at the top level. Reserved fields are typed loosely here
+// because the manifest decides which subset is present.
+export interface ClassifierOutput extends ClassifierOutputMetadata {
+  readonly [key: string]: unknown;
 }
-
-export type RoutingClassifierOutput = TierSignal & ClassifierOutputMetadata;
-export type ModelSpecializationClassifierOutput = SpecializationSignal & ClassifierOutputMetadata;
-export type ToolsClassifierOutput = ToolsSignal & ClassifierOutputMetadata;
-export type PromptInjectionClassifierOutput = PromptInjectionSignal & ClassifierOutputMetadata;
-
-export interface CustomClassifierOutputValue extends ClassifierOutputMetadata {
-  readonly output: unknown;
-}
-
-// Discriminated map of stock classifier outputs keyed by classifier name. New
-// stock classifiers must be added here and to STOCK_CLASSIFIER_NAMES.
-export interface StockClassifierOutputs {
-  readonly preflight: PreflightClassifierOutput;
-  readonly routing: RoutingClassifierOutput;
-  readonly model_specialization: ModelSpecializationClassifierOutput;
-  readonly tools: ToolsClassifierOutput;
-  readonly prompt_injection: PromptInjectionClassifierOutput;
-}
-
-export const STOCK_CLASSIFIER_NAMES = [
-  "preflight",
-  "routing",
-  "model_specialization",
-  "tools",
-  "prompt_injection",
-] as const;
-export type StockClassifierName = (typeof STOCK_CLASSIFIER_NAMES)[number];
-
-export type StockClassifierOutput =
-  StockClassifierOutputs[StockClassifierName];
-
-export type ClassifierOutput = StockClassifierOutput | CustomClassifierOutputValue;
 
 // ─── Manifest types ─────────────────────────────────────────────────────────
 
@@ -136,10 +104,26 @@ export interface ToolDefinition {
   readonly description: string;
 }
 
-interface ManifestCommon {
+// Which side of the conversation a classifier is meant to inspect:
+//   - "user"      → runs in classify() only (default)
+//   - "assistant" → runs in inspect() only
+//   - "both"      → runs in both
+export type AppliesTo = "user" | "assistant" | "both";
+
+export const APPLIES_TO_VALUES = ["user", "assistant", "both"] as const satisfies readonly AppliesTo[];
+
+export interface JsonClassifierManifest {
+  readonly name: string;
   readonly version: string;
   readonly purpose: string;
-  readonly order: number;
+  // Worker-pool dispatch priority — lower runs first; same value runs adjacent.
+  // Optional: classifiers without a value sort last (treated as +Infinity).
+  readonly dispatch_order?: number;
+  readonly applies_to?: AppliesTo;
+  readonly reserved_fields?: ReadonlyArray<ReservedFieldName>;
+  readonly allowed_tools?: ReadonlyArray<ToolDefinition>;
+  readonly output_schema?: unknown;
+  readonly fallback: ClassifierOutput;
   readonly backend?: {
     readonly ollama?: {
       readonly base_model?: string;
@@ -147,55 +131,20 @@ interface ManifestCommon {
   };
 }
 
-export interface StockJsonManifest<Name extends StockClassifierName = StockClassifierName>
-  extends ManifestCommon {
-  readonly kind: "stock";
-  readonly name: Name;
-  readonly fallback: StockClassifierOutputs[Name];
-  readonly tools?: ReadonlyArray<ToolDefinition>;
-}
-
-export interface CustomJsonManifest extends ManifestCommon {
-  readonly kind: "custom";
-  readonly name: string;
-  readonly fallback: CustomClassifierOutputValue;
-  readonly output_schema: unknown;
-}
-
-export type JsonClassifierManifest = StockJsonManifest | CustomJsonManifest;
-
-export interface RuntimeStockManifest<Name extends StockClassifierName = StockClassifierName>
-  extends StockJsonManifest<Name> {
+export interface RuntimeClassifierManifest extends JsonClassifierManifest {
   readonly systemPrompt: string;
+  // The composed JSON Schema actually used to validate model outputs at
+  // runtime. Built once at load time by merging the manifest's custom
+  // `output_schema.properties` with canonical sub-schemas for each declared
+  // reserved field, plus `reason` / `certainty`.
+  readonly composedOutputSchema: unknown;
+  readonly reservedFields: ReadonlyArray<ReservedFieldName>;
+  // Always populated; defaults to "user" when the manifest omits applies_to.
+  readonly appliesTo: AppliesTo;
 }
 
-export interface RuntimeCustomManifest extends CustomJsonManifest {
-  readonly systemPrompt: string;
-}
-
-export type RuntimeClassifierManifest =
-  | RuntimeStockManifest
-  | RuntimeCustomManifest;
-
-// Helper: narrow a manifest to its stock kind for callers that know the name.
-export function isStockManifest(
-  manifest: RuntimeClassifierManifest,
-): manifest is RuntimeStockManifest {
-  return manifest.kind === "stock";
-}
-
-export function isCustomManifest(
-  manifest: RuntimeClassifierManifest,
-): manifest is RuntimeCustomManifest {
-  return manifest.kind === "custom";
-}
-
-// What the aggregator returns to callers in `classifier_outputs`. Keyed by
-// classifier name. `output` is the raw custom value validated against the
-// classifier's output_schema.
-export interface CustomClassifierOutput {
+// What the audit envelope surfaces for each classifier — the full output
+// (reason + certainty + reserved + custom fields) plus the classifier name.
+export interface ClassifierAuditOutput extends ClassifierOutput {
   readonly classifier: string;
-  readonly reason: string;
-  readonly certainty: Certainty;
-  readonly output: unknown;
 }

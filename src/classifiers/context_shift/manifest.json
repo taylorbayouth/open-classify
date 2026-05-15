@@ -1,19 +1,9 @@
 {
-  "kind": "custom",
   "name": "context_shift",
   "version": "1.0.0",
   "purpose": "Classify whether the latest message continues, branches from, returns to, or starts a conversation thread.",
-  "order": 80,
-  "fallback": {
-    "reason": "Classifier failed; context relationship is ambiguous.",
-    "certainty": "no_signal",
-    "output": {
-      "decision": "ambiguous"
-    }
-  },
+  "dispatch_order": 80,
   "output_schema": {
-    "type": "object",
-    "additionalProperties": false,
     "required": ["decision"],
     "properties": {
       "decision": {
@@ -27,5 +17,10 @@
         ]
       }
     }
+  },
+  "fallback": {
+    "reason": "Classifier failed; context relationship is ambiguous.",
+    "certainty": "no_signal",
+    "decision": "ambiguous"
   }
 }

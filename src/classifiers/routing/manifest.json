@@ -1,9 +1,9 @@
 {
-  "kind": "stock",
   "name": "routing",
   "version": "1.0.0",
   "purpose": "Recommend the downstream model tier.",
-  "order": 20,
+  "dispatch_order": 20,
+  "reserved_fields": ["model_tier"],
   "fallback": {
     "reason": "Classifier failed; no routing signal.",
     "certainty": "no_signal"

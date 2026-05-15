@@ -1,36 +1,28 @@
 # Adding a classifier
 
-Most additions are custom classifiers. You drop two files in a directory; the runtime picks them up. No TypeScript registry edits required.
+Every classifier — reserved-field-bearing or pure custom — uses the same two-file layout. There is no separate "stock" vs "custom" distinction; the runtime only cares about which reserved fields a classifier opts into.
 
-## 1. Pick a directory
-
-Custom classifier:
+## 1. Create the directory
 
 ```
-src/classifiers/custom/<name>/
+src/classifiers/<name>/
 ├── manifest.json
 └── prompt.md
 ```
 
-Stock classifier names are closed (`preflight`, `routing`, `model_specialization`, `tools`, `prompt_injection`). You generally don't add new stock classifiers — extend behavior with a custom one instead.
+The directory name must match `manifest.json`'s `name` field. Top-level directories starting with `_` (like `_prompts/`) are reserved for shared assets and skipped by the loader.
 
 ## 2. Write the manifest
 
+Minimal example — a pure-custom classifier that emits tags. You don't need to provide JSON examples; the runtime synthesizes one from your schema and shows it to the model.
+
 ```json
 {
-  "kind": "custom",
   "name": "topic_tags",
   "version": "1.0.0",
   "purpose": "Tag the message with a small set of topic labels for analytics.",
-  "order": 70,
-  "fallback": {
-    "reason": "Classifier failed; no tags generated.",
-    "certainty": "no_signal",
-    "output": { "tags": [] }
-  },
+  "dispatch_order": 70,
   "output_schema": {
-    "type": "object",
-    "additionalProperties": false,
     "required": ["tags"],
     "properties": {
       "tags": {
@@ -38,37 +30,70 @@ Stock classifier names are closed (`preflight`, `routing`, `model_specialization
         "items": { "type": "string", "minLength": 1, "maxLength": 40 }
       }
     }
+  },
+  "fallback": {
+    "reason": "Classifier failed; no tags generated.",
+    "certainty": "no_signal",
+    "tags": []
   }
 }
 ```
 
+If your classifier's behavior is nuanced enough that hand-picked examples would help the model (preflight is one), add an `output_schema.examples` array. The runtime validates each example against the composed schema at load time, so a broken example fails the build.
+
+To also influence routing, opt into a reserved field:
+
+```json
+{
+  "name": "topic_tags",
+  "version": "1.0.0",
+  "purpose": "Tag the message and pick a specialization for the downstream model.",
+  "dispatch_order": 70,
+  "reserved_fields": ["model_specialization"],
+  "output_schema": {
+    "required": ["tags"],
+    "properties": {
+      "tags": { "type": "array", "items": { "type": "string" } }
+    }
+  },
+  "fallback": {
+    "reason": "Classifier failed.",
+    "certainty": "no_signal",
+    "tags": []
+  }
+}
+```
+
+The runtime knows `model_specialization` is a reserved field and injects its canonical enum values into the prompt automatically. You don't paste enum values in your `prompt.md`.
+
 Rules:
 
 - `name` must match the directory name.
-- `name` must not collide with a stock classifier name.
-- `order` must not collide with any other classifier.
-- `fallback` must validate against your `output_schema`.
+- Reserved field names cannot appear in `output_schema.properties`; declare them in `reserved_fields` instead.
+- `reason` and `certainty` are added to the composed schema by the runtime — don't declare them.
+- `fallback` must validate against the composed schema. Reserved fields are optional in fallback (a "no signal" fallback usually omits them).
+- `output_schema.examples` (JSON Schema standard) must validate against the composed schema at load time, so a broken example fails the build, not the model call.
 
 See [manifests.md](manifests.md) for the full field list.
 
 ## 3. Write the prompt
 
-`prompt.md` is the classifier-specific instruction text. The runtime composes it with an auto-generated preamble that describes the JSON output envelope, so your prompt can focus on the classification rule:
+`prompt.md` is the classifier-specific instruction text. The runtime composes it with auto-generated sections describing the JSON contract and the reserved fields you opted into, so your prompt can focus on the classification rule:
 
 ```markdown
 You are the topic_tags classifier.
 
-Tags are short single-word topic labels (lowercase, no spaces). Use at most five.
+`tags` are short single-word topic labels (lowercase, no spaces). Use at most five.
 Return an empty array when no clear topic applies.
 Do not invent tags for vague or ambiguous messages.
 ```
 
-Keep it focused. Don't put aggregation or routing rules in prompts — those live in the runtime and catalog.
+Don't paste enum values for reserved fields — the runtime injects them with canonical wording so they never drift from `src/enums.ts`.
 
 ## 4. Build and test
 
 ```sh
-npm run build   # validates the manifest, sorts the registry, copies assets
+npm run build   # validates the manifest, composes the schema, copies assets
 npm test
 ```
 
@@ -77,14 +102,33 @@ If the manifest is malformed, the loader throws `ClassifierManifestError` with t
 ## 5. Consume the output
 
 ```ts
-const classify = createClassifier({ catalog });
+const { classify } = createClassifier({ catalog });
 const result = await classify(input);
-if (result.action === "route") {
-  const tags = result.classifier_outputs.topic_tags?.tags ?? [];
-}
+const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 ```
 
-`result.audit.custom_outputs[]` carries the same data with required `reason` and `certainty` metadata if you need to inspect them.
+`result.audit.classifier_outputs[]` carries the same data with `reason` and `certainty` attached if you need to inspect them.
+
+## Targeting the assistant response
+
+Classifiers run against the user message by default. To run a classifier against the assistant's reply instead (or in addition), set `applies_to` in the manifest:
+
+- `"user"` (default) — only `classify()` runs it.
+- `"assistant"` — only `inspect()` runs it.
+- `"both"` — both passes run it.
+
+Use `inspect()` from `createClassifier()` for the assistant-side pass. It returns a lean shape (`target_message_hash` + `classifier_outputs`) — no routing, no audit envelope. The built-in `prompt_injection` ships tagged `"both"` so it runs on both sides.
+
+```ts
+const { inspect } = createClassifier({ catalog });
+const post = await inspect({
+  messages: [
+    { role: "user", text: "Summarize the contract." },
+    { role: "assistant", text: "The contract has three notable risks…" },
+  ],
+});
+const risk = post.classifier_outputs.prompt_injection?.risk_level;
+```
 
 ## Choosing the classifier model
 
@@ -96,15 +140,13 @@ For apps and OSS installs, prefer `open-classify.config.json`:
     "provider": "ollama",
     "defaultModel": "gemma4:e4b-it-q4_K_M",
     "models": {
-      "custom": {
-        "topic_tags": "qwen2.5:7b-instruct-q4_K_M"
-      }
+      "topic_tags": "qwen2.5:7b-instruct-q4_K_M"
     }
   }
 }
 ```
 
-`runner.defaultModel` applies to every classifier without an override. `runner.models.stock` contains built-in classifier ids; `runner.models.custom` contains custom classifier ids.
+`runner.defaultModel` applies to every classifier without an override. `runner.models` is a flat map keyed by classifier name — there is no separate stock/custom split.
 
 Classifier manifests may also carry an Ollama hint for packaged classifiers:
 
@@ -125,7 +167,7 @@ import { classifyOpenClassifyInput, loadCatalog } from "open-classify";
 
 const runClassifier: RunClassifier = async (name, input, signal) => {
   // call OpenAI, Anthropic, a remote service, etc.
-  // return a ClassifierOutput matching the classifier's contract.
+  // return a ClassifierOutput matching the classifier's composed schema.
 };
 
 await classifyOpenClassifyInput(input, { runClassifier, catalog: loadCatalog(...) });

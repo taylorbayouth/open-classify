@@ -1,7 +1,7 @@
 // High-level facade for the pipeline. Builds the runner and catalog once,
-// then returns a closure callers can invoke many times without re-loading
-// config or the catalog from disk. Backend-agnostic: pass a custom
-// `runClassifier` to bypass the bundled Ollama runner entirely.
+// then returns two functions — classify() for the user-input/routing pass
+// and inspect() for the assistant-output lean pass. Backend-agnostic: pass a
+// custom `runClassifier` to bypass the bundled Ollama runner entirely.
 
 import { loadCatalog } from "./catalog.js";
 import { type RunClassifier } from "./classifiers.js";
@@ -10,19 +10,37 @@ import {
   loadOpenClassifyConfig,
   type OpenClassifyConfig,
 } from "./config.js";
-import type { AggregatorConfig, Catalog, PipelineResult } from "./manifest.js";
+import type {
+  AggregatorConfig,
+  Catalog,
+  InspectResult,
+  PipelineResult,
+} from "./manifest.js";
 import {
   assertOllamaResources,
   createOllamaClassifierRunner,
   OLLAMA_DEFAULT_CATALOG_PATH,
 } from "./ollama.js";
-import { classifyOpenClassifyInput } from "./pipeline.js";
+import {
+  classifyOpenClassifyInput,
+  inspectOpenClassifyInput,
+} from "./pipeline.js";
 import type { OpenClassifyInput } from "./types.js";
 
 export type Classifier = (
   input: OpenClassifyInput,
   options?: { signal?: AbortSignal },
 ) => Promise<PipelineResult>;
+
+export type Inspector = (
+  input: OpenClassifyInput,
+  options?: { signal?: AbortSignal },
+) => Promise<InspectResult>;
+
+export interface OpenClassify {
+  readonly classify: Classifier;
+  readonly inspect: Inspector;
+}
 
 export interface CreateClassifierOptions {
   // Backend overrides — provide these to bypass the built-in Ollama runner
@@ -42,7 +60,7 @@ export interface CreateClassifierOptions {
   minTotalMemoryBytes?: number;
   fetch?: typeof fetch;
 
-  // Pipeline tuning, applied to every classify() call.
+  // Pipeline tuning, applied to every classify() / inspect() call.
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
   maxConcurrency?: number;
@@ -51,7 +69,7 @@ export interface CreateClassifierOptions {
 
 export function createClassifier(
   options: CreateClassifierOptions = {},
-): Classifier {
+): OpenClassify {
   const fileConfig =
     options.config ??
     loadOpenClassifyConfig(options.configPath, {
@@ -86,15 +104,17 @@ export function createClassifier(
   const aggregator = options.aggregator ?? fileConfig?.aggregator;
 
   let resourceCheck: Promise<void> | undefined;
+  const ensureResources = async (): Promise<void> => {
+    if (!needsResourceCheck) return;
+    resourceCheck ??= assertOllamaResources({
+      minTotalMemoryBytes: options.minTotalMemoryBytes,
+      minAvailableMemoryBytes: options.minAvailableMemoryBytes,
+    });
+    await resourceCheck;
+  };
 
-  return async (input, callOptions) => {
-    if (needsResourceCheck) {
-      resourceCheck ??= assertOllamaResources({
-        minTotalMemoryBytes: options.minTotalMemoryBytes,
-        minAvailableMemoryBytes: options.minAvailableMemoryBytes,
-      });
-      await resourceCheck;
-    }
+  const classify: Classifier = async (input, callOptions) => {
+    await ensureResources();
     return classifyOpenClassifyInput(input, {
       runClassifier,
       catalog,
@@ -105,4 +125,17 @@ export function createClassifier(
       signal: callOptions?.signal,
     });
   };
+
+  const inspect: Inspector = async (input, callOptions) => {
+    await ensureResources();
+    return inspectOpenClassifyInput(input, {
+      runClassifier,
+      classifierTimeoutMs: options.classifierTimeoutMs,
+      classifierRetryCount: options.classifierRetryCount,
+      maxConcurrency: options.maxConcurrency,
+      signal: callOptions?.signal,
+    });
+  };
+
+  return { classify, inspect };
 }

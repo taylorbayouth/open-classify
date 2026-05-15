@@ -1,6 +1,6 @@
-# Signal contracts
+# Reserved field reference
 
-Stock classifier outputs are typed signals. Every classifier output must include `reason` (≤120 chars) and `certainty`. The aggregator maps certainty tags to numeric scores and drops below-threshold signals (default threshold: `0.65`).
+Every classifier output is shaped as `{ reason, certainty, ...payload }`. The payload may contain any combination of **reserved fields** (well-known output keys the aggregator knows how to consume) and **custom fields** defined by the classifier's own `output_schema`.
 
 ```ts
 type Certainty =
@@ -14,89 +14,70 @@ type Certainty =
   | "near_certain";
 ```
 
-## `preflight` — `FinalReplySignal | AckReplySignal`
+The aggregator maps certainty tags to numeric scores. Reserved-field values from classifiers below the configured threshold (default `0.65`) are dropped from the envelope; the underlying output still appears in `audit.classifier_outputs` and `meta.classifiers` so the caller can decide whether to trust the run.
+
+## Reserved fields
+
+A manifest declares which reserved fields its classifier may emit via the `reserved_fields` array. The runtime then injects the canonical sub-schema and prompt fragment for each one, so the LLM is told the exact shape and enum values to use. You can't accidentally emit an invalid value, and you can't accidentally drift from the canonical enum list.
+
+### `final_reply`
 
 ```ts
-{
-  final_reply?: { reply: string };  // ≤200 chars; short-circuits to action=reply
-  ack_reply?:   { reply: string };  // ≤200 chars; passthrough to caller
-  reason: string;
-  certainty: Certainty;
-}
+{ text: string }  // 1–200 chars; must contain at least one non-whitespace character
 ```
 
-- Emit `final_reply` only for tiny terminal answers (greetings, thanks, simple arithmetic). Never for drafting, analysis, or generated work.
-- Emit `ack_reply` when downstream work should continue and a courtesy acknowledgement helps.
-- `final_reply` and `ack_reply` are mutually exclusive.
-- A confident `final_reply` aborts the pipeline and returns `{ action: "reply", reply: { text } }`.
+Use only for tiny terminal answers (greetings, thanks, spelling, simple arithmetic). The text IS the complete answer to the user — nothing else happens after this. Mutually exclusive with `ack_reply`.
 
-## `routing` — `RoutingSignal` (tier axis)
+When emitted with sufficient certainty, the highest-certainty value is surfaced in `audit.final_reply`. The pipeline does not short-circuit; the caller decides whether to return the reply or continue to the downstream model.
+
+### `ack_reply`
 
 ```ts
-{
-  model_tier?: "local_fast" | "local_small" | "local_strong" | "local_coding"
-             | "frontier_fast" | "frontier_strong" | "frontier_coding";
-  reason: string;
-  certainty: Certainty;
-}
+{ text: string }  // 1–200 chars; must contain at least one non-whitespace character
 ```
 
-Tier feeds the catalog resolver as a soft constraint.
+A brief acknowledgement to show while downstream work continues. Surfaced in `audit.ack_reply`. Mutually exclusive with `final_reply`.
 
-## `model_specialization` — `RoutingSignal` (specialization axis)
+### `model_tier`
 
 ```ts
-{
-  specialization?: "chat" | "reasoning" | "planning" | "writing" | "summarization"
-                 | "coding" | "tool_use" | "computer_use" | "vision";
-  reason: string;
-  certainty: Certainty;
-}
+"local_fast" | "local_small" | "local_strong" | "local_coding"
+| "frontier_fast" | "frontier_strong" | "frontier_coding"
 ```
 
-`routing` and `model_specialization` both contribute to downstream model resolution, but each owns one axis: `routing` owns `model_tier`; `model_specialization` owns `specialization`.
+Soft constraint for the catalog resolver. The model resolver picks the cheapest catalog entry whose `tier` matches, relaxing the constraint when nothing fits.
 
-## `tools` — `ToolsSignal`
+### `model_specialization`
 
 ```ts
-{
-  tools: string[];
-  reason: string;
-  certainty: Certainty;
-}
+"chat" | "reasoning" | "planning" | "writing" | "summarization"
+| "coding" | "tool_use" | "computer_use" | "vision"
 ```
 
-- An empty `tools` array means no downstream tools are required.
-- `tools` must not contain duplicates.
-- Allowed ids are declared per-manifest in `tools`. The built-in tools classifier ships with `workspace`, `web`, `communications`, `documents`, `spreadsheets`, `project_management`, `developer_platforms`.
+Soft constraint for the catalog resolver. The resolver picks the cheapest catalog entry whose `specializations[]` includes the value.
 
-## `prompt_injection` — `PromptInjectionSignal`
+### `tools`
 
 ```ts
-{
-  risk_level: "normal" | "suspicious" | "high_risk" | "unknown";
-  reason: string;
-  certainty: Certainty;
-}
+string[]   // each id must appear in the manifest's allowed_tools list
 ```
 
-This classifier is strictly about prompt injection: attempts to override higher-priority instructions, reveal hidden prompts, or make the assistant obey untrusted text as instructions. Destructive or sensitive ordinary requests are not prompt injection by themselves.
+Sets `downstream.tools.tools`. Any classifier emitting this reserved field must declare `allowed_tools` on its manifest — that menu of allowed ids becomes both the JSON Schema constraint and the prompt listing.
 
-Short-circuit behavior:
+Common tool-id aliases (`browser`, `browsing`, `internet`, `web_browsing`, `web_search`) are normalized to `web` before validation, so the model can drift on phrasing without breaking.
 
-- Confident `risk_level: "high_risk"` → `{ action: "block", reason: { kind: "prompt_injection", risk_level } }`.
-- Confident `risk_level: "unknown"` → `{ action: "block", reason: { kind: "prompt_injection", risk_level } }`.
-
-## Custom classifier output
-
-Custom classifiers emit an opaque `output` value validated against `output_schema`:
+### `risk_level`
 
 ```ts
-{
-  output: unknown;        // matches manifest output_schema
-  reason: string;
-  certainty: Certainty;
-}
+"normal" | "suspicious" | "high_risk" | "unknown"
 ```
 
-The aggregator never reads custom `output` when picking a route or model. It surfaces values on `result.classifier_outputs.<classifier_name>` and on `result.audit.custom_outputs[]`.
+Prompt-injection posture for the target message. Surfaced in `audit.prompt_injection`. The pipeline does not short-circuit; the caller decides whether to block based on the risk level and certainty.
+
+## Custom fields
+
+Anything not in the reserved list lives in your manifest's `output_schema.properties`. The runtime validates each output against the composed schema (custom properties + reserved sub-schemas + `reason` + `certainty`) at runtime, and surfaces the full output on `result.classifier_outputs[name]` with `reason` and `certainty` stripped for ergonomic access. The full output, including metadata, appears in `result.audit.classifier_outputs[]` and `result.audit.meta.classifiers[name]`.
+
+## Picking between reserved-field contributors
+
+When two classifiers declare the same reserved field, the aggregator picks the highest-certainty value above the threshold. Ties are broken by manifest `dispatch_order` ascending (first in registry order keeps the slot). Both classifiers' full outputs still appear in `audit.classifier_outputs` regardless of which one "won" the slot.

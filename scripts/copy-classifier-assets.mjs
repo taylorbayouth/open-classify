@@ -8,26 +8,27 @@ const outDir = join(process.cwd(), "dist/src/classifiers");
 if (!existsSync(srcDir)) process.exit(0);
 mkdirSync(outDir, { recursive: true });
 
-for (const kind of readdirSync(srcDir)) {
-  const kindSrc = join(srcDir, kind);
-  if (!statSync(kindSrc).isDirectory()) continue;
-  const kindOut = join(outDir, kind);
-  mkdirSync(kindOut, { recursive: true });
-  const promptsDir = join(kindSrc, "prompts");
-  if (existsSync(promptsDir)) {
-    cpSync(promptsDir, join(kindOut, "prompts"), { recursive: true });
+// Copy `_prompts/` (shared base markdown) and every classifier directory.
+// Underscore-prefixed entries (like `_prompts/`) are shared assets, not
+// classifiers, and the loader skips them at startup. Everything else is a
+// classifier and must carry its `manifest.json` + `prompt.md`.
+for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const fromDir = join(srcDir, entry.name);
+  const toDir = join(outDir, entry.name);
+
+  if (entry.name.startsWith("_")) {
+    cpSync(fromDir, toDir, { recursive: true });
+    continue;
   }
-  for (const entry of readdirSync(kindSrc)) {
-    if (entry === "prompts") continue;
-    const classifierDir = join(kindSrc, entry);
-    if (!statSync(classifierDir).isDirectory()) continue;
-    const outClassifierDir = join(kindOut, entry);
-    mkdirSync(outClassifierDir, { recursive: true });
-    for (const filename of ["manifest.json", "prompt.md", "output.schema.json"]) {
-      const source = join(classifierDir, filename);
-      if (existsSync(source)) {
-        cpSync(source, join(outClassifierDir, filename));
-      }
+
+  mkdirSync(toDir, { recursive: true });
+  for (const filename of ["manifest.json", "prompt.md"]) {
+    const source = join(fromDir, filename);
+    if (existsSync(source)) {
+      cpSync(source, join(toDir, filename));
     }
   }
 }
+
+void statSync;

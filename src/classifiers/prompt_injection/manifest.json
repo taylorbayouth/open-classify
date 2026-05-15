@@ -1,9 +1,13 @@
 {
-  "kind": "stock",
   "name": "prompt_injection",
   "version": "1.0.0",
   "purpose": "Assess whether the target message contains prompt-injection attempts.",
-  "order": 50,
+  "dispatch_order": 50,
+  "applies_to": "both",
+  "reserved_fields": ["risk_level"],
+  "output_schema": {
+    "required": ["risk_level"]
+  },
   "fallback": {
     "reason": "Classifier failed; prompt-injection risk is unknown.",
     "certainty": "no_signal",

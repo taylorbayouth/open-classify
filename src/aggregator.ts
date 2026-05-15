@@ -11,21 +11,16 @@ import type {
 import type {
   AckReplySignal,
   Certainty,
+  ClassifierAuditOutput,
   ClassifierOutput,
-  CustomClassifierOutput,
-  CustomClassifierOutputValue,
-  ModelSpecializationClassifierOutput,
   FinalReplySignal,
-  PreflightClassifierOutput,
-  PromptInjectionClassifierOutput,
   PromptInjectionSignal,
-  RoutingClassifierOutput,
   RoutingSignal,
-  StockClassifierName,
-  ToolsClassifierOutput,
   ToolsSignal,
 } from "./stock.js";
-import { certaintyScore, isCustomManifest, isStockManifest } from "./stock.js";
+import { certaintyScore } from "./stock.js";
+import type { DownstreamModelTier, ModelSpecialization } from "./enums.js";
+import type { ReservedFieldName } from "./reserved-fields.js";
 import type { ClassifierInput } from "./types.js";
 
 export const DEFAULT_CERTAINTY_THRESHOLD = 0.65;
@@ -44,37 +39,33 @@ export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
   const { registry, results, catalog, config } = args;
   const threshold = certaintyThreshold(config);
 
-  const stockByName = stockResultsByName(registry, results);
-  const preflight = stockByName.preflight as PreflightClassifierOutput | undefined;
-  const routing = stockByName.routing as RoutingClassifierOutput | undefined;
-  const modelSpec = stockByName.model_specialization as ModelSpecializationClassifierOutput | undefined;
-  const tools = stockByName.tools as ToolsClassifierOutput | undefined;
-  const promptInjection = stockByName.prompt_injection as PromptInjectionClassifierOutput | undefined;
+  const finalReplyPick = pickReservedField<FinalReplySignal>(registry, results, "final_reply", threshold);
+  const ackReplyPick = pickReservedField<AckReplySignal>(registry, results, "ack_reply", threshold);
+  const tierPick = pickReservedField<DownstreamModelTier>(registry, results, "model_tier", threshold);
+  const specPick = pickReservedField<ModelSpecialization>(registry, results, "model_specialization", threshold);
+  const toolsPick = pickReservedField<ReadonlyArray<string>>(registry, results, "tools", threshold);
+  const riskLevelPick = pickReservedField<PromptInjectionSignal["risk_level"]>(
+    registry,
+    results,
+    "risk_level",
+    threshold,
+  );
 
-  const preflightConfident = isConfident(preflight, threshold);
-  const finalReply = preflightConfident ? preflight?.final_reply : undefined;
-  const ackReply = preflightConfident ? preflight?.ack_reply : undefined;
-
-  const mergedRouting = mergeRouting(routing, modelSpec, threshold);
-  const lowConfidenceDrops = lowConfidenceRoutingDrops(routing, modelSpec, mergedRouting, threshold);
-  const toolsSignal = isConfident(tools, threshold) ? extractToolsSignal(tools!) : undefined;
-  const promptInjectionSignal = isConfident(promptInjection, threshold)
-    ? extractPromptInjectionSignal(promptInjection!)
-    : undefined;
+  const routing = mergeRouting(tierPick?.value, specPick?.value);
+  const routingConfidence = maxConfidence([tierPick?.confidence, specPick?.confidence]);
+  const routingDrops = lowConfidenceRoutingDrops(registry, results, threshold, routing);
 
   const envelope: Envelope = {
-    ...optional("final_reply", finalReply),
-    ...optional("ack_reply", ackReply),
-    ...optional("routing", mergedRouting),
-    ...optional("tools", toolsSignal),
-    ...optional("prompt_injection", promptInjectionSignal),
-    custom_outputs: customOutputs(registry, results),
-    model_recommendation: resolveModelFromRouting(
-      mergedRouting,
-      catalog,
-      routingMaxConfidence(routing, modelSpec),
-      lowConfidenceDrops,
+    ...optional("final_reply", finalReplyPick?.value),
+    ...optional("ack_reply", ackReplyPick?.value),
+    ...optional("routing", routing),
+    ...optional("tools", toolsPick?.value === undefined ? undefined : { tools: toolsPick.value }),
+    ...optional(
+      "prompt_injection",
+      riskLevelPick?.value === undefined ? undefined : { risk_level: riskLevelPick.value },
     ),
+    classifier_outputs: buildAuditOutputs(registry, results),
+    model_recommendation: resolveModelFromRouting(routing, catalog, routingConfidence, routingDrops),
   };
 
   return envelope;
@@ -91,105 +82,64 @@ function optional<Key extends keyof Envelope>(
   return value === undefined ? {} : ({ [key]: value } as Partial<Envelope>);
 }
 
-function stockResultsByName(
-  registry: ClassifierRegistry,
-  results: ClassifierResults,
-): Partial<Record<StockClassifierName, ClassifierOutput>> {
-  const map: Partial<Record<StockClassifierName, ClassifierOutput>> = {};
-  for (const manifest of registry) {
-    if (!isStockManifest(manifest)) continue;
-    const result = results[manifest.name];
-    if (result !== undefined) {
-      map[manifest.name] = result;
-    }
-  }
-  return map;
+interface ReservedPick<T> {
+  readonly value: T;
+  readonly confidence: number;
+  readonly source: string;
 }
 
-function isConfident(
-  result: { certainty?: Certainty } | undefined,
+// Highest-certainty contributor wins. Ties broken by registry order — the
+// registry is already sorted by `dispatch_order` ascending (classifiers without
+// dispatch_order sort last), and we iterate in that order, so the first
+// encountered tie keeps the slot.
+function pickReservedField<T>(
+  registry: ClassifierRegistry,
+  results: ClassifierResults,
+  field: ReservedFieldName,
   threshold: number,
-): boolean {
-  if (!result) return false;
-  return scoreCertainty(result.certainty) >= threshold;
+): ReservedPick<T> | undefined {
+  let best: ReservedPick<T> | undefined;
+  for (const manifest of registry) {
+    if (!manifest.reservedFields.includes(field)) continue;
+    const output = results[manifest.name];
+    if (output === undefined) continue;
+    const raw = output[field];
+    if (raw === undefined) continue;
+    const confidence = scoreCertainty(output.certainty);
+    if (confidence < threshold) continue;
+    if (best === undefined || confidence > best.confidence) {
+      best = { value: raw as T, confidence, source: manifest.name };
+    }
+  }
+  return best;
 }
 
 function mergeRouting(
-  routing: RoutingClassifierOutput | undefined,
-  modelSpec: ModelSpecializationClassifierOutput | undefined,
-  threshold: number,
+  tier: DownstreamModelTier | undefined,
+  model_specialization: ModelSpecialization | undefined,
 ): RoutingSignal | undefined {
-  const tier = pickConfidentAxis(
-    [
-      ["routing", routing, routing?.model_tier],
-    ],
-    threshold,
-  );
-  const specialization = pickConfidentAxis(
-    [
-      ["model_specialization", modelSpec, modelSpec?.specialization],
-    ],
-    threshold,
-  );
-  if (tier === undefined && specialization === undefined) return undefined;
+  if (tier === undefined && model_specialization === undefined) return undefined;
   return {
     ...(tier === undefined ? {} : { model_tier: tier }),
-    ...(specialization === undefined ? {} : { specialization }),
+    ...(model_specialization === undefined ? {} : { model_specialization }),
   };
 }
 
-function pickConfidentAxis<T>(
-  candidates: ReadonlyArray<[string, { certainty?: Certainty } | undefined, T | undefined]>,
-  threshold: number,
-): T | undefined {
-  let best: { value: T; confidence: number } | undefined;
-  for (const [, source, value] of candidates) {
-    if (value === undefined) continue;
-    if (!isConfident(source, threshold)) continue;
-    const confidence = scoreCertainty(source!.certainty);
-    if (best === undefined || confidence > best.confidence) {
-      best = { value, confidence };
-    }
-  }
-  return best?.value;
+function maxConfidence(values: ReadonlyArray<number | undefined>): number | undefined {
+  const finite = values.filter((v): v is number => v !== undefined);
+  if (finite.length === 0) return undefined;
+  return Math.max(...finite);
 }
 
-function routingMaxConfidence(
-  routing: RoutingClassifierOutput | undefined,
-  modelSpec: ModelSpecializationClassifierOutput | undefined,
-): number | undefined {
-  const values = [routing?.certainty, modelSpec?.certainty]
-    .filter((v): v is Certainty => v !== undefined)
-    .map(scoreCertainty);
-  if (values.length === 0) return undefined;
-  return Math.max(...values);
-}
-
-function extractToolsSignal(result: ToolsClassifierOutput): ToolsSignal {
-  return { tools: result.tools };
-}
-
-function extractPromptInjectionSignal(result: PromptInjectionClassifierOutput): PromptInjectionSignal {
-  return {
-    risk_level: result.risk_level,
-  };
-}
-
-function customOutputs(
+function buildAuditOutputs(
   registry: ClassifierRegistry,
   results: ClassifierResults,
-): ReadonlyArray<CustomClassifierOutput> {
-  const out: CustomClassifierOutput[] = [];
+): ReadonlyArray<ClassifierAuditOutput> {
+  const out: ClassifierAuditOutput[] = [];
   for (const manifest of registry) {
-    if (!isCustomManifest(manifest)) continue;
-    const result = results[manifest.name] as CustomClassifierOutputValue | undefined;
+    const result = results[manifest.name];
     if (result === undefined) continue;
-    out.push({
-      classifier: manifest.name,
-      reason: result.reason,
-      certainty: result.certainty,
-      output: result.output,
-    });
+    out.push({ classifier: manifest.name, ...result });
   }
   return out;
 }
@@ -197,35 +147,38 @@ function customOutputs(
 // ─── Model recommendation ───────────────────────────────────────────────────
 
 function lowConfidenceRoutingDrops(
-  routing: RoutingClassifierOutput | undefined,
-  modelSpec: ModelSpecializationClassifierOutput | undefined,
-  merged: RoutingSignal | undefined,
+  registry: ClassifierRegistry,
+  results: ClassifierResults,
   threshold: number,
+  merged: RoutingSignal | undefined,
 ): ModelRecommendationResolution["constraints_dropped"] {
   const dropped: Array<ModelRecommendationResolution["constraints_dropped"][number]> = [];
-  if (merged?.specialization === undefined) {
-    if (hasLowConfidenceAxis(routing, "specialization", threshold) ||
-        hasLowConfidenceAxis(modelSpec, "specialization", threshold)) {
-      dropped.push({ axis: "specialization", reason: "low_confidence" });
-    }
+  if (merged?.model_tier === undefined && hasLowConfidenceReservedField(registry, results, "model_tier", threshold)) {
+    dropped.push({ axis: "model_tier", reason: "low_confidence" });
   }
-  if (merged?.model_tier === undefined) {
-    if (hasLowConfidenceAxis(routing, "model_tier", threshold) ||
-        hasLowConfidenceAxis(modelSpec, "model_tier", threshold)) {
-      dropped.push({ axis: "tier", reason: "low_confidence" });
-    }
+  if (
+    merged?.model_specialization === undefined &&
+    hasLowConfidenceReservedField(registry, results, "model_specialization", threshold)
+  ) {
+    dropped.push({ axis: "model_specialization", reason: "low_confidence" });
   }
   return dropped;
 }
 
-function hasLowConfidenceAxis(
-  result: ({ certainty?: Certainty } & RoutingSignal) | undefined,
-  field: "model_tier" | "specialization",
+function hasLowConfidenceReservedField(
+  registry: ClassifierRegistry,
+  results: ClassifierResults,
+  field: ReservedFieldName,
   threshold: number,
 ): boolean {
-  if (!result) return false;
-  if (result[field] === undefined) return false;
-  return scoreCertainty(result.certainty) < threshold;
+  for (const manifest of registry) {
+    if (!manifest.reservedFields.includes(field)) continue;
+    const output = results[manifest.name];
+    if (output === undefined) continue;
+    if (output[field] === undefined) continue;
+    if (scoreCertainty(output.certainty) < threshold) return true;
+  }
+  return false;
 }
 
 function scoreCertainty(certainty: Certainty | undefined): number {
@@ -244,8 +197,12 @@ export function resolveModelFromRouting(
   if (confidence !== undefined) {
     confidences.routing = confidence;
   }
-  if (routing?.specialization !== undefined) requested.specialization = routing.specialization;
-  if (routing?.model_tier !== undefined) requested.tier = routing.model_tier;
+  if (routing?.model_specialization !== undefined) {
+    requested.model_specialization = routing.model_specialization;
+  }
+  if (routing?.model_tier !== undefined) {
+    requested.model_tier = routing.model_tier;
+  }
 
   const passes: ReadonlyArray<{
     readonly useSpecialization: boolean;
@@ -298,21 +255,42 @@ export function resolveModelFromRouting(
   };
 }
 
-// Test-friendly convenience wrapper: builds a routing signal from a typed
-// results map and resolves a model. Mirrors `composeEnvelope` for callers
-// that want just the model recommendation without the rest of the envelope.
+// Test-friendly convenience wrapper: given typed result outputs for the
+// routing-bearing classifiers, merge their reserved fields and resolve a
+// model.
 export function resolveModel(
-  results: Readonly<{ routing?: RoutingClassifierOutput; model_specialization?: ModelSpecializationClassifierOutput }>,
+  results: Readonly<{
+    routing?: { model_tier?: DownstreamModelTier; certainty?: Certainty };
+    model_specialization?: { model_specialization?: ModelSpecialization; certainty?: Certainty };
+  }>,
   catalog: Catalog,
   threshold: number,
 ): ModelRecommendation {
-  const routing = mergeRouting(results.routing, results.model_specialization, threshold);
-  return resolveModelFromRouting(
-    routing,
-    catalog,
-    routingMaxConfidence(results.routing, results.model_specialization),
-    lowConfidenceRoutingDrops(results.routing, results.model_specialization, routing, threshold),
-  );
+  const routingCert = scoreCertainty(results.routing?.certainty);
+  const specCert = scoreCertainty(results.model_specialization?.certainty);
+  const tier = routingCert >= threshold ? results.routing?.model_tier : undefined;
+  const model_specialization =
+    specCert >= threshold ? results.model_specialization?.model_specialization : undefined;
+  const merged = mergeRouting(tier, model_specialization);
+
+  const dropped: Array<ModelRecommendationResolution["constraints_dropped"][number]> = [];
+  if (tier === undefined && results.routing?.model_tier !== undefined && routingCert < threshold) {
+    dropped.push({ axis: "model_tier", reason: "low_confidence" });
+  }
+  if (
+    model_specialization === undefined &&
+    results.model_specialization?.model_specialization !== undefined &&
+    specCert < threshold
+  ) {
+    dropped.push({ axis: "model_specialization", reason: "low_confidence" });
+  }
+
+  const confidence = maxConfidence([
+    results.routing?.certainty === undefined ? undefined : routingCert,
+    results.model_specialization?.certainty === undefined ? undefined : specCert,
+  ]);
+
+  return resolveModelFromRouting(merged, catalog, confidence, dropped);
 }
 
 function constraintsForPass(
@@ -320,10 +298,12 @@ function constraintsForPass(
   pass: { readonly useSpecialization: boolean; readonly useTier: boolean },
 ): ModelRecommendationResolution["constraints_used"] {
   return {
-    ...(pass.useSpecialization && requested.specialization !== undefined
-      ? { specialization: requested.specialization }
+    ...(pass.useSpecialization && requested.model_specialization !== undefined
+      ? { model_specialization: requested.model_specialization }
       : {}),
-    ...(pass.useTier && requested.tier !== undefined ? { tier: requested.tier } : {}),
+    ...(pass.useTier && requested.model_tier !== undefined
+      ? { model_tier: requested.model_tier }
+      : {}),
   };
 }
 
@@ -332,9 +312,9 @@ function matchesConstraints(
   constraints: ModelRecommendationResolution["constraints_used"],
 ): boolean {
   return (
-    (constraints.specialization === undefined ||
-      model.specializations.includes(constraints.specialization)) &&
-    (constraints.tier === undefined || model.tier === constraints.tier)
+    (constraints.model_specialization === undefined ||
+      model.specializations.includes(constraints.model_specialization)) &&
+    (constraints.model_tier === undefined || model.tier === constraints.model_tier)
   );
 }
 
@@ -343,11 +323,11 @@ function relaxedConstraints(
   used: ModelRecommendationResolution["constraints_used"],
 ): ModelRecommendationResolution["constraints_dropped"] {
   const dropped: Array<ModelRecommendationResolution["constraints_dropped"][number]> = [];
-  if (requested.specialization !== undefined && used.specialization === undefined) {
-    dropped.push({ axis: "specialization", reason: "no_match_relaxed" });
+  if (requested.model_specialization !== undefined && used.model_specialization === undefined) {
+    dropped.push({ axis: "model_specialization", reason: "no_match_relaxed" });
   }
-  if (requested.tier !== undefined && used.tier === undefined) {
-    dropped.push({ axis: "tier", reason: "no_match_relaxed" });
+  if (requested.model_tier !== undefined && used.model_tier === undefined) {
+    dropped.push({ axis: "model_tier", reason: "no_match_relaxed" });
   }
   return dropped;
 }
@@ -356,11 +336,11 @@ function defaultFallbackConstraints(
   requested: ModelRecommendationResolution["constraints_used"],
 ): ModelRecommendationResolution["constraints_dropped"] {
   const dropped: Array<ModelRecommendationResolution["constraints_dropped"][number]> = [];
-  if (requested.specialization !== undefined) {
-    dropped.push({ axis: "specialization", reason: "default_fallback" });
+  if (requested.model_specialization !== undefined) {
+    dropped.push({ axis: "model_specialization", reason: "default_fallback" });
   }
-  if (requested.tier !== undefined) {
-    dropped.push({ axis: "tier", reason: "default_fallback" });
+  if (requested.model_tier !== undefined) {
+    dropped.push({ axis: "model_tier", reason: "default_fallback" });
   }
   return dropped;
 }
@@ -419,5 +399,4 @@ function modelRecommendationFields(
   };
 }
 
-// Re-exports kept for consumers / tests.
-export type { FinalReplySignal, AckReplySignal };
+export type { FinalReplySignal, AckReplySignal, ToolsSignal };

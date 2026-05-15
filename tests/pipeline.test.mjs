@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   classifyOpenClassifyInput,
   DEFAULT_MAX_CONCURRENCY,
+  inspectOpenClassifyInput,
   OpenClassifyNormalizationError,
 } from "../dist/src/pipeline.js";
 import {
@@ -10,6 +11,10 @@ import {
   userMessage,
   validClassifierOutputs as results,
 } from "./fixtures.mjs";
+
+function assistantMessage(text) {
+  return { role: "assistant", text };
+}
 
 const baseOptions = (overrides = {}) => ({
   catalog: TEST_CATALOG,
@@ -78,41 +83,48 @@ test("runs all classifiers and returns a route result", async () => {
   assert.equal(result.audit.final_reply, undefined);
   assert.deepEqual(result.audit.routing, {
     model_tier: "local_strong",
-    specialization: "reasoning",
+    model_specialization: "reasoning",
   });
   assert.deepEqual(result.audit.tools, { tools: ["workspace"] });
   assert.deepEqual(result.audit.prompt_injection, { risk_level: "normal" });
-  assert.deepEqual(result.audit.custom_outputs, [
-    {
-      classifier: "memory_retrieval_queries",
-      reason: "Saved user review preferences could improve the response.",
-      certainty: "strong",
-      output: { queries: ["user review preferences"] },
-    },
-    {
-      classifier: "conversation_digest",
-      reason: "Conversation compression is useful downstream context.",
-      certainty: "very_strong",
-      output: {
-        history_summary: "",
-        latest_user_message_summary: "User asks for code review.",
-      },
-    },
-    {
-      classifier: "context_shift",
-      reason: "The request directly continues the active code review thread.",
-      certainty: "strong",
-      output: { decision: "same_active_thread" },
-    },
-  ]);
-  assert.deepEqual(result.classifier_outputs, {
-    memory_retrieval_queries: { queries: ["user review preferences"] },
-    conversation_digest: {
-      history_summary: "",
-      latest_user_message_summary: "User asks for code review.",
-    },
-    context_shift: { decision: "same_active_thread" },
+  // audit.classifier_outputs lists every classifier's full output.
+  const auditByName = Object.fromEntries(
+    result.audit.classifier_outputs.map((entry) => [entry.classifier, entry]),
+  );
+  assert.deepEqual(auditByName.memory_retrieval_queries, {
+    classifier: "memory_retrieval_queries",
+    reason: "Saved user review preferences could improve the response.",
+    certainty: "strong",
+    queries: ["user review preferences"],
   });
+  assert.deepEqual(auditByName.conversation_digest, {
+    classifier: "conversation_digest",
+    reason: "Conversation compression is useful downstream context.",
+    certainty: "very_strong",
+    history_summary: "",
+    latest_user_message_summary: "User asks for code review.",
+  });
+  assert.deepEqual(auditByName.context_shift, {
+    classifier: "context_shift",
+    reason: "The request directly continues the active code review thread.",
+    certainty: "strong",
+    decision: "same_active_thread",
+  });
+  // Public classifier_outputs now exposes every classifier's payload with
+  // reason/certainty stripped.
+  assert.deepEqual(result.classifier_outputs.memory_retrieval_queries, {
+    queries: ["user review preferences"],
+  });
+  assert.deepEqual(result.classifier_outputs.conversation_digest, {
+    history_summary: "",
+    latest_user_message_summary: "User asks for code review.",
+  });
+  assert.deepEqual(result.classifier_outputs.context_shift, {
+    decision: "same_active_thread",
+  });
+  // Reserved-field classifiers also appear in the public outputs map.
+  assert.deepEqual(result.classifier_outputs.routing, { model_tier: "local_strong" });
+  assert.deepEqual(result.classifier_outputs.tools, { tools: ["workspace"] });
 
   // Certainty summary covers all classifiers. Lowest is preflight (strong=0.75).
   assert.equal(result.audit.meta.certainty.min, 0.75);
@@ -456,36 +468,22 @@ test("memory_retrieval_queries fallback yields fallback custom output; pipeline 
   );
 
   assert.equal(result.action, "route");
-  assert.deepEqual(result.audit.custom_outputs, [
-    {
-      classifier: "memory_retrieval_queries",
-      reason: "Classifier failed; no memory queries generated.",
-      certainty: "no_signal",
-      output: { queries: [] },
-    },
-    {
-      classifier: "conversation_digest",
-      reason: "Conversation compression is useful downstream context.",
-      certainty: "very_strong",
-      output: {
-        history_summary: "",
-        latest_user_message_summary: "User asks for code review.",
-      },
-    },
-    {
-      classifier: "context_shift",
-      reason: "The request directly continues the active code review thread.",
-      certainty: "strong",
-      output: { decision: "same_active_thread" },
-    },
-  ]);
-  assert.deepEqual(result.classifier_outputs, {
-    memory_retrieval_queries: { queries: [] },
-    conversation_digest: {
-      history_summary: "",
-      latest_user_message_summary: "User asks for code review.",
-    },
-    context_shift: { decision: "same_active_thread" },
+  const auditByName = Object.fromEntries(
+    result.audit.classifier_outputs.map((entry) => [entry.classifier, entry]),
+  );
+  assert.deepEqual(auditByName.memory_retrieval_queries, {
+    classifier: "memory_retrieval_queries",
+    reason: "Classifier failed; no memory queries generated.",
+    certainty: "no_signal",
+    queries: [],
+  });
+  assert.deepEqual(result.classifier_outputs.memory_retrieval_queries, { queries: [] });
+  assert.deepEqual(result.classifier_outputs.conversation_digest, {
+    history_summary: "",
+    latest_user_message_summary: "User asks for code review.",
+  });
+  assert.deepEqual(result.classifier_outputs.context_shift, {
+    decision: "same_active_thread",
   });
   const memEntry = result.audit.meta.classifiers.memory_retrieval_queries;
   assert.equal(memEntry.status.ok, false);
@@ -594,5 +592,36 @@ test("rejects invalid maxConcurrency values", async () => {
       baseOptions({ maxConcurrency: -1, async runClassifier() { return results.preflight; } }),
     ),
     RangeError,
+  );
+});
+
+test("inspectOpenClassifyInput runs only applies_to=both classifiers on assistant input", async () => {
+  const seen = [];
+  const result = await inspectOpenClassifyInput(
+    { messages: [userMessage("draft please"), assistantMessage("Here is your draft.")] },
+    {
+      maxConcurrency: 10,
+      async runClassifier(name) {
+        seen.push(name);
+        return results[name];
+      },
+    },
+  );
+
+  assert.deepEqual(seen.sort(), ["prompt_injection"]);
+  assert.deepEqual(Object.keys(result), ["target_message_hash", "classifier_outputs"]);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
+  assert.deepEqual(result.classifier_outputs, {
+    prompt_injection: { risk_level: "normal" },
+  });
+});
+
+test("inspectOpenClassifyInput requires assistant-final message", async () => {
+  await assert.rejects(
+    inspectOpenClassifyInput(
+      { messages: [userMessage("hi")] },
+      { async runClassifier() { return results.prompt_injection; } },
+    ),
+    OpenClassifyNormalizationError,
   );
 });

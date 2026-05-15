@@ -177,7 +177,7 @@ test("createOllamaClassifierRunner accepts a configured default model", async ()
   assert.equal(calls[0].model, "configured-default");
 });
 
-test("loadOpenClassifyConfig validates stock and custom model maps", () => {
+test("loadOpenClassifyConfig validates the flat per-classifier model map", () => {
   const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
   const path = join(dir, "open-classify.config.json");
   writeFileSync(path, JSON.stringify({
@@ -185,8 +185,8 @@ test("loadOpenClassifyConfig validates stock and custom model maps", () => {
       provider: "ollama",
       defaultModel: "default-model",
       models: {
-        stock: { preflight: "stock-model" },
-        custom: { memory_retrieval_queries: "custom-model" },
+        preflight: "tier-a",
+        memory_retrieval_queries: "tier-b",
       },
     },
     aggregator: {
@@ -202,8 +202,8 @@ test("loadOpenClassifyConfig validates stock and custom model maps", () => {
     certaintyThreshold: 0.7,
   });
   assert.deepEqual(classifierModelsFromConfig(config), {
-    preflight: "stock-model",
-    memory_retrieval_queries: "custom-model",
+    preflight: "tier-a",
+    memory_retrieval_queries: "tier-b",
   });
 });
 
@@ -240,9 +240,7 @@ test("loadOpenClassifyConfig rejects unknown classifier names", () => {
   writeFileSync(path, JSON.stringify({
     runner: {
       provider: "ollama",
-      models: {
-        stock: { definitely_not_stock: "model" },
-      },
+      models: { definitely_not_real: "model" },
     },
   }));
 
@@ -250,7 +248,7 @@ test("loadOpenClassifyConfig rejects unknown classifier names", () => {
     () => loadOpenClassifyConfig(path),
     (error) =>
       error instanceof OpenClassifyConfigError &&
-      /definitely_not_stock is not a known classifier/.test(error.message),
+      /definitely_not_real is not a known classifier/.test(error.message),
   );
 });
 
@@ -282,7 +280,7 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
-      /text must be 200 characters or fewer/.test(error.message),
+      /must NOT have more than 200 characters/.test(error.message),
   );
 });
 
@@ -298,7 +296,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
-      /text must not be empty/.test(error.message),
+      /must match pattern|text/i.test(error.message),
   );
 });
 
@@ -322,7 +320,7 @@ test("createOllamaClassifierRunner validates memory custom output schema", async
   const runner = runnerReturning({
     reason: "Bad query.",
     certainty: "tentative",
-    output: { queries: [""] },
+    queries: [""],
   });
 
   await assert.rejects(
@@ -346,14 +344,14 @@ test("createOllamaClassifierRunner rejects duplicate tools", async () => {
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "tools" &&
-      /must not include duplicates/.test(error.message),
+      /uniqueItems|duplicate/i.test(error.message),
   );
 });
 
 test("tools system prompt describes empty tools as no tools required", () => {
   assert.match(
     MODULES_BY_NAME.tools.systemPrompt,
-    /An empty tools array means no downstream tools are required/,
+    /An empty array means no downstream tools are required/,
   );
 });
 
@@ -361,7 +359,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
   const runner = runnerReturning({
     reason: "Invalid spec.",
     certainty: "tentative",
-    specialization: "spreadsheet_magic",
+    model_specialization: "spreadsheet_magic",
   });
 
   await assert.rejects(
@@ -369,7 +367,7 @@ test("createOllamaClassifierRunner validates model_specialization enum", async (
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "model_specialization" &&
-      /unsupported value/.test(error.message),
+      /unsupported value|model_specialization/.test(error.message),
   );
 });
 
@@ -386,7 +384,7 @@ test("createOllamaClassifierRunner rejects prompt_injection signals field", asyn
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "prompt_injection" &&
-      /signals is not a supported field/.test(error.message),
+      /signals/.test(error.message),
   );
 });
 
@@ -440,7 +438,7 @@ test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
 });
 
 test("createClassifier wires the Ollama runner into the pipeline", async () => {
-  const classify = createClassifier({
+  const { classify } = createClassifier({
     skipResourceCheck: true,
     catalog: TEST_CATALOG,
     fetch: async (_url, init) => {
@@ -479,7 +477,7 @@ test("createClassifier wires the Ollama runner into the pipeline", async () => {
 
 test("createClassifier reuses the runner and catalog across calls", async () => {
   let fetchCount = 0;
-  const classify = createClassifier({
+  const { classify } = createClassifier({
     skipResourceCheck: true,
     catalog: TEST_CATALOG,
     fetch: async (_url, init) => {
@@ -511,9 +509,7 @@ test("createClassifier picks up models and aggregator from the config file", asy
     runner: {
       provider: "ollama",
       defaultModel: "config-default",
-      models: {
-        stock: { preflight: "config-preflight" },
-      },
+      models: { preflight: "config-preflight" },
     },
     aggregator: {
       certaintyThreshold: 0.9,
@@ -521,7 +517,7 @@ test("createClassifier picks up models and aggregator from the config file", asy
   }));
 
   const seenModels = new Set();
-  const classify = createClassifier({
+  const { classify } = createClassifier({
     configPath: path,
     skipResourceCheck: true,
     catalog: TEST_CATALOG,
@@ -572,7 +568,7 @@ test("resource check can fail before fetch is called", async () => {
 
 test("createClassifier surfaces resource failures instead of returning fallbacks", async () => {
   let called = false;
-  const classify = createClassifier({
+  const { classify } = createClassifier({
     catalog: TEST_CATALOG,
     minTotalMemoryBytes: Number.MAX_SAFE_INTEGER,
     minAvailableMemoryBytes: Number.MAX_SAFE_INTEGER,
@@ -599,7 +595,7 @@ test("createClassifier accepts a custom RunClassifier and bypasses Ollama", asyn
     return validOutputs[name];
   };
 
-  const classify = createClassifier({
+  const { classify } = createClassifier({
     runClassifier: fakeRunner,
     catalog: TEST_CATALOG,
   });

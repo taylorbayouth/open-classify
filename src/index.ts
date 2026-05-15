@@ -14,6 +14,7 @@ export * from "./input.js";
 export * from "./manifest.js";
 export * from "./ollama.js";
 export * from "./pipeline.js";
+export * from "./reserved-fields.js";
 export * from "./stock.js";
 export * from "./stock-prompt.js";
 export * from "./stock-validation.js";

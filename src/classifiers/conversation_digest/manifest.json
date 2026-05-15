@@ -1,20 +1,9 @@
 {
-  "kind": "custom",
   "name": "conversation_digest",
   "version": "1.0.0",
   "purpose": "Compress prior conversation history and the latest user message into separate summaries.",
-  "order": 70,
-  "fallback": {
-    "reason": "Classifier failed; no conversation summary generated.",
-    "certainty": "no_signal",
-    "output": {
-      "history_summary": "",
-      "latest_user_message_summary": ""
-    }
-  },
+  "dispatch_order": 70,
   "output_schema": {
-    "type": "object",
-    "additionalProperties": false,
     "required": ["history_summary", "latest_user_message_summary"],
     "properties": {
       "history_summary": {
@@ -26,5 +15,11 @@
         "maxLength": 1000
       }
     }
+  },
+  "fallback": {
+    "reason": "Classifier failed; no conversation summary generated.",
+    "certainty": "no_signal",
+    "history_summary": "",
+    "latest_user_message_summary": ""
   }
 }

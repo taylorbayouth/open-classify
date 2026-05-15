@@ -1,19 +1,9 @@
 {
-  "kind": "custom",
   "name": "memory_retrieval_queries",
   "version": "1.0.0",
   "purpose": "Generate retrieval queries likely to surface helpful user-specific context for the downstream model.",
-  "order": 60,
-  "fallback": {
-    "reason": "Classifier failed; no memory queries generated.",
-    "certainty": "no_signal",
-    "output": {
-      "queries": []
-    }
-  },
+  "dispatch_order": 60,
   "output_schema": {
-    "type": "object",
-    "additionalProperties": false,
     "required": ["queries"],
     "properties": {
       "queries": {
@@ -27,5 +17,10 @@
         "uniqueItems": true
       }
     }
+  },
+  "fallback": {
+    "reason": "Classifier failed; no memory queries generated.",
+    "certainty": "no_signal",
+    "queries": []
   }
 }

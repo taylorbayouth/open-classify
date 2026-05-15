@@ -10,19 +10,22 @@ import type {
   Catalog,
   CertaintySummary,
   ClassifierEntry,
-  ClassifierCustomOutputs,
+  ClassifierPublicOutputs,
+  ClassifierRegistry,
   ClassifierResults,
   DownstreamPayload,
   Envelope,
+  InspectResult,
   PipelineMeta,
   PipelineResult,
 } from "./manifest.js";
 import type {
+  AppliesTo,
   Certainty,
   ClassifierOutput,
-  CustomClassifierOutputValue,
+  RuntimeClassifierManifest,
 } from "./stock.js";
-import { certaintyScore, isCustomManifest } from "./stock.js";
+import { certaintyScore } from "./stock.js";
 import type {
   ClassifierFallbackReason,
   NormalizedOpenClassifyInput,
@@ -53,6 +56,14 @@ export interface ClassifyOptions {
   signal?: AbortSignal;
 }
 
+export interface InspectOptions {
+  runClassifier: RunClassifier;
+  classifierTimeoutMs?: number;
+  classifierRetryCount?: number;
+  maxConcurrency?: number;
+  signal?: AbortSignal;
+}
+
 type SettledClassifierResult =
   | { ok: true; name: string; value: ClassifierOutput }
   | { ok: false; name: string; error: unknown; reason: ClassifierFallbackReason };
@@ -61,9 +72,54 @@ export async function classifyOpenClassifyInput(
   input: OpenClassifyInput,
   options: ClassifyOptions,
 ): Promise<PipelineResult> {
+  const { request, results, meta } = await runPipeline(input, "user", options);
+
+  const classifierInput = toClassifierInput(request);
+  const envelope = composeEnvelope({
+    registry: filteredRegistry("user"),
+    results,
+    catalog: options.catalog,
+    input: classifierInput,
+    config: options.aggregator,
+  });
+
+  return buildRouteResult(request, envelope, results, meta);
+}
+
+export async function inspectOpenClassifyInput(
+  input: OpenClassifyInput,
+  options: InspectOptions,
+): Promise<InspectResult> {
+  const { request, results } = await runPipeline(input, "assistant", options);
+
+  return {
+    target_message_hash: request.target_message_hash,
+    classifier_outputs: classifierPublicOutputs(filteredRegistry("assistant"), results),
+  };
+}
+
+interface PipelineRunResult {
+  readonly request: NormalizedOpenClassifyInput;
+  readonly results: ClassifierResults;
+  readonly meta: PipelineMeta;
+}
+
+interface SharedPipelineOptions {
+  runClassifier: RunClassifier;
+  classifierTimeoutMs?: number;
+  classifierRetryCount?: number;
+  maxConcurrency?: number;
+  signal?: AbortSignal;
+}
+
+async function runPipeline(
+  input: OpenClassifyInput,
+  role: "user" | "assistant",
+  options: SharedPipelineOptions,
+): Promise<PipelineRunResult> {
   let request: NormalizedOpenClassifyInput;
   try {
-    request = normalizeOpenClassifyInput(input);
+    request = normalizeOpenClassifyInput(input, { expectedRole: role });
   } catch (error) {
     throw new OpenClassifyNormalizationError(error);
   }
@@ -83,10 +139,11 @@ export async function classifyOpenClassifyInput(
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
   const maxConcurrency = resolveMaxConcurrency(options.maxConcurrency);
 
-  // REGISTRY is already sorted by `order` ascending (see classifiers.ts).
-  // The worker pool dispatches in array order, so classifiers with the same
-  // order are scheduled adjacent and run together when slots are free.
-  const queue: ReadonlyArray<string> = REGISTRY.map((m) => m.name);
+  // REGISTRY is already sorted by `dispatch_order` ascending. Filter by
+  // applies_to so we only dispatch classifiers relevant to this role; the
+  // worker pool then runs them in the remaining order.
+  const registry = filteredRegistry(role);
+  const queue: ReadonlyArray<string> = registry.map((m) => m.name);
 
   try {
     const settled = await runWithConcurrency(
@@ -104,19 +161,19 @@ export async function classifyOpenClassifyInput(
         ),
     );
 
-    const { results, meta } = collectFullEntries(settled);
-    const envelope = composeEnvelope({
-      registry: REGISTRY,
-      results,
-      catalog: options.catalog,
-      input: classifierInput,
-      config: options.aggregator,
-    });
-
-    return buildRouteResult(request, envelope, results, meta);
+    const { results, meta } = collectFullEntries(settled, registry);
+    return { request, results, meta };
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
   }
+}
+
+function filteredRegistry(role: "user" | "assistant"): ClassifierRegistry {
+  return REGISTRY.filter((m) => roleAppliesTo(m.appliesTo, role)) as ClassifierRegistry;
+}
+
+function roleAppliesTo(appliesTo: AppliesTo, role: "user" | "assistant"): boolean {
+  return appliesTo === "both" || appliesTo === role;
 }
 
 function resolveMaxConcurrency(value: number | undefined): number {
@@ -163,7 +220,10 @@ async function runWithConcurrency(
   return results;
 }
 
-function collectFullEntries(settled: SettledClassifierResult[]): {
+function collectFullEntries(
+  settled: SettledClassifierResult[],
+  registry: ReadonlyArray<RuntimeClassifierManifest>,
+): {
   results: ClassifierResults;
   meta: PipelineMeta;
 } {
@@ -179,11 +239,14 @@ function collectFullEntries(settled: SettledClassifierResult[]): {
       version: manifest.version,
     } as ClassifierEntry;
   }
-  return { results, meta: { classifiers, certainty: certaintySummary(results) } };
+  return { results, meta: { classifiers, certainty: certaintySummary(results, registry) } };
 }
 
-function certaintySummary(results: ClassifierResults): CertaintySummary {
-  const scores = REGISTRY.map((m) => scoreCertainty(results[m.name]?.certainty));
+function certaintySummary(
+  results: ClassifierResults,
+  registry: ReadonlyArray<RuntimeClassifierManifest>,
+): CertaintySummary {
+  const scores = registry.map((m) => scoreCertainty(results[m.name]?.certainty));
   if (scores.length === 0) return { min: 0, avg: 0 };
   const min = Math.min(...scores);
   const avg = scores.reduce((sum, v) => sum + v, 0) / scores.length;
@@ -214,7 +277,7 @@ function buildRouteResult(
     action: "route",
     target_message_hash: request.target_message_hash,
     downstream,
-    classifier_outputs: classifierCustomOutputs(results),
+    classifier_outputs: classifierPublicOutputs(filteredRegistry("user"), results),
     audit: {
       ...envelope,
       meta,
@@ -222,15 +285,30 @@ function buildRouteResult(
   };
 }
 
-function classifierCustomOutputs(results: ClassifierResults): ClassifierCustomOutputs {
-  const out: ClassifierCustomOutputs = {};
-  for (const manifest of REGISTRY) {
-    if (!isCustomManifest(manifest)) continue;
-    const result = results[manifest.name] as CustomClassifierOutputValue | undefined;
+// Expose each classifier's payload — every output field except `reason` and
+// `certainty`. Iterates the supplied registry so we only surface classifiers
+// that actually ran for this role.
+function classifierPublicOutputs(
+  registry: ReadonlyArray<RuntimeClassifierManifest>,
+  results: ClassifierResults,
+): ClassifierPublicOutputs {
+  const out: ClassifierPublicOutputs = {};
+  for (const manifest of registry) {
+    const result = results[manifest.name];
     if (result === undefined) continue;
-    out[manifest.name] = result.output;
+    out[manifest.name] = stripMetadata(result);
   }
   return out;
+}
+
+function stripMetadata(output: ClassifierOutput): Record<string, unknown> {
+  const { reason, certainty, ...payload } = output as ClassifierOutput & {
+    reason: unknown;
+    certainty: unknown;
+  };
+  void reason;
+  void certainty;
+  return payload;
 }
 
 async function runClassifierWithRetry(

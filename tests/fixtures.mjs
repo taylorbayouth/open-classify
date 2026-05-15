@@ -1,8 +1,8 @@
 // Shared fixtures and helpers for the test suite.
 
-// Sample valid outputs for each built-in classifier manifest, in the new
-// flat-per-signal shape: each classifier's output IS its signal, with optional
-// reason/certainty metadata attached.
+// Sample valid outputs for each built-in classifier manifest. Reserved fields
+// and custom payload fields sit at the top level alongside `reason` and
+// `certainty` — there is no `output` wrapper.
 export const validClassifierOutputs = {
   preflight: {
     reason: "The latest message requires downstream work.",
@@ -17,20 +17,18 @@ export const validClassifierOutputs = {
   memory_retrieval_queries: {
     reason: "Saved user review preferences could improve the response.",
     certainty: "strong",
-    output: { queries: ["user review preferences"] },
+    queries: ["user review preferences"],
   },
   conversation_digest: {
     reason: "Conversation compression is useful downstream context.",
     certainty: "very_strong",
-    output: {
-      history_summary: "",
-      latest_user_message_summary: "User asks for code review.",
-    },
+    history_summary: "",
+    latest_user_message_summary: "User asks for code review.",
   },
   context_shift: {
     reason: "The request directly continues the active code review thread.",
     certainty: "strong",
-    output: { decision: "same_active_thread" },
+    decision: "same_active_thread",
   },
   tools: {
     reason: "The request requires code access.",
@@ -40,7 +38,7 @@ export const validClassifierOutputs = {
   model_specialization: {
     reason: "The request asks for evaluative review.",
     certainty: "strong",
-    specialization: "reasoning",
+    model_specialization: "reasoning",
   },
   prompt_injection: {
     reason: "No notable risk.",

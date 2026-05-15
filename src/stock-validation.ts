@@ -1,433 +1,361 @@
-import {
-  DOWNSTREAM_MODEL_TIER_VALUES,
-  MODEL_SPECIALIZATION_VALUES,
-} from "./enums.js";
-import { Ajv, type AnySchema } from "ajv/dist/ajv.js";
+// Manifest and classifier-output validation.
+//
+// The runtime composes every classifier's effective output schema by merging:
+//
+//   - required `reason` / `certainty` metadata
+//   - canonical sub-schemas for each declared reserved field (optional)
+//   - the manifest's own `output_schema.properties` for custom fields
+//
+// That composed schema is what runs against actual classifier outputs, so the
+// LLM cannot emit an invalid enum value for a reserved field even if the
+// manifest author forgot to constrain it themselves.
+
+import { Ajv, type AnySchema, type ErrorObject } from "ajv/dist/ajv.js";
+import { APPLIES_TO_VALUES, CERTAINTY_VALUES } from "./stock.js";
 import type {
-  CustomJsonManifest,
-  JsonClassifierManifest,
-  Certainty,
-  ModelSpecializationClassifierOutput,
-  PreflightClassifierOutput,
-  PromptInjectionClassifierOutput,
-  RoutingClassifierOutput,
-  StockClassifierName,
-  StockClassifierOutputs,
-  StockJsonManifest,
-  ToolsClassifierOutput,
-  CustomClassifierOutputValue,
+  AppliesTo,
   ClassifierOutput,
+  JsonClassifierManifest,
+  RuntimeClassifierManifest,
   ToolDefinition,
 } from "./stock.js";
-import { CERTAINTY_VALUES, STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import {
-  ensureNoDuplicates,
+  RESERVED_FIELD_EXCLUSIONS,
+  RESERVED_FIELD_NAMES,
+  RESERVED_FIELDS,
+  isReservedFieldName,
+  normalizeToolId,
+  type ReservedFieldName,
+} from "./reserved-fields.js";
+import {
   isRecord,
-  requireEnum,
   requireNonEmptyStringMaxLength,
   requireNonNegativeSafeInteger,
   requireString,
-  requireStringArray,
   throwInvalid,
 } from "./validation.js";
 
-export const STOCK_REASON_MAX_CHARS = 120;
-export const STOCK_REPLY_MAX_CHARS = 200;
-export const STOCK_TOOL_ID_MAX_CHARS = 64;
-export const STOCK_TOOL_DESCRIPTION_MAX_CHARS = 240;
-export const STOCK_MANIFEST_NAME_MAX_CHARS = 80;
-export const STOCK_MANIFEST_VERSION_MAX_CHARS = 40;
-export const STOCK_MANIFEST_PURPOSE_MAX_CHARS = 400;
+export const REASON_MAX_CHARS = 120;
+export const TOOL_ID_MAX_CHARS = 64;
+export const TOOL_DESCRIPTION_MAX_CHARS = 240;
+export const MANIFEST_NAME_MAX_CHARS = 80;
+export const MANIFEST_VERSION_MAX_CHARS = 40;
+export const MANIFEST_PURPOSE_MAX_CHARS = 400;
 
-const STOCK_PROMPT_INJECTION_RISK_LEVEL_VALUES = [
-  "normal",
-  "suspicious",
-  "high_risk",
-  "unknown",
-] as const;
-const MANIFEST_KIND_VALUES = ["stock", "custom"] as const;
-
-const ajv = new Ajv({ allErrors: true, strict: false });
-
-const COMMON_MANIFEST_KEYS = [
-  "kind",
+const MANIFEST_KEYS = [
   "name",
   "version",
   "purpose",
-  "order",
+  "dispatch_order",
+  "applies_to",
+  "reserved_fields",
+  "allowed_tools",
+  "output_schema",
   "fallback",
   "backend",
 ] as const;
 
-const STOCK_MANIFEST_KEYS = [
-  ...COMMON_MANIFEST_KEYS,
-  "tools",
-] as const;
+const ajv = new Ajv({ allErrors: true, strict: false });
 
-const CUSTOM_MANIFEST_KEYS = [
-  ...COMMON_MANIFEST_KEYS,
-  "output_schema",
-] as const;
+// ─── Manifest validation ────────────────────────────────────────────────────
+
+export interface ManifestLoadResult {
+  readonly manifest: JsonClassifierManifest;
+  readonly reservedFields: ReadonlyArray<ReservedFieldName>;
+  readonly composedOutputSchema: unknown;
+  readonly appliesTo: AppliesTo;
+}
 
 export function validateJsonClassifierManifest(
   value: unknown,
   model = "manifest",
-): JsonClassifierManifest {
+): ManifestLoadResult {
   if (!isRecord(value)) {
     throwInvalid("manifest", model, "manifest must be a JSON object");
   }
-  const kind = requireEnum(value.kind, MANIFEST_KIND_VALUES, "manifest", model, "kind");
-  return kind === "stock"
-    ? validateStockManifest(value, model)
-    : validateCustomManifest(value, model);
-}
+  ensureAllowedObjectKeys(value, MANIFEST_KEYS, "manifest", model, "manifest");
 
-function validateStockManifest(
-  value: Record<string, unknown>,
-  model: string,
-): StockJsonManifest {
-  ensureAllowedObjectKeys(value, STOCK_MANIFEST_KEYS, "manifest", model, "manifest");
-  const name = requireEnum(
-    value.name,
-    STOCK_CLASSIFIER_NAMES,
-    "manifest",
-    model,
-    "name",
-  );
-  const base = validateManifestCommon(value, model);
-  const tools =
-    value.tools === undefined
-      ? undefined
-      : validateTools(value.tools, model);
-
-  if (name !== "tools" && tools !== undefined) {
-    throwInvalid(
-      "manifest",
-      model,
-      "tools is only supported on the tools classifier",
-    );
-  }
-
-  const fallback = validateStockOutputForName(name, value.fallback, model, tools);
-
-  return {
-    kind: "stock",
-    name,
-    ...base,
-    fallback,
-    ...(tools === undefined ? {} : { tools }),
-  };
-}
-
-function validateCustomManifest(
-  value: Record<string, unknown>,
-  model: string,
-): CustomJsonManifest {
-  ensureAllowedObjectKeys(value, CUSTOM_MANIFEST_KEYS, "manifest", model, "manifest");
   const name = requireNonEmptyStringMaxLength(
     value.name,
     "manifest",
     model,
     "name",
-    STOCK_MANIFEST_NAME_MAX_CHARS,
+    MANIFEST_NAME_MAX_CHARS,
   );
-  if ((STOCK_CLASSIFIER_NAMES as ReadonlyArray<string>).includes(name)) {
-    throwInvalid(
-      "manifest",
-      model,
-      `custom classifier name "${name}" collides with a stock classifier`,
-    );
-  }
-  const base = validateManifestCommon(value, model);
-  if (value.output_schema === undefined) {
-    throwInvalid("manifest", model, "output_schema is required for custom classifiers");
-  }
-  const outputSchema = value.output_schema;
-  compileOutputSchema(outputSchema, "manifest", model);
-  const fallback = validateCustomOutput(value.fallback, name, model, outputSchema);
-
-  return {
-    kind: "custom",
-    name,
-    ...base,
-    fallback,
-    output_schema: outputSchema,
-  };
-}
-
-function validateManifestCommon(
-  value: Record<string, unknown>,
-  model: string,
-): {
-  version: string;
-  purpose: string;
-  order: number;
-  backend?: JsonClassifierManifest["backend"];
-} {
   const version = requireNonEmptyStringMaxLength(
     value.version,
     "manifest",
     model,
     "version",
-    STOCK_MANIFEST_VERSION_MAX_CHARS,
+    MANIFEST_VERSION_MAX_CHARS,
   );
   const purpose = requireNonEmptyStringMaxLength(
     value.purpose,
     "manifest",
     model,
     "purpose",
-    STOCK_MANIFEST_PURPOSE_MAX_CHARS,
+    MANIFEST_PURPOSE_MAX_CHARS,
   );
-  const order = requireNonNegativeSafeInteger(value.order, "manifest", model, "order");
+  const dispatchOrder =
+    value.dispatch_order === undefined
+      ? undefined
+      : requireNonNegativeSafeInteger(
+          value.dispatch_order,
+          "manifest",
+          model,
+          "dispatch_order",
+        );
 
-  return {
+  const appliesTo = validateAppliesTo(value.applies_to, model);
+  const reservedFields = validateReservedFields(value.reserved_fields, model);
+  const allowedTools =
+    value.allowed_tools === undefined
+      ? undefined
+      : validateAllowedTools(value.allowed_tools, model);
+
+  if (allowedTools !== undefined && !reservedFields.includes("tools")) {
+    throwInvalid(
+      "manifest",
+      model,
+      "allowed_tools is only supported when reserved_fields includes \"tools\"",
+    );
+  }
+  if (reservedFields.includes("tools") && allowedTools === undefined) {
+    throwInvalid(
+      "manifest",
+      model,
+      "allowed_tools is required when reserved_fields includes \"tools\"",
+    );
+  }
+
+  const outputSchema = validateOutputSchemaShape(value.output_schema, reservedFields, model);
+  const composedOutputSchema = composeOutputSchema(reservedFields, allowedTools, outputSchema);
+  compileSchema(composedOutputSchema, "manifest", model, "composed output_schema");
+
+  validateExamples(outputSchema, composedOutputSchema, model);
+
+  const fallback = validateFallback(value.fallback, composedOutputSchema, name, model);
+  const backend =
+    value.backend === undefined ? undefined : validateBackend(value.backend, model);
+
+  const manifest: JsonClassifierManifest = {
+    name,
     version,
     purpose,
-    order,
-    ...(value.backend === undefined ? {} : { backend: validateBackend(value.backend, model) }),
+    ...(dispatchOrder === undefined ? {} : { dispatch_order: dispatchOrder }),
+    ...(value.applies_to === undefined ? {} : { applies_to: appliesTo }),
+    ...(reservedFields.length === 0 ? {} : { reserved_fields: reservedFields }),
+    ...(allowedTools === undefined ? {} : { allowed_tools: allowedTools }),
+    ...(outputSchema === undefined ? {} : { output_schema: outputSchema }),
+    fallback,
+    ...(backend === undefined ? {} : { backend }),
+  };
+
+  return {
+    manifest,
+    reservedFields,
+    composedOutputSchema,
+    appliesTo,
   };
 }
 
-// ─── Output validation ──────────────────────────────────────────────────────
-
-export interface ValidateOutputContext {
-  readonly classifier: string;
-  readonly model: string;
-}
-
-export function validateOutputForManifest(
-  manifest: JsonClassifierManifest,
-  value: unknown,
-  context: ValidateOutputContext,
-): ClassifierOutput {
-  if (manifest.kind === "stock") {
-    return validateStockOutputForName(
-      manifest.name,
-      value,
-      context.model,
-      manifest.tools,
+function validateAppliesTo(raw: unknown, model: string): AppliesTo {
+  if (raw === undefined) return "user";
+  if (typeof raw !== "string" || !(APPLIES_TO_VALUES as readonly string[]).includes(raw)) {
+    throwInvalid(
+      "manifest",
+      model,
+      `applies_to must be one of ${APPLIES_TO_VALUES.join(", ")}`,
     );
   }
-  return validateCustomOutput(value, context.classifier, context.model, manifest.output_schema);
+  return raw as AppliesTo;
 }
 
-function validateStockOutputForName<Name extends StockClassifierName>(
-  name: Name,
-  value: unknown,
+function validateReservedFields(
+  raw: unknown,
   model: string,
-  tools: ReadonlyArray<ToolDefinition> | undefined,
-): StockClassifierOutputs[Name] {
-  if (!isRecord(value)) {
-    throwInvalid(name, model, "output must be a JSON object");
+): ReadonlyArray<ReservedFieldName> {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    throwInvalid("manifest", model, "reserved_fields must be an array of strings");
   }
-  switch (name) {
-    case "preflight":
-      return validatePreflightOutput(value, model) as StockClassifierOutputs[Name];
-    case "routing":
-      return validateTierRoutingOutput(value, model) as StockClassifierOutputs[Name];
-    case "model_specialization":
-      return validateModelSpecializationOutput(value, model) as StockClassifierOutputs[Name];
-    case "tools":
-      return validateToolsOutput(value, model, tools?.map((tool) => tool.id)) as StockClassifierOutputs[Name];
-    case "prompt_injection":
-      return validatePromptInjectionOutput(value, model) as StockClassifierOutputs[Name];
-    default: {
-      const _exhaustive: never = name;
-      void _exhaustive;
-      throwInvalid("manifest", model, `unknown stock classifier name`);
+  const seen = new Set<string>();
+  const result: ReservedFieldName[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    if (typeof item !== "string") {
+      throwInvalid("manifest", model, `reserved_fields[${i}] must be a string`);
     }
+    if (!isReservedFieldName(item)) {
+      throwInvalid(
+        "manifest",
+        model,
+        `reserved_fields[${i}] "${item}" is not a known reserved field. Allowed: ${RESERVED_FIELD_NAMES.join(", ")}`,
+      );
+    }
+    if (seen.has(item)) {
+      throwInvalid("manifest", model, `reserved_fields[${i}] duplicates "${item}"`);
+    }
+    seen.add(item);
+    result.push(item);
   }
+  return result;
 }
 
-function validateMetadata(
-  value: Record<string, unknown>,
-  classifier: string,
-  model: string,
-): { reason: string; certainty: Certainty } {
-  if (value.reason === undefined) {
-    throwInvalid(classifier, model, "reason is required");
+function validateAllowedTools(value: unknown, model: string): ReadonlyArray<ToolDefinition> {
+  if (!Array.isArray(value)) {
+    throwInvalid("manifest", model, "allowed_tools must be an array");
   }
-  if (value.certainty === undefined) {
-    throwInvalid(classifier, model, "certainty is required");
-  }
-  return {
-    reason: truncateText(requireString(value.reason, classifier, model, "reason"), STOCK_REASON_MAX_CHARS),
-    certainty: requireEnum(value.certainty, CERTAINTY_VALUES, classifier, model, "certainty"),
-  };
-}
-
-function validatePreflightOutput(
-  value: Record<string, unknown>,
-  model: string,
-): PreflightClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "final_reply", "ack_reply"], "preflight", model, "output");
-  if (value.final_reply !== undefined && value.ack_reply !== undefined) {
-    throwInvalid(
-      "preflight",
+  const ids = new Set<string>();
+  const out: ToolDefinition[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    if (!isRecord(item)) {
+      throwInvalid("manifest", model, `allowed_tools[${i}] must be an object`);
+    }
+    ensureAllowedObjectKeys(item, ["id", "description"], "manifest", model, `allowed_tools[${i}]`);
+    const id = requireNonEmptyStringMaxLength(
+      item.id,
+      "manifest",
       model,
-      "final_reply and ack_reply are mutually exclusive",
+      `allowed_tools[${i}].id`,
+      TOOL_ID_MAX_CHARS,
     );
-  }
-  const meta = validateMetadata(value, "preflight", model);
-  return {
-    ...meta,
-    ...(value.final_reply === undefined
-      ? {}
-      : { final_reply: validateReplySignal(value.final_reply, "preflight", model, "final_reply") }),
-    ...(value.ack_reply === undefined
-      ? {}
-      : { ack_reply: validateReplySignal(value.ack_reply, "preflight", model, "ack_reply") }),
-  };
-}
-
-function validateReplySignal(
-  value: unknown,
-  classifier: string,
-  model: string,
-  field: "final_reply" | "ack_reply",
-): { text: string } {
-  if (!isRecord(value)) {
-    throwInvalid(classifier, model, `${field} must be an object`);
-  }
-  ensureAllowedObjectKeys(value, ["text"], classifier, model, field);
-  const text = requireString(value.text, classifier, model, `${field}.text`);
-  if (text.trim().length === 0) {
-    throwInvalid(classifier, model, `${field}.text must not be empty`);
-  }
-  if (text.length > STOCK_REPLY_MAX_CHARS) {
-    throwInvalid(
-      classifier,
+    const description = requireNonEmptyStringMaxLength(
+      item.description,
+      "manifest",
       model,
-      `${field}.text must be ${STOCK_REPLY_MAX_CHARS} characters or fewer`,
+      `allowed_tools[${i}].description`,
+      TOOL_DESCRIPTION_MAX_CHARS,
     );
+    if (ids.has(id)) {
+      throwInvalid("manifest", model, `allowed_tools[${i}].id "${id}" is duplicated`);
+    }
+    ids.add(id);
+    out.push({ id, description });
   }
-  return { text };
+  return out;
 }
 
-function validateTierRoutingOutput(
-  value: Record<string, unknown>,
+function validateOutputSchemaShape(
+  raw: unknown,
+  reservedFields: ReadonlyArray<ReservedFieldName>,
   model: string,
-): RoutingClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "model_tier"], "routing", model, "output");
-  const meta = validateMetadata(value, "routing", model);
-  const modelTier = normalizeOptionalEnumValue(value.model_tier);
-  return {
-    ...meta,
-    ...(modelTier === undefined
-      ? {}
-      : { model_tier: requireEnum(modelTier, DOWNSTREAM_MODEL_TIER_VALUES, "routing", model, "model_tier") }),
-  };
-}
-
-function validateModelSpecializationOutput(
-  value: Record<string, unknown>,
-  model: string,
-): ModelSpecializationClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "specialization"], "model_specialization", model, "output");
-  const meta = validateMetadata(value, "model_specialization", model);
-  const specialization = normalizeOptionalEnumValue(value.specialization);
-  return {
-    ...meta,
-    ...(specialization === undefined
-      ? {}
-      : { specialization: requireEnum(specialization, MODEL_SPECIALIZATION_VALUES, "model_specialization", model, "specialization") }),
-  };
-}
-
-function normalizeOptionalEnumValue(value: unknown): unknown {
-  if (value === undefined || value === null) {
-    return undefined;
+): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    throwInvalid("manifest", model, "output_schema must be a JSON object");
   }
-  if (typeof value === "string" && value.trim().length === 0) {
-    return undefined;
-  }
-  return value;
-}
-
-function validateToolsOutput(
-  value: Record<string, unknown>,
-  model: string,
-  configuredTools: ReadonlyArray<string> | undefined,
-): ToolsClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "tools"], "tools", model, "output");
-  const meta = validateMetadata(value, "tools", model);
-  const tools = requireStringArray(value.tools, "tools", model, "tools").map(normalizeTool);
-  ensureNoDuplicates(tools, "tools", model, "tools");
-  if (configuredTools) {
-    const allowed = new Set(configuredTools);
-    for (const tool of tools) {
-      if (!allowed.has(tool)) {
-        throwInvalid("tools", model, `tools includes unsupported tool ${tool}`);
+  // We don't fully validate JSON Schema shape — Ajv does that when we compile
+  // the composed schema. But we do enforce the no-reserved-keys rule, since
+  // mixing reserved fields into properties is always a manifest error.
+  const properties = raw.properties;
+  if (properties !== undefined) {
+    if (!isRecord(properties)) {
+      throwInvalid("manifest", model, "output_schema.properties must be a JSON object");
+    }
+    for (const key of Object.keys(properties)) {
+      if (isReservedFieldName(key)) {
+        throwInvalid(
+          "manifest",
+          model,
+          `output_schema.properties.${key} collides with a reserved field. Declare it in reserved_fields instead.`,
+        );
+      }
+      if (key === "reason" || key === "certainty") {
+        throwInvalid(
+          "manifest",
+          model,
+          `output_schema.properties.${key} is reserved. Do not declare it.`,
+        );
       }
     }
   }
-  return { ...meta, tools };
+  // Examples must be an array if present. Per-example validation happens
+  // after the composed schema is built so we can validate against it.
+  if (raw.examples !== undefined && !Array.isArray(raw.examples)) {
+    throwInvalid("manifest", model, "output_schema.examples must be an array");
+  }
+  void reservedFields;
+  return raw;
 }
 
-function validatePromptInjectionOutput(
-  value: Record<string, unknown>,
-  model: string,
-): PromptInjectionClassifierOutput {
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "risk_level"], "prompt_injection", model, "output");
-  const meta = validateMetadata(value, "prompt_injection", model);
-  const riskLevel = requireEnum(
-    value.risk_level,
-    STOCK_PROMPT_INJECTION_RISK_LEVEL_VALUES,
-    "prompt_injection",
-    model,
-    "risk_level",
-  );
+function composeOutputSchema(
+  reservedFields: ReadonlyArray<ReservedFieldName>,
+  allowedTools: ReadonlyArray<ToolDefinition> | undefined,
+  outputSchema: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const context = { allowed_tools: allowedTools };
+  const properties: Record<string, unknown> = {
+    reason: { type: "string", minLength: 1, maxLength: REASON_MAX_CHARS },
+    certainty: { type: "string", enum: [...CERTAINTY_VALUES] },
+  };
+
+  for (const field of reservedFields) {
+    properties[field] = RESERVED_FIELDS[field].subSchema(context);
+  }
+
+  const customProperties = isRecord(outputSchema?.properties)
+    ? (outputSchema!.properties as Record<string, unknown>)
+    : {};
+  for (const [key, schema] of Object.entries(customProperties)) {
+    properties[key] = schema;
+  }
+
+  const customRequired = Array.isArray(outputSchema?.required)
+    ? (outputSchema!.required as ReadonlyArray<unknown>).filter(
+        (key): key is string => typeof key === "string",
+      )
+    : [];
+  const required = Array.from(new Set(["reason", "certainty", ...customRequired]));
+
   return {
-    ...meta,
-    risk_level: riskLevel,
+    type: "object",
+    additionalProperties: false,
+    required,
+    properties,
   };
 }
 
-function validateCustomOutput(
-  value: unknown,
-  classifier: string,
+function validateExamples(
+  outputSchema: Record<string, unknown> | undefined,
+  composedSchema: unknown,
   model: string,
-  schema: unknown,
-): CustomClassifierOutputValue {
-  if (!isRecord(value)) {
-    throwInvalid(classifier, model, "output must be a JSON object");
+): void {
+  if (outputSchema === undefined) return;
+  const examples = outputSchema.examples;
+  if (!Array.isArray(examples)) return;
+  const validate = ajv.compile(composedSchema as AnySchema);
+  for (let i = 0; i < examples.length; i++) {
+    const example = examples[i];
+    if (!validate(example)) {
+      const message = formatSchemaErrors(validate.errors, `examples[${i}]`);
+      throwInvalid("manifest", model, `output_schema.examples[${i}] is invalid: ${message}`);
+    }
+    if (isRecord(example)) {
+      enforceMutualExclusions(example, "manifest", model, `output_schema.examples[${i}]`);
+    }
   }
-  ensureAllowedObjectKeys(value, ["reason", "certainty", "output"], classifier, model, "output");
-  if (value.output === undefined) {
-    throwInvalid(classifier, model, "output is required for custom classifiers");
-  }
-  const meta = validateMetadata(value, classifier, model);
-  validateWithSchema(value.output, schema, classifier, model, "output");
-  return { ...meta, output: value.output };
 }
 
-function validateTools(value: unknown, model: string): ToolDefinition[] {
-  if (!Array.isArray(value)) {
-    throwInvalid("manifest", model, "tools must be an array");
+function validateFallback(
+  raw: unknown,
+  composedSchema: unknown,
+  classifier: string,
+  model: string,
+): ClassifierOutput {
+  if (!isRecord(raw)) {
+    throwInvalid(classifier, model, "fallback must be a JSON object");
   }
-  const out = value.map((item, index) => {
-    if (!isRecord(item)) {
-      throwInvalid("manifest", model, `tools[${index}] must be an object`);
-    }
-    return {
-      id: requireNonEmptyStringMaxLength(
-        item.id,
-        "manifest",
-        model,
-        `tools[${index}].id`,
-        STOCK_TOOL_ID_MAX_CHARS,
-      ),
-      description: requireNonEmptyStringMaxLength(
-        item.description,
-        "manifest",
-        model,
-        `tools[${index}].description`,
-        STOCK_TOOL_DESCRIPTION_MAX_CHARS,
-      ),
-    };
-  });
-  ensureNoDuplicates(out.map((item) => item.id), "manifest", model, "tools[].id");
-  return out;
+  // Fallback represents the "I have no signal" state, so reserved fields are
+  // optional. The composed schema already marks them optional except for
+  // reason/certainty.
+  const validate = ajv.compile(composedSchema as AnySchema);
+  if (!validate(raw)) {
+    const message = formatSchemaErrors(validate.errors, "fallback");
+    throwInvalid(classifier, model, `fallback is invalid: ${message}`);
+  }
+  return raw as ClassifierOutput;
 }
 
 function validateBackend(value: unknown, model: string) {
@@ -447,6 +375,84 @@ function validateBackend(value: unknown, model: string) {
   };
 }
 
+// ─── Runtime output validation ──────────────────────────────────────────────
+
+export interface ValidateOutputContext {
+  readonly classifier: string;
+  readonly model: string;
+}
+
+export function validateOutputForManifest(
+  manifest: RuntimeClassifierManifest,
+  value: unknown,
+  context: ValidateOutputContext,
+): ClassifierOutput {
+  if (!isRecord(value)) {
+    throwInvalid(context.classifier, context.model, "output must be a JSON object");
+  }
+  const normalized = normalizeOutput(value, manifest);
+  const validate = ajv.compile(manifest.composedOutputSchema as AnySchema);
+  if (!validate(normalized)) {
+    const message = formatSchemaErrors(validate.errors, "output");
+    throwInvalid(context.classifier, context.model, message);
+  }
+  enforceMutualExclusions(normalized, context.classifier, context.model, "output");
+  return truncateReason(normalized) as ClassifierOutput;
+}
+
+// Apply small, well-known cleanups that consistently improve LLM compliance:
+//   - blank / null routing-style enums → omitted entirely
+//   - tools aliases (browser → web, etc.)
+function normalizeOutput(
+  value: Record<string, unknown>,
+  manifest: RuntimeClassifierManifest,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...value };
+  for (const field of manifest.reservedFields) {
+    if (field === "model_tier" || field === "model_specialization") {
+      const raw = out[field];
+      if (raw === null || (typeof raw === "string" && raw.trim().length === 0)) {
+        delete out[field];
+      }
+    }
+    if (field === "tools") {
+      const raw = out[field];
+      if (Array.isArray(raw)) {
+        out[field] = raw.map((item) =>
+          typeof item === "string" ? normalizeToolId(item) : item,
+        );
+      }
+    }
+  }
+  return out;
+}
+
+function truncateReason(value: Record<string, unknown>): Record<string, unknown> {
+  if (typeof value.reason !== "string") return value;
+  if (value.reason.length <= REASON_MAX_CHARS) return value;
+  return { ...value, reason: value.reason.slice(0, REASON_MAX_CHARS).trimEnd() };
+}
+
+function enforceMutualExclusions(
+  output: Record<string, unknown>,
+  classifier: string,
+  model: string,
+  path: string,
+): void {
+  for (const group of RESERVED_FIELD_EXCLUSIONS) {
+    const present = group.filter((field) => output[field] !== undefined);
+    if (present.length > 1) {
+      throwInvalid(
+        classifier,
+        model,
+        `${path}: reserved fields are mutually exclusive: ${present.join(", ")}`,
+      );
+    }
+  }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 function ensureAllowedObjectKeys(
   value: Record<string, unknown>,
   allowedKeys: readonly string[],
@@ -462,61 +468,53 @@ function ensureAllowedObjectKeys(
   }
 }
 
-function compileOutputSchema(schema: unknown, classifier: string, model: string): void {
-  try {
-    ajv.compile(schema as AnySchema);
-  } catch (error) {
-    throwInvalid(classifier, model, `output_schema is invalid JSON Schema: ${errorMessage(error)}`);
-  }
-}
-
-export function validateWithSchema(
-  value: unknown,
+function compileSchema(
   schema: unknown,
   classifier: string,
   model: string,
-  path: string,
+  label: string,
 ): void {
-  const validate = ajv.compile(schema as AnySchema);
-  if (!validate(value)) {
-    const message = ajv.errorsText(validate.errors, { dataVar: path });
-    throwInvalid(classifier, model, message);
+  try {
+    ajv.compile(schema as AnySchema);
+  } catch (error) {
+    throwInvalid(
+      classifier,
+      model,
+      `${label} is invalid JSON Schema: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
-function normalizeTool(tool: string): string {
-  const aliases: Record<string, string> = {
-    browser: "web",
-    browsing: "web",
-    internet: "web",
-    web_browsing: "web",
-    web_search: "web",
-  };
-  return aliases[tool] ?? tool;
-}
-
-function truncateText(text: string, maxChars: number): string {
-  return text.length <= maxChars ? text : text.slice(0, maxChars).trimEnd();
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-// Backwards-compatible helper preserved for backends that still need a
-// one-call validator keyed by (classifier name, raw value).
-export interface LegacyValidateOptions {
-  readonly classifier: string;
-  readonly model: string;
-  readonly manifest: JsonClassifierManifest;
-}
-
-export function validateClassifierOutputWithManifest(
-  value: unknown,
-  options: LegacyValidateOptions,
-): ClassifierOutput {
-  return validateOutputForManifest(options.manifest, value, {
-    classifier: options.classifier,
-    model: options.model,
-  });
+// Format Ajv errors with the offending property name surfaced inline. Ajv's
+// default errorsText says "must NOT have additional properties" without
+// naming the property, which is unhelpful to debug.
+function formatSchemaErrors(
+  errors: ReadonlyArray<ErrorObject> | null | undefined,
+  dataVar: string,
+): string {
+  if (!errors || errors.length === 0) return `${dataVar} is invalid`;
+  return errors
+    .map((err) => {
+      const path = `${dataVar}${err.instancePath ?? ""}`;
+      if (err.keyword === "additionalProperties") {
+        const extra = (err.params as { additionalProperty?: string })?.additionalProperty;
+        if (extra) {
+          return `${path}.${extra} is not a supported field`;
+        }
+      }
+      if (err.keyword === "required") {
+        const missing = (err.params as { missingProperty?: string })?.missingProperty;
+        if (missing) {
+          return `${path}.${missing} is required`;
+        }
+      }
+      if (err.keyword === "enum") {
+        const allowed = (err.params as { allowedValues?: ReadonlyArray<unknown> })?.allowedValues;
+        if (allowed) {
+          return `${path} has an unsupported value (allowed: ${allowed.join(", ")})`;
+        }
+      }
+      return `${path} ${err.message ?? "is invalid"}`;
+    })
+    .join("; ");
 }

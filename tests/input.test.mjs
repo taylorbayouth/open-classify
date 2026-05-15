@@ -147,6 +147,32 @@ test("requires the final message to be a user message when role is supplied", ()
   );
 });
 
+test("accepts an assistant-final message when expectedRole is assistant", () => {
+  const normalized = normalizeOpenClassifyInput(
+    {
+      messages: [
+        message("what should I do?"),
+        { role: "assistant", text: "Here is a suggestion." },
+      ],
+    },
+    { expectedRole: "assistant" },
+  );
+  const target = normalized.messages[normalized.messages.length - 1];
+  assert.equal(target.role, "assistant");
+  assert.equal(target.text, "Here is a suggestion.");
+});
+
+test("rejects a user-final message when expectedRole is assistant", () => {
+  assert.throws(
+    () =>
+      normalizeOpenClassifyInput(
+        { messages: [message("what should I do?")] },
+        { expectedRole: "assistant" },
+      ),
+    /must have role assistant/,
+  );
+});
+
 test("keeps the newest 20 messages", () => {
   const normalized = normalizeOpenClassifyInput({
     messages: Array.from({ length: 25 }, (_, index) => message(`message ${index + 1}`)),

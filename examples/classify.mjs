@@ -13,7 +13,7 @@ import { createClassifier, loadCatalog } from "../dist/src/index.js";
 
 const message = process.argv[2] ?? "Can you review the attached vendor contract for major risks?";
 
-const classify = createClassifier({
+const { classify } = createClassifier({
   catalog: loadCatalog("downstream-models.json"),
 });
 
@@ -32,7 +32,7 @@ console.error(
 );
 
 if (result.audit.final_reply) {
-  console.error(`Preflight suggested a final reply: "${result.audit.final_reply.text}"`);
+  console.error(`A classifier suggested a final reply: "${result.audit.final_reply.text}"`);
 }
 if (result.audit.prompt_injection?.risk_level === "high_risk" ||
     result.audit.prompt_injection?.risk_level === "unknown") {

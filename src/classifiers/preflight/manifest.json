@@ -1,0 +1,34 @@
+{
+  "name": "preflight",
+  "version": "1.0.0",
+  "purpose": "Determine whether the latest message can be answered immediately or should continue downstream.",
+  "dispatch_order": 10,
+  "reserved_fields": ["final_reply", "ack_reply"],
+  "output_schema": {
+    "examples": [
+      {
+        "reason": "Greeting.",
+        "certainty": "near_certain",
+        "final_reply": { "text": "Hi!" }
+      },
+      {
+        "reason": "Trivial arithmetic.",
+        "certainty": "very_strong",
+        "final_reply": { "text": "4" }
+      },
+      {
+        "reason": "Generated writing task.",
+        "certainty": "very_strong",
+        "ack_reply": { "text": "On it." }
+      },
+      {
+        "reason": "Ambiguous; needs downstream model.",
+        "certainty": "strong"
+      }
+    ]
+  },
+  "fallback": {
+    "reason": "Classifier failed; no preflight signal.",
+    "certainty": "no_signal"
+  }
+}

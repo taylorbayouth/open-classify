@@ -52,37 +52,42 @@ const CATALOG = {
 const HIGH = "very_strong";
 const LOW = "very_weak";
 
-test("resolveModel picks the cheapest exact stock-routing match", () => {
+// Construct a fake registry entry. Only `name`, `dispatch_order`, and
+// `reservedFields` are read by the aggregator.
+function fake(name, dispatch_order, reservedFields = []) {
+  return { name, dispatch_order, reservedFields };
+}
+
+test("resolveModel picks the cheapest exact routing match", () => {
   const rec = resolveModel(
     {
       routing: { model_tier: "frontier_fast", certainty: HIGH },
-      model_specialization: { specialization: "coding", certainty: HIGH },
+      model_specialization: { model_specialization: "coding", certainty: HIGH },
     },
     CATALOG,
     DEFAULT_CERTAINTY_THRESHOLD,
   );
   assert.equal(rec.id, "gpt-5.3-codex");
   assert.deepEqual(rec.resolution.constraints_used, {
-    specialization: "coding",
-    tier: "frontier_fast",
+    model_specialization: "coding",
+    model_tier: "frontier_fast",
   });
 });
 
-test("resolveModel ignores low-certainty stock routing", () => {
+test("resolveModel ignores low-certainty routing constraints", () => {
   const rec = resolveModel(
     {
       routing: { model_tier: "frontier_fast", certainty: LOW },
-      model_specialization: { specialization: "coding", certainty: LOW },
+      model_specialization: { model_specialization: "coding", certainty: LOW },
     },
     CATALOG,
     DEFAULT_CERTAINTY_THRESHOLD,
   );
-  // No confident constraints → catalog default ranking → cheapest model.
   assert.equal(rec.id, "qwen2.5-coder");
   assert.deepEqual(rec.resolution.constraints_used, {});
   assert.deepEqual(rec.resolution.constraints_dropped, [
-    { axis: "specialization", reason: "low_confidence" },
-    { axis: "tier", reason: "low_confidence" },
+    { axis: "model_tier", reason: "low_confidence" },
+    { axis: "model_specialization", reason: "low_confidence" },
   ]);
 });
 
@@ -90,15 +95,15 @@ test("resolveModel relaxes tier before specialization", () => {
   const rec = resolveModel(
     {
       routing: { model_tier: "local_fast", certainty: HIGH },
-      model_specialization: { specialization: "reasoning", certainty: HIGH },
+      model_specialization: { model_specialization: "reasoning", certainty: HIGH },
     },
     CATALOG,
     DEFAULT_CERTAINTY_THRESHOLD,
   );
   assert.equal(rec.id, "gpt-5.4-mini");
-  assert.deepEqual(rec.resolution.constraints_used, { specialization: "reasoning" });
+  assert.deepEqual(rec.resolution.constraints_used, { model_specialization: "reasoning" });
   assert.deepEqual(rec.resolution.constraints_dropped, [
-    { axis: "tier", reason: "no_match_relaxed" },
+    { axis: "model_tier", reason: "no_match_relaxed" },
   ]);
 });
 
@@ -106,7 +111,7 @@ test("resolveModel relaxes specialization and tier when no constraint matches", 
   const rec = resolveModel(
     {
       routing: { model_tier: "local_strong", certainty: HIGH },
-      model_specialization: { specialization: "coding", certainty: HIGH },
+      model_specialization: { model_specialization: "coding", certainty: HIGH },
     },
     {
       default: "fallback",
@@ -128,8 +133,8 @@ test("resolveModel relaxes specialization and tier when no constraint matches", 
   assert.equal(rec.id, "fallback");
   assert.equal(rec.resolution.fell_back_to_default, false);
   assert.deepEqual(rec.resolution.constraints_dropped, [
-    { axis: "specialization", reason: "no_match_relaxed" },
-    { axis: "tier", reason: "no_match_relaxed" },
+    { axis: "model_specialization", reason: "no_match_relaxed" },
+    { axis: "model_tier", reason: "no_match_relaxed" },
   ]);
 });
 
@@ -156,7 +161,7 @@ test("resolveModel ties on price by picking the larger model", () => {
   const rec = resolveModel(
     {
       routing: { model_tier: "local_strong", certainty: HIGH },
-      model_specialization: { specialization: "chat", certainty: HIGH },
+      model_specialization: { model_specialization: "chat", certainty: HIGH },
     },
     catalog,
     DEFAULT_CERTAINTY_THRESHOLD,
@@ -164,23 +169,23 @@ test("resolveModel ties on price by picking the larger model", () => {
   assert.equal(rec.id, "large");
 });
 
-test("composeEnvelope merges stock fields and custom outputs", () => {
+test("composeEnvelope merges reserved fields and lists every classifier output", () => {
   const envelope = composeEnvelope({
     registry: [
-      { kind: "stock", name: "preflight", order: 10 },
-      { kind: "stock", name: "routing", order: 20 },
-      { kind: "stock", name: "model_specialization", order: 30 },
-      { kind: "stock", name: "tools", order: 40 },
-      { kind: "stock", name: "prompt_injection", order: 50 },
-      { kind: "custom", name: "memory", order: 60 },
+      fake("preflight", 10, ["final_reply", "ack_reply"]),
+      fake("routing", 20, ["model_tier"]),
+      fake("model_specialization", 30, ["model_specialization"]),
+      fake("tools", 40, ["tools"]),
+      fake("prompt_injection", 50, ["risk_level"]),
+      fake("memory", 60, []),
     ],
     results: {
-      preflight: { ack_reply: { text: "On it." }, certainty: "very_strong" },
-      routing: { model_tier: "frontier_fast", certainty: "very_strong" },
-      model_specialization: { specialization: "reasoning", certainty: "very_strong" },
-      tools: { tools: ["web", "workspace"], certainty: "very_strong" },
-      prompt_injection: { risk_level: "suspicious", certainty: "very_strong" },
-      memory: { output: { queries: ["alpha"] }, reason: "a", certainty: "very_strong" },
+      preflight: { reason: "ack", certainty: "very_strong", ack_reply: { text: "On it." } },
+      routing: { reason: "tier", certainty: "very_strong", model_tier: "frontier_fast" },
+      model_specialization: { reason: "spec", certainty: "very_strong", model_specialization: "reasoning" },
+      tools: { reason: "tools", certainty: "very_strong", tools: ["web", "workspace"] },
+      prompt_injection: { reason: "risk", certainty: "very_strong", risk_level: "suspicious" },
+      memory: { reason: "a", certainty: "very_strong", queries: ["alpha"] },
     },
     catalog: CATALOG,
     input: { text: "x", messages: [], target_message_hash: "abc12345" },
@@ -189,22 +194,58 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
   assert.deepEqual(envelope.ack_reply, { text: "On it." });
   assert.equal(envelope.final_reply, undefined);
   assert.deepEqual(envelope.tools, { tools: ["web", "workspace"] });
-  assert.deepEqual(envelope.prompt_injection, {
-    risk_level: "suspicious",
-  });
+  assert.deepEqual(envelope.prompt_injection, { risk_level: "suspicious" });
   assert.deepEqual(envelope.routing, {
     model_tier: "frontier_fast",
-    specialization: "reasoning",
+    model_specialization: "reasoning",
   });
-  assert.deepEqual(envelope.custom_outputs, [
-    { classifier: "memory", reason: "a", certainty: "very_strong", output: { queries: ["alpha"] } },
-  ]);
+  assert.equal(envelope.classifier_outputs.length, 6);
+  assert.equal(envelope.classifier_outputs[0].classifier, "preflight");
+  assert.equal(envelope.classifier_outputs[5].classifier, "memory");
+  assert.deepEqual(envelope.classifier_outputs[5], {
+    classifier: "memory",
+    reason: "a",
+    certainty: "very_strong",
+    queries: ["alpha"],
+  });
+});
+
+test("composeEnvelope picks highest-certainty contributor when two classifiers share a reserved field", () => {
+  const envelope = composeEnvelope({
+    registry: [
+      fake("routing", 20, ["model_tier"]),
+      fake("secondary_router", 25, ["model_tier"]),
+    ],
+    results: {
+      routing: { reason: "weak", certainty: "reasonable", model_tier: "local_fast" },
+      secondary_router: { reason: "strong", certainty: "near_certain", model_tier: "frontier_strong" },
+    },
+    catalog: CATALOG,
+    input: { text: "x", messages: [], target_message_hash: "abc12345" },
+  });
+  assert.deepEqual(envelope.routing, { model_tier: "frontier_strong" });
+});
+
+test("composeEnvelope breaks ties by registry order (first wins)", () => {
+  const envelope = composeEnvelope({
+    registry: [
+      fake("routing", 20, ["model_tier"]),
+      fake("secondary_router", 25, ["model_tier"]),
+    ],
+    results: {
+      routing: { reason: "first", certainty: "very_strong", model_tier: "local_fast" },
+      secondary_router: { reason: "second", certainty: "very_strong", model_tier: "frontier_strong" },
+    },
+    catalog: CATALOG,
+    input: { text: "x", messages: [], target_message_hash: "abc12345" },
+  });
+  assert.deepEqual(envelope.routing, { model_tier: "local_fast" });
 });
 
 test("composeEnvelope is pure: same inputs produce structurally equal outputs", () => {
   const args = {
-    registry: [{ kind: "stock", name: "tools", order: 40 }],
-    results: { tools: { tools: [], certainty: "very_strong" } },
+    registry: [fake("tools", 40, ["tools"])],
+    results: { tools: { reason: "tools", certainty: "very_strong", tools: [] } },
     catalog: CATALOG,
     input: { text: "x", messages: [], target_message_hash: "abc12345" },
   };

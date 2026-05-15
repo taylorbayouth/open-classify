@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { REGISTRY, type ClassifierName } from "./classifiers.js";
+import { CLASSIFIER_NAMES, type ClassifierName } from "./classifiers.js";
 import { type AggregatorConfig } from "./manifest.js";
-import { STOCK_CLASSIFIER_NAMES } from "./stock.js";
 import { isRecord } from "./validation.js";
 
 export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
@@ -22,10 +21,8 @@ export interface OllamaRunnerConfig {
     readonly seed?: number;
     readonly num_ctx?: number;
   };
-  readonly models?: {
-    readonly stock?: Readonly<Record<string, string>>;
-    readonly custom?: Readonly<Record<string, string>>;
-  };
+  // Keyed by classifier name. Every entry must match a loaded classifier.
+  readonly models?: Readonly<Record<string, string>>;
 }
 
 export class OpenClassifyConfigError extends Error {
@@ -59,13 +56,7 @@ export function loadOpenClassifyConfig(
 export function classifierModelsFromConfig(
   config: OpenClassifyConfig | undefined,
 ): Partial<Record<ClassifierName, string>> {
-  const models = config?.runner?.models;
-  if (!models) return {};
-
-  return {
-    ...models.stock,
-    ...models.custom,
-  };
+  return { ...config?.runner?.models };
 }
 
 export function validateOpenClassifyConfig(
@@ -143,50 +134,19 @@ function validateOptions(value: unknown, path: string): OllamaRunnerConfig["opti
   };
 }
 
-function validateModels(value: unknown, path: string): NonNullable<OllamaRunnerConfig["models"]> {
+function validateModels(value: unknown, path: string): Readonly<Record<string, string>> {
   if (!isRecord(value)) {
     throwConfig(path, "runner.models must be an object");
   }
-  ensureAllowedKeys(value, ["stock", "custom"], path, "runner.models");
-  return {
-    ...(value.stock === undefined
-      ? {}
-      : { stock: validateModelMap(value.stock, path, "runner.models.stock", stockClassifierNames()) }),
-    ...(value.custom === undefined
-      ? {}
-      : { custom: validateModelMap(value.custom, path, "runner.models.custom", customClassifierNames()) }),
-  };
-}
-
-function validateModelMap(
-  value: unknown,
-  path: string,
-  field: string,
-  allowedNames: ReadonlySet<string>,
-): Readonly<Record<string, string>> {
-  if (!isRecord(value)) {
-    throwConfig(path, `${field} must be an object`);
-  }
+  const allowed = new Set(CLASSIFIER_NAMES);
   const out: Record<string, string> = {};
   for (const [name, model] of Object.entries(value)) {
-    if (!allowedNames.has(name)) {
-      throwConfig(path, `${field}.${name} is not a known classifier`);
+    if (!allowed.has(name)) {
+      throwConfig(path, `runner.models.${name} is not a known classifier`);
     }
-    out[name] = requireString(model, path, `${field}.${name}`);
+    out[name] = requireString(model, path, `runner.models.${name}`);
   }
   return out;
-}
-
-function stockClassifierNames(): ReadonlySet<string> {
-  return new Set(STOCK_CLASSIFIER_NAMES);
-}
-
-function customClassifierNames(): ReadonlySet<string> {
-  return new Set(
-    REGISTRY
-      .filter((classifier) => classifier.kind === "custom")
-      .map((classifier) => classifier.name),
-  );
 }
 
 function requireString(value: unknown, path: string, field: string): string {

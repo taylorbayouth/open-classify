@@ -1,7 +1,7 @@
 import type {
   AckReplySignal,
+  ClassifierAuditOutput,
   ClassifierOutput,
-  CustomClassifierOutput,
   FinalReplySignal,
   PromptInjectionSignal,
   RoutingSignal,
@@ -44,11 +44,11 @@ export interface Catalog {
 
 export interface ModelRecommendationResolution {
   readonly constraints_used: Partial<{
-    specialization: ModelSpecialization;
-    tier: DownstreamModelTier;
+    model_specialization: ModelSpecialization;
+    model_tier: DownstreamModelTier;
   }>;
   readonly constraints_dropped: ReadonlyArray<{
-    readonly axis: "specialization" | "tier";
+    readonly axis: "model_specialization" | "model_tier";
     readonly reason: "low_confidence" | "no_match_relaxed" | "default_fallback";
   }>;
   readonly confidences: Partial<{
@@ -67,17 +67,23 @@ export interface ModelRecommendation {
   readonly resolution: ModelRecommendationResolution;
 }
 
+// Audit envelope. Reserved fields are surfaced in named slots for caller
+// ergonomics; the same data is also available in `classifier_outputs[]`
+// alongside non-reserved (custom) fields.
 export interface Envelope {
   readonly final_reply?: FinalReplySignal;
   readonly ack_reply?: AckReplySignal;
   readonly routing?: RoutingSignal;
   readonly tools?: ToolsSignal;
   readonly prompt_injection?: PromptInjectionSignal;
-  readonly custom_outputs: ReadonlyArray<CustomClassifierOutput>;
+  readonly classifier_outputs: ReadonlyArray<ClassifierAuditOutput>;
   readonly model_recommendation: ModelRecommendation;
 }
 
-export type ClassifierCustomOutputs = Record<string, unknown>;
+// Public flat map keyed by classifier name. Each value is the full validated
+// output with `reason` and `certainty` stripped — what callers usually want
+// when reading downstream classifier signals.
+export type ClassifierPublicOutputs = Record<string, Record<string, unknown>>;
 
 export interface DownstreamTargetMessage {
   readonly role: "user";
@@ -96,9 +102,6 @@ export type ClassifierEntry = ClassifierOutput & {
   readonly version: string;
 };
 
-// Summary of certainty across the run. The aggregator never blocks on these —
-// they're reported so the caller can decide whether to act on the route or
-// fall back to a safer behavior.
 export interface CertaintySummary {
   readonly min: number;
   readonly avg: number;
@@ -113,11 +116,20 @@ export interface PipelineAudit extends Envelope {
   readonly meta: PipelineMeta;
 }
 
+// Result of inspect() — the assistant-side pass. Lean by design: no
+// downstream routing, no audit envelope. Callers use it for lightweight
+// post-hoc transforms (slugs, summaries) and any "both"-tagged classifiers
+// (e.g. prompt_injection) that should also run on the assistant reply.
+export interface InspectResult {
+  readonly target_message_hash: string;
+  readonly classifier_outputs: ClassifierPublicOutputs;
+}
+
 export interface PipelineResult {
   readonly action: "route";
   readonly target_message_hash: string;
   readonly downstream: DownstreamPayload;
-  readonly classifier_outputs: ClassifierCustomOutputs;
+  readonly classifier_outputs: ClassifierPublicOutputs;
   readonly audit: PipelineAudit;
 }
 
