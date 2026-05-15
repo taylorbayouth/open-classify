@@ -7,6 +7,7 @@
 export * from "./aggregator.js";
 export * from "./catalog.js";
 export * from "./classifiers.js";
+export * from "./classify.js";
 export * from "./config.js";
 export * from "./enums.js";
 export * from "./input.js";

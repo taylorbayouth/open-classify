@@ -77,7 +77,8 @@ If the manifest is malformed, the loader throws `ClassifierManifestError` with t
 ## 5. Consume the output
 
 ```ts
-const result = await classifyWithOllama(input, { catalog });
+const classify = createClassifier({ catalog });
+const result = await classify(input);
 if (result.action === "route") {
   const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 }

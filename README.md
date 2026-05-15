@@ -54,16 +54,15 @@ Node 18+. The packaged runner is local Ollama and ships with `gemma4:e4b-it-q4_K
 ## Hello World
 
 ```ts
-import { classifyWithOllama, loadCatalog } from "open-classify";
+import { createClassifier } from "open-classify";
 
-const result = await classifyWithOllama(
-  {
-    messages: [
-      { role: "user", text: "Can you review the attached contract?" },
-    ],
-  },
-  { catalog: loadCatalog("downstream-models.json") },
-);
+const classify = createClassifier();
+
+const result = await classify({
+  messages: [
+    { role: "user", text: "Can you review the attached contract?" },
+  ],
+});
 
 if (result.action === "route") {
   // result.downstream.model_id is a concrete model from your catalog.
@@ -71,6 +70,8 @@ if (result.action === "route") {
   // result.classifier_outputs holds any custom classifier payloads.
 }
 ```
+
+`createClassifier` builds the runner and loads the model catalog once. Reuse the returned `classify` function across your app — every call is a plain function invocation, no re-initialization.
 
 ## What you get back
 
@@ -217,7 +218,7 @@ The resolver picks the cheapest model matching `specialization` and `tier`, rela
 
 ## Input contract
 
-`classifyWithOllama({ messages })` — that's the whole input.
+`classify({ messages })` — that's the whole input.
 
 - `messages` is chronological, oldest to newest, and must end with the user message you want classified.
 - Open Classify keeps whole messages only, drops oldest first to fit a 5,000-char budget, and caps history at 20 messages.
@@ -275,7 +276,19 @@ type RunClassifier = (
 ) => Promise<ClassifierOutput>;
 ```
 
-Pass any `RunClassifier` to `classifyOpenClassifyInput(input, { runClassifier, catalog })` to back classifiers with OpenAI, Anthropic, a remote service, or anything else. This is a code-level extension point, separate from the Ollama-only config file runner.
+Pass any `RunClassifier` to `createClassifier` to back classifiers with OpenAI, Anthropic, a remote service, or anything else. The factory takes care of catalog loading and pipeline wiring; you only own the per-classifier call.
+
+```ts
+import { createClassifier, type RunClassifier } from "open-classify";
+
+const runClassifier: RunClassifier = async (name, input, signal) => {
+  // call your provider of choice, return a ClassifierOutput
+};
+
+const classify = createClassifier({ runClassifier });
+```
+
+For the lowest-level entry point, `classifyOpenClassifyInput(input, { runClassifier, catalog })` skips the factory entirely.
 
 ## Further reading
 

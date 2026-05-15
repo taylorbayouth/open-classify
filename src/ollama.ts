@@ -11,7 +11,6 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { loadCatalog } from "./catalog.js";
 import {
   CLASSIFIER_NAMES,
   MODULES_BY_NAME,
@@ -19,18 +18,8 @@ import {
   type ClassifierName,
   type RunClassifier,
 } from "./classifiers.js";
-import {
-  classifierModelsFromConfig,
-  loadOpenClassifyConfig,
-  type OpenClassifyConfig,
-} from "./config.js";
-import { classifyOpenClassifyInput } from "./pipeline.js";
-import type { AggregatorConfig, Catalog } from "./manifest.js";
 import type { ClassifierOutput } from "./stock.js";
-import type {
-  ClassifierInput,
-  OpenClassifyInput,
-} from "./types.js";
+import type { ClassifierInput } from "./types.js";
 import {
   ClassifierValidationError,
   isRecord,
@@ -76,17 +65,6 @@ export interface OllamaClassifierRunnerConfig {
   skipResourceCheck?: boolean;
   minAvailableMemoryBytes?: number;
   minTotalMemoryBytes?: number;
-}
-
-// Top-level helper that combines the runner + the catalog. Callers who only
-// want to run a single classification end-to-end can use this; callers who
-// need finer control should build the pieces themselves.
-export interface ClassifyWithOllamaConfig extends OllamaClassifierRunnerConfig {
-  catalog?: Catalog;
-  catalogPath?: string;
-  configPath?: string;
-  openClassifyConfig?: OpenClassifyConfig;
-  aggregator?: AggregatorConfig;
 }
 
 interface OllamaChatResponse {
@@ -203,49 +181,6 @@ export async function assertOllamaResources(
       minAvailableMemoryBytes,
     );
   }
-}
-
-export async function classifyWithOllama(
-  input: OpenClassifyInput,
-  config: ClassifyWithOllamaConfig = {},
-): ReturnType<typeof classifyOpenClassifyInput> {
-  const fileConfig = config.openClassifyConfig ?? loadOpenClassifyConfig(config.configPath, {
-    optional: config.configPath === undefined && process.env.OPEN_CLASSIFY_CONFIG === undefined,
-  });
-  const runnerFileConfig = fileConfig?.runner;
-  const runnerConfig: OllamaClassifierRunnerConfig = {
-    ...config,
-    host: config.host ?? runnerFileConfig?.host,
-    defaultModel: config.defaultModel ?? runnerFileConfig?.defaultModel,
-    models: {
-      ...classifierModelsFromConfig(fileConfig),
-      ...config.models,
-    },
-    options: {
-      ...runnerFileConfig?.options,
-      ...config.options,
-    },
-  };
-
-  if (!runnerConfig.skipResourceCheck) {
-    await assertOllamaResources({
-      minTotalMemoryBytes: runnerConfig.minTotalMemoryBytes,
-      minAvailableMemoryBytes: runnerConfig.minAvailableMemoryBytes,
-    });
-    Object.assign(runnerConfig, {
-      skipResourceCheck: true,
-    });
-  }
-
-  const catalog = config.catalog ?? loadCatalog(
-    config.catalogPath ?? fileConfig?.catalog ?? OLLAMA_DEFAULT_CATALOG_PATH,
-  );
-
-  return classifyOpenClassifyInput(input, {
-    runClassifier: createOllamaClassifierRunner(runnerConfig),
-    catalog,
-    aggregator: config.aggregator ?? fileConfig?.aggregator,
-  });
 }
 
 async function runOllamaClassifier(

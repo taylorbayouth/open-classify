@@ -10,8 +10,8 @@ import {
   OpenClassifyConfigError,
   validateOpenClassifyConfig,
 } from "../dist/src/config.js";
+import { createClassifier } from "../dist/src/classify.js";
 import {
-  classifyWithOllama,
   createOllamaClassifierRunner,
   OllamaClassifierError,
   OllamaResourceError,
@@ -443,29 +443,30 @@ test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
   );
 });
 
-test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
-  const result = await classifyWithOllama(
-    { messages: [{ role: "user", text: "review this" }] },
-    {
-      skipResourceCheck: true,
-      catalog: TEST_CATALOG,
-      fetch: async (_url, init) => {
-        const body = JSON.parse(init.body);
-        assert.ok(typeof body.model === "string" && body.model.length > 0);
-        const systemPrompt = body.messages[0].content;
-        const entries = Object.entries(MODULES_BY_NAME);
-        const match = entries.find(([, module]) => module.systemPrompt === systemPrompt);
-        assert.ok(match, "system prompt should match a registered module");
-        const [name] = match;
+test("createClassifier wires the Ollama runner into the pipeline", async () => {
+  const classify = createClassifier({
+    skipResourceCheck: true,
+    catalog: TEST_CATALOG,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      assert.ok(typeof body.model === "string" && body.model.length > 0);
+      const systemPrompt = body.messages[0].content;
+      const entries = Object.entries(MODULES_BY_NAME);
+      const match = entries.find(([, module]) => module.systemPrompt === systemPrompt);
+      assert.ok(match, "system prompt should match a registered module");
+      const [name] = match;
 
-        assert.match(body.messages[1].content, /text:\nreview this/);
+      assert.match(body.messages[1].content, /text:\nreview this/);
 
-        return jsonResponse({
-          message: { content: JSON.stringify(validOutputs[name]) },
-        });
-      },
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs[name]) },
+      });
     },
-  );
+  });
+
+  const result = await classify({
+    messages: [{ role: "user", text: "review this" }],
+  });
 
   assert.equal(result.action, "route");
   assert.match(result.message_id, /^[a-f0-9]{8}$/);
@@ -480,7 +481,34 @@ test("classifyWithOllama uses the Ollama runner in the pipeline", async () => {
   assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
 });
 
-test("classifyWithOllama applies config file models and lets explicit options win", async () => {
+test("createClassifier reuses the runner and catalog across calls", async () => {
+  let fetchCount = 0;
+  const classify = createClassifier({
+    skipResourceCheck: true,
+    catalog: TEST_CATALOG,
+    fetch: async (_url, init) => {
+      fetchCount += 1;
+      const body = JSON.parse(init.body);
+      const [name] = Object.entries(MODULES_BY_NAME)
+        .find(([, module]) => module.systemPrompt === body.messages[0].content);
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs[name]) },
+      });
+    },
+  });
+
+  const first = await classify({ messages: [{ role: "user", text: "one" }] });
+  const callsAfterFirst = fetchCount;
+  const second = await classify({ messages: [{ role: "user", text: "two" }] });
+
+  assert.equal(first.action, "route");
+  assert.equal(second.action, "route");
+  // Each classify() call should issue one fetch per classifier, with no
+  // re-initialization overhead beyond that.
+  assert.equal(fetchCount, callsAfterFirst * 2);
+});
+
+test("createClassifier picks up models and aggregator from the config file", async () => {
   const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
   const path = join(dir, "open-classify.config.json");
   writeFileSync(path, JSON.stringify({
@@ -498,29 +526,28 @@ test("classifyWithOllama applies config file models and lets explicit options wi
   }));
 
   const seenModels = new Set();
-  const result = await classifyWithOllama(
-    { messages: [{ role: "user", text: "review this" }] },
-    {
-      configPath: path,
-      skipResourceCheck: true,
-      catalog: TEST_CATALOG,
-      models: { preflight: "explicit-preflight" },
-      fetch: async (_url, init) => {
-        const body = JSON.parse(init.body);
-        seenModels.add(body.model);
-        const systemPrompt = body.messages[0].content;
-        const [name] = Object.entries(MODULES_BY_NAME)
-          .find(([, module]) => module.systemPrompt === systemPrompt);
-        return jsonResponse({
-          message: { content: JSON.stringify(validOutputs[name]) },
-        });
-      },
+  const classify = createClassifier({
+    configPath: path,
+    skipResourceCheck: true,
+    catalog: TEST_CATALOG,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      seenModels.add(body.model);
+      const systemPrompt = body.messages[0].content;
+      const [name] = Object.entries(MODULES_BY_NAME)
+        .find(([, module]) => module.systemPrompt === systemPrompt);
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs[name]) },
+      });
     },
-  );
+  });
 
-  assert.ok(seenModels.has("explicit-preflight"));
+  const result = await classify({
+    messages: [{ role: "user", text: "review this" }],
+  });
+
+  assert.ok(seenModels.has("config-preflight"));
   assert.ok(seenModels.has("config-default"));
-  assert.equal(seenModels.has("config-preflight"), false);
   assert.equal(result.action, "block");
   assert.equal(result.fired_by, "certainty_gate");
 });
@@ -545,28 +572,49 @@ test("resource check can fail before fetch is called", async () => {
   assert.equal(called, false);
 });
 
-test("classifyWithOllama rejects resource failures instead of returning fallbacks", async () => {
+test("createClassifier surfaces resource failures instead of returning fallbacks", async () => {
   let called = false;
+  const classify = createClassifier({
+    catalog: TEST_CATALOG,
+    minTotalMemoryBytes: Number.MAX_SAFE_INTEGER,
+    minAvailableMemoryBytes: Number.MAX_SAFE_INTEGER,
+    fetch: async () => {
+      called = true;
+      return jsonResponse({
+        message: { content: JSON.stringify(validOutputs.preflight) },
+      });
+    },
+  });
 
   await assert.rejects(
-    classifyWithOllama(
-      { messages: [{ role: "user", text: "review this" }] },
-      {
-        catalog: TEST_CATALOG,
-        minTotalMemoryBytes: Number.MAX_SAFE_INTEGER,
-        minAvailableMemoryBytes: Number.MAX_SAFE_INTEGER,
-        fetch: async () => {
-          called = true;
-          return jsonResponse({
-            message: { content: JSON.stringify(validOutputs.preflight) },
-          });
-        },
-      },
-    ),
+    classify({ messages: [{ role: "user", text: "review this" }] }),
     OllamaResourceError,
   );
 
   assert.equal(called, false);
+});
+
+test("createClassifier accepts a custom RunClassifier and bypasses Ollama", async () => {
+  const seen = [];
+  const fakeRunner = async (name, _input, _signal) => {
+    seen.push(name);
+    return validOutputs[name];
+  };
+
+  const classify = createClassifier({
+    runClassifier: fakeRunner,
+    catalog: TEST_CATALOG,
+  });
+
+  const result = await classify({
+    messages: [{ role: "user", text: "review this" }],
+  });
+
+  assert.equal(result.action, "route");
+  // Every registered classifier should have been invoked through the fake runner.
+  for (const name of Object.keys(validOutputs)) {
+    assert.ok(seen.includes(name), `runner should have been called for ${name}`);
+  }
 });
 
 function runnerReturning(payload) {

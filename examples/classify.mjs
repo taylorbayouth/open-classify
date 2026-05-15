@@ -9,18 +9,17 @@
 //
 //   node examples/classify.mjs "Find time with Robert next week and draft the email."
 
-import { classifyWithOllama, loadCatalog } from "../dist/src/index.js";
+import { createClassifier, loadCatalog } from "../dist/src/index.js";
 
 const message = process.argv[2] ?? "Can you review the attached vendor contract for major risks?";
 
-const result = await classifyWithOllama(
-  {
-    messages: [{ role: "user", text: message }],
-  },
-  {
-    catalog: loadCatalog("downstream-models.json"),
-  },
-);
+const classify = createClassifier({
+  catalog: loadCatalog("downstream-models.json"),
+});
+
+const result = await classify({
+  messages: [{ role: "user", text: message }],
+});
 
 console.log(JSON.stringify(result, null, 2));
 
