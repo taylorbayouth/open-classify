@@ -79,14 +79,11 @@ function validateAggregator(value: unknown, path: string): AggregatorConfig {
   if (!isRecord(value)) {
     throwConfig(path, "aggregator must be an object");
   }
-  ensureAllowedKeys(value, ["certaintyThreshold", "confidenceThreshold"], path, "aggregator");
+  ensureAllowedKeys(value, ["certaintyThreshold"], path, "aggregator");
   return {
     ...(value.certaintyThreshold === undefined
       ? {}
       : { certaintyThreshold: requireUnitFloat(value.certaintyThreshold, path, "aggregator.certaintyThreshold") }),
-    ...(value.confidenceThreshold === undefined
-      ? {}
-      : { confidenceThreshold: requireUnitFloat(value.confidenceThreshold, path, "aggregator.confidenceThreshold") }),
   };
 }
 

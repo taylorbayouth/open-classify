@@ -4,7 +4,7 @@ The aggregator merges classifier outputs into an `Envelope`, picks a concrete mo
 
 ## Certainty threshold
 
-Default: `0.65`. Configurable via `aggregator.certaintyThreshold` on `classifyOpenClassifyInput`. `aggregator.confidenceThreshold` remains as a deprecated compatibility alias.
+Default: `0.65`. Configurable via `aggregator.certaintyThreshold` on `classifyOpenClassifyInput`.
 
 Per-classifier outputs carry `certainty` tags. The aggregator maps tags to scores:
 

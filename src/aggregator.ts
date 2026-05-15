@@ -72,7 +72,7 @@ export function composeEnvelope(args: ComposeEnvelopeArgs): Envelope {
 }
 
 export function certaintyThreshold(config: AggregatorConfig | undefined): number {
-  return config?.certaintyThreshold ?? config?.confidenceThreshold ?? DEFAULT_CERTAINTY_THRESHOLD;
+  return config?.certaintyThreshold ?? DEFAULT_CERTAINTY_THRESHOLD;
 }
 
 function optional<Key extends keyof Envelope>(

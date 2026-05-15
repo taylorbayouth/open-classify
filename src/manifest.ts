@@ -135,8 +135,6 @@ export interface PipelineResult {
 
 export interface AggregatorConfig {
   readonly certaintyThreshold?: number;
-  /** @deprecated Use certaintyThreshold. */
-  readonly confidenceThreshold?: number;
 }
 
 export type ClassifierRegistry = ReadonlyArray<RuntimeClassifierManifest>;
