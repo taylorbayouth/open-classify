@@ -285,23 +285,23 @@ function validateReplySignal(
   classifier: string,
   model: string,
   field: "final_reply" | "ack_reply",
-): { reply: string } {
+): { text: string } {
   if (!isRecord(value)) {
     throwInvalid(classifier, model, `${field} must be an object`);
   }
-  ensureAllowedObjectKeys(value, ["reply"], classifier, model, field);
-  const reply = requireString(value.reply, classifier, model, `${field}.reply`);
-  if (reply.trim().length === 0) {
-    throwInvalid(classifier, model, `${field}.reply must not be empty`);
+  ensureAllowedObjectKeys(value, ["text"], classifier, model, field);
+  const text = requireString(value.text, classifier, model, `${field}.text`);
+  if (text.trim().length === 0) {
+    throwInvalid(classifier, model, `${field}.text must not be empty`);
   }
-  if (reply.length > STOCK_REPLY_MAX_CHARS) {
+  if (text.length > STOCK_REPLY_MAX_CHARS) {
     throwInvalid(
       classifier,
       model,
-      `${field}.reply must be ${STOCK_REPLY_MAX_CHARS} characters or fewer`,
+      `${field}.text must be ${STOCK_REPLY_MAX_CHARS} characters or fewer`,
     );
   }
-  return { reply };
+  return { text };
 }
 
 function validateTierRoutingOutput(

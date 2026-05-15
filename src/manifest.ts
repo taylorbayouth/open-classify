@@ -132,7 +132,7 @@ export interface LowCertaintyBlockReason {
 
 export type ReplyPipelineResult = {
   readonly action: "reply";
-  readonly message_id: string;
+  readonly target_message_hash: string;
   readonly reply: {
     readonly text: string;
   };
@@ -143,8 +143,8 @@ export type ReplyPipelineResult = {
 
 export type BlockPipelineResult = {
   readonly action: "block";
-  readonly message_id: string;
-  readonly fired_by?: string;
+  readonly target_message_hash: string;
+  readonly fired_by: string;
   readonly reason: BlockReason;
   readonly classifier_outputs: ClassifierCustomOutputs;
   readonly audit: Pick<PipelineAudit, "prompt_injection" | "meta" | "fired_by" | "certainty_gate">;
@@ -152,7 +152,7 @@ export type BlockPipelineResult = {
 
 export type RoutePipelineResult = {
   readonly action: "route";
-  readonly message_id: string;
+  readonly target_message_hash: string;
   readonly downstream: DownstreamPayload;
   readonly classifier_outputs: ClassifierCustomOutputs;
   readonly audit: PipelineAudit;

@@ -7,7 +7,7 @@ export const validClassifierOutputs = {
   preflight: {
     reason: "The latest message requires downstream work.",
     certainty: "strong",
-    ack_reply: { reply: "Let me check." },
+    ack_reply: { text: "Let me check." },
   },
   routing: {
     reason: "The request needs moderate reasoning.",

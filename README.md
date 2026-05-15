@@ -83,7 +83,7 @@ Every call returns a `PipelineResult` with one of three `action` values:
 | `reply` | Preflight had a tiny terminal reply | `reply.text` |
 | `block` | Prompt injection flagged confident `high_risk` / `unknown`, or the certainty gate fired | `reason.kind` plus prompt-injection or low-certainty details |
 
-All three also carry `message_id`, `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the downstream target message, not the caller's message history. Short-circuit results include the firing classifier's audit context.
+All three also carry `target_message_hash` (the stable 8-hex fingerprint of the target message), `classifier_outputs` (custom classifier payloads, keyed by name), and an `audit` block. Route results include the downstream target message, not the caller's message history. Short-circuit results include the firing classifier's audit context.
 
 For complex requests, look for `audit.ack_reply` on `route` results. It is the immediate acknowledgement your UI can show while the downstream model works. For trivial requests, `result.reply.text` is the complete response and no downstream model is needed.
 
@@ -92,7 +92,7 @@ Example `route` result:
 ```json
 {
   "action": "route",
-  "message_id": "b11d5268",
+  "target_message_hash": "b11d5268",
   "downstream": {
     "model_id": "gpt-5.5",
     "tools": { "tools": ["workspace"] },
@@ -102,7 +102,7 @@ Example `route` result:
     "memory_retrieval_queries": { "queries": ["user code review preferences"] }
   },
   "audit": {
-    "ack_reply": { "reply": "Let me check." },
+    "ack_reply": { "text": "Let me check." },
     "routing": { "model_tier": "frontier_strong" },
     "model_specialization": { "specialization": "coding" },
     "tools": { "tools": ["workspace"] },

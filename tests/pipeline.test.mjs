@@ -16,7 +16,7 @@ const baseOptions = (overrides = {}) => ({
 });
 
 function assertReadmeCommonEnvelope(result) {
-  assert.match(result.message_id, /^[a-f0-9]{8}$/);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.ok(result.audit);
   assert.equal(typeof result.audit, "object");
   assert.ok(result.audit.meta);
@@ -57,12 +57,12 @@ test("starts all classifiers concurrently and returns route result", async () =>
   assertReadmeCommonEnvelope(result);
   assert.equal("fired_by" in result, false);
   assert.deepEqual(started.sort(), Object.keys(results).sort());
-  assert.match(result.message_id, /^[a-f0-9]{8}$/);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.equal(result.downstream.model_id, "gemma4:e4b-it-q4_K_M");
   assert.deepEqual(result.downstream.target_message, {
     role: "user",
     text: "review this",
-    hash: result.message_id,
+    hash: result.target_message_hash,
   });
   assert.deepEqual(result.downstream.tools, { tools: ["workspace"] });
 
@@ -82,7 +82,7 @@ test("starts all classifiers concurrently and returns route result", async () =>
 
   // Envelope slots: contributed by the stock classifiers and flattened onto
   // the route result alongside `meta`. preflight's ack_reply is preserved.
-  assert.deepEqual(result.audit.ack_reply, { reply: "Let me check." });
+  assert.deepEqual(result.audit.ack_reply, { text: "Let me check." });
   assert.equal(result.audit.final_reply, undefined);
   assert.deepEqual(result.audit.routing, {
     model_tier: "local_strong",
@@ -178,7 +178,7 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
           return Promise.resolve({
             reason: "The message is a closing acknowledgement.",
             certainty: "near_certain",
-            final_reply: { reply: "Anytime." },
+            final_reply: { text: "Anytime." },
           });
         }
 
@@ -201,13 +201,13 @@ test("terminal preflight aborts other classifiers and returns only preflight", a
   assert.deepEqual(result.reply, { text: "Anytime." });
   assert.deepEqual(result.classifier_outputs, {});
   assert.equal("downstream" in result, false);
-  assert.deepEqual(result.audit.final_reply, { reply: "Anytime." });
+  assert.deepEqual(result.audit.final_reply, { text: "Anytime." });
   assert.equal(result.audit.fired_by, "preflight");
-  assert.match(result.message_id, /^[a-f0-9]{8}$/);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.audit.meta.classifiers.preflight, {
     reason: "The message is a closing acknowledgement.",
     certainty: "near_certain",
-    final_reply: { reply: "Anytime." },
+    final_reply: { text: "Anytime." },
     status: { ok: true, source: "model" },
     version: "1.0.0",
   });
@@ -231,7 +231,7 @@ test("high risk prompt_injection aborts non-gate classifiers and returns block",
           return Promise.resolve({
             reason: "The message requires downstream handling.",
             certainty: "strong",
-            ack_reply: { reply: "Let me check." },
+            ack_reply: { text: "Let me check." },
           });
         }
         if (name === "prompt_injection") {
@@ -263,7 +263,7 @@ test("high risk prompt_injection aborts non-gate classifiers and returns block",
     risk_level: "high_risk",
   });
   assert.equal("reply" in result, false);
-  assert.match(result.message_id, /^[a-f0-9]{8}$/);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.audit.meta.classifiers.prompt_injection, {
     ...prompt_injection,
     status: { ok: true, source: "model" },
@@ -288,7 +288,7 @@ test("unknown prompt_injection risk aborts non-gate classifiers and returns bloc
           return Promise.resolve({
             reason: "The message requires downstream handling.",
             certainty: "strong",
-            ack_reply: { reply: "Let me check." },
+            ack_reply: { text: "Let me check." },
           });
         }
         if (name === "prompt_injection") {

@@ -175,7 +175,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
       { kind: "custom", name: "memory", order: 60 },
     ],
     results: {
-      preflight: { ack_reply: { reply: "On it." }, certainty: "very_strong" },
+      preflight: { ack_reply: { text: "On it." }, certainty: "very_strong" },
       routing: { model_tier: "frontier_fast", certainty: "very_strong" },
       model_specialization: { specialization: "reasoning", certainty: "very_strong" },
       tools: { tools: ["web", "workspace"], certainty: "very_strong" },
@@ -186,7 +186,7 @@ test("composeEnvelope merges stock fields and custom outputs", () => {
     input: { text: "x", messages: [], target_message_hash: "abc12345" },
   });
 
-  assert.deepEqual(envelope.ack_reply, { reply: "On it." });
+  assert.deepEqual(envelope.ack_reply, { text: "On it." });
   assert.equal(envelope.final_reply, undefined);
   assert.deepEqual(envelope.tools, { tools: ["web", "workspace"] });
   assert.deepEqual(envelope.prompt_injection, {

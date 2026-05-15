@@ -244,8 +244,8 @@ function buildShortCircuitResult(
     const preflight = value as PreflightClassifierOutput;
     return {
       action: "reply",
-      message_id: target_message_hash,
-      reply: { text: verdict.final_reply.reply },
+      target_message_hash,
+      reply: { text: verdict.final_reply.text },
       reason: "preflight_reply",
       classifier_outputs,
       audit: {
@@ -257,7 +257,7 @@ function buildShortCircuitResult(
   }
   return {
     action: "block",
-    message_id: target_message_hash,
+    target_message_hash,
     fired_by: name,
     reason: verdict.reason,
     classifier_outputs,
@@ -306,7 +306,7 @@ function buildRouteResult(
 
   return {
     action: "route",
-    message_id: request.target_message_hash,
+    target_message_hash: request.target_message_hash,
     downstream,
     classifier_outputs: classifierCustomOutputs(results),
     audit: {
@@ -325,7 +325,7 @@ function buildCertaintyGateBlockResult(
 ): PipelineResult {
   return {
     action: "block",
-    message_id: request.target_message_hash,
+    target_message_hash: request.target_message_hash,
     fired_by: "certainty_gate",
     reason: certaintyGate,
     classifier_outputs: classifierCustomOutputs(results),

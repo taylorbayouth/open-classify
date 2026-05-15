@@ -278,7 +278,7 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
   const runner = runnerReturning({
     reason: "Too long.",
     certainty: "strong",
-    ack_reply: { reply: "x".repeat(201) },
+    ack_reply: { text: "x".repeat(201) },
   });
 
   await assert.rejects(
@@ -286,7 +286,7 @@ test("createOllamaClassifierRunner validates preflight reply length", async () =
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
-      /reply must be 200 characters or fewer/.test(error.message),
+      /text must be 200 characters or fewer/.test(error.message),
   );
 });
 
@@ -294,7 +294,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
   const runner = runnerReturning({
     reason: "Empty.",
     certainty: "strong",
-    ack_reply: { reply: "   " },
+    ack_reply: { text: "   " },
   });
 
   await assert.rejects(
@@ -302,7 +302,7 @@ test("createOllamaClassifierRunner rejects empty preflight replies", async () =>
     (error) =>
       error instanceof OllamaClassifierError &&
       error.classifier === "preflight" &&
-      /reply must not be empty/.test(error.message),
+      /text must not be empty/.test(error.message),
   );
 });
 
@@ -469,7 +469,7 @@ test("createClassifier wires the Ollama runner into the pipeline", async () => {
   });
 
   assert.equal(result.action, "route");
-  assert.match(result.message_id, /^[a-f0-9]{8}$/);
+  assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   for (const [name, expected] of Object.entries(validOutputs)) {
     const entry = result.audit.meta.classifiers[name];
     for (const [field, value] of Object.entries(expected)) {

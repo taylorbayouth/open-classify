@@ -261,8 +261,8 @@ test("preflight rejects emitting final_reply and ack_reply together", () => {
         {
           reason: "Conflicting replies.",
           certainty: "very_strong",
-          final_reply: { reply: "Hi." },
-          ack_reply: { reply: "Working on it." },
+          final_reply: { text: "Hi." },
+          ack_reply: { text: "Working on it." },
         },
         { classifier: "preflight", model: "test" },
       ),

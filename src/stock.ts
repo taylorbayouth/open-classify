@@ -20,11 +20,11 @@ export interface StockClassifierInput {
 // wrapper, so every classifier result is auditable and scoreable.
 
 export interface FinalReplySignal {
-  readonly reply: string;
+  readonly text: string;
 }
 
 export interface AckReplySignal {
-  readonly reply: string;
+  readonly text: string;
 }
 
 export interface RoutingSignal {
