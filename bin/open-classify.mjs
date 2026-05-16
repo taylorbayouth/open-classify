@@ -211,7 +211,7 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
   if (!isOpenClassifyDep(pkg) && !noInstall) {
     const pm = packageManager || detectPackageManager(cwd);
     const installCmd = pm === "npm" ? ["install", "open-classify"] : ["add", "open-classify"];
-    process.stdout.write(`Installing open-classify as a dependency (${pm} ${installCmd.join(" ")})...\n\n`);
+    process.stdout.write(`Installing open-classify (${pm} ${installCmd.join(" ")})...\n`);
     const result = spawnSync(pm, installCmd, { cwd, stdio: "inherit" });
     if (result.status !== 0) {
       process.stderr.write(`\n✖  Install failed. Run manually: ${pm} ${installCmd.join(" ")}\n`);
@@ -236,7 +236,7 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
   }
 
   // 4. Preview.
-  process.stdout.write(`\nThe following will be created in ${cwd}:\n\n`);
+  process.stdout.write(`${installedNow ? "" : "\n"}The following will be created in ${cwd}:\n\n`);
   for (const item of plan.preview) {
     if (item.isGroupHeader) {
       process.stdout.write(`  ${item.label}\n`);
@@ -305,20 +305,12 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
   const classifierDirRel = relative(cwd, resolvedClassifierDir);
   process.stdout.write(`
 Next steps:
+  1. Pull the default model:  ollama pull ${DEFAULT_CONFIG.runner.defaultModel}
+  2. Wire it up:              see ./${classifierDirRel}/README.md
+  3. Verify:                  npx open-classify doctor
+  4. Try it:                  npx open-classify try "hello world"
 
-  1. Pull the default model:
-       ollama pull ${DEFAULT_CONFIG.runner.defaultModel}
-
-  2. Wire it into your server (example for a Node entrypoint):
-       see  ./${classifierDirRel}/README.md  →  "Quickstart"
-
-  3. Verify the install:
-       npx open-classify doctor
-
-  4. Run a one-shot classification against your config:
-       npx open-classify try "hello world"
-
-Docs:  https://github.com/taylorbayouth/open-classify#readme
+Docs: https://github.com/taylorbayouth/open-classify#readme
 `);
 }
 
@@ -647,9 +639,8 @@ function confirm(prompt, defaultYes = false) {
 
 function promptConflict() {
   return new Promise((resolve) => {
-    process.stdout.write("\n? Overwrite them?\n   y      overwrite all\n   N      keep existing (default)\n   diff   show what would change\n\n");
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.question("  Choice (y/N/diff): ", (answer) => {
+    rl.question("\n? Overwrite them? (y/N/diff): ", (answer) => {
       rl.close();
       const v = (answer || "").trim().toLowerCase();
       if (v === "y" || v === "yes") resolve("y");
