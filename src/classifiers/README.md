@@ -1,8 +1,12 @@
 # Classifiers
 
-Each subdirectory here is one classifier. The runtime loads every directory in this folder at startup, validates the manifest, composes the system prompt, and registers the classifier with the pipeline.
+Each subdirectory here is one classifier — the bundled built-ins that ship with the package. The runtime loads every directory in this folder at startup, validates the manifest, composes the system prompt, and registers the classifier with the pipeline.
 
 Directories whose names start with `_` (like `_prompts/`) hold shared assets and are skipped by the loader.
+
+Seven of the eight built-ins are active by default. **`tools` ships disabled** because its `allowed_tools` list is app-specific — consumers enable it by copying `tools/` into their own `classifiers/` directory (where extras run by default) and editing the manifest. The shipped-disabled set is the `BUILTIN_DEFAULT_DISABLED` constant in `../classifiers.ts`. Consumers can disable additional classifiers via `classifiers.disabled` in their config or `createClassifier({ disabledClassifiers: [...] })`.
+
+> **Adding a classifier from a consumer project?** Don't put it here — `node_modules/open-classify/` is rebuilt on every `npm install`/`npm update` and your work would be wiped. Keep your classifiers in your own project tree and pass their parent directory to `createClassifier({ extraClassifierDirs: [...] })`. The folder layout and manifest contract documented below are identical for built-ins and consumer extras. See [docs/adding-a-classifier.md](../../docs/adding-a-classifier.md#adding-classifiers-from-a-consumer-project) for the full consumer flow.
 
 ## Creating a new classifier
 

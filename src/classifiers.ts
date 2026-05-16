@@ -18,10 +18,19 @@ import {
 } from "./stock-validation.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLASSIFIERS_DIR = join(__dirname, "classifiers");
+export const BUILTIN_CLASSIFIERS_DIR = join(__dirname, "classifiers");
 // Directories whose names start with "_" are reserved for shared assets
 // (e.g. `_prompts/`) and are not loaded as classifiers.
 const SHARED_DIRECTORY_PREFIX = "_";
+
+// Built-in classifiers that load but are disabled out of the box. Consumers
+// who want one of these enable it by copying its directory into their own
+// classifiers folder (where extras run by default). They can also be unioned
+// with consumer disables — there's no way to re-enable from config alone,
+// which is intentional: tools' opinionated `allowed_tools` list and similar
+// configuration knobs deserve to live in the consumer's repo, not behind a
+// remote flag.
+export const BUILTIN_DEFAULT_DISABLED: ReadonlyArray<string> = ["tools"];
 
 export class ClassifierManifestError extends Error {
   constructor(message: string) {
@@ -30,8 +39,32 @@ export class ClassifierManifestError extends Error {
   }
 }
 
+export type ClassifierModuleMap = Readonly<Record<string, RuntimeClassifierManifest>>;
+
+export interface ClassifierRegistryBundle {
+  readonly registry: ClassifierRegistry;
+  readonly modulesByName: ClassifierModuleMap;
+  readonly names: ReadonlyArray<string>;
+}
+
+export interface BuildRegistryOptions {
+  // Additional classifier directories to merge with the bundled built-ins.
+  // Each entry is scanned the same way as the built-in directory: each
+  // child folder must contain `manifest.json` + `prompt.md`. Folders whose
+  // names start with `_` are skipped.
+  readonly extraDirs?: ReadonlyArray<string>;
+  // Names to drop from the active registry. Combined with the package's
+  // built-in default-disabled list (see `BUILTIN_DEFAULT_DISABLED`). Every
+  // name must exist in the loaded set (either built-in or extra) or the
+  // build throws — typos can't silently no-op.
+  readonly disabledClassifiers?: ReadonlyArray<string>;
+}
+
+// Load all classifier manifests under a single directory. Used internally to
+// load the built-ins and each extra directory; callers wanting the merged
+// registry should use `buildClassifierRegistry()` instead.
 export function loadClassifierRegistry(
-  classifiersDir = CLASSIFIERS_DIR,
+  classifiersDir: string = BUILTIN_CLASSIFIERS_DIR,
 ): RuntimeClassifierManifest[] {
   if (!existsSync(classifiersDir)) {
     throw new ClassifierManifestError(`classifier directory not found: ${classifiersDir}`);
@@ -43,11 +76,65 @@ export function loadClassifierRegistry(
     if (entry.name.startsWith(SHARED_DIRECTORY_PREFIX)) continue;
     manifests.push(loadClassifierManifest(join(classifiersDir, entry.name)));
   }
-  // Lower dispatch_order runs first. Classifiers without dispatch_order sort
-  // last (treated as +Infinity) — useful for "run me whenever there's a slot".
-  manifests.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
-  validateRegistry(manifests);
   return manifests;
+}
+
+// Build a complete classifier registry from the bundled built-ins plus any
+// extra directories supplied by the caller. Applies the package's
+// default-disabled list and any caller-supplied disables, then sorts by
+// dispatch_order ascending (manifests without dispatch_order sort last).
+//
+// Name-collision check runs against the active set, not the loaded set, so
+// disabling a built-in frees its name for an extra to take over — that's
+// the supported "copy a built-in into your own dir to customize it"
+// workflow.
+export function buildClassifierRegistry(
+  options: BuildRegistryOptions = {},
+): ClassifierRegistryBundle {
+  const builtins = loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR);
+  const builtinNames = new Set(builtins.map((m) => m.name));
+
+  const extras: RuntimeClassifierManifest[] = [];
+  for (const dir of options.extraDirs ?? []) {
+    extras.push(...loadClassifierRegistry(dir));
+  }
+  const extraNames = new Set(extras.map((m) => m.name));
+
+  const userDisabled = options.disabledClassifiers ?? [];
+  for (const name of userDisabled) {
+    if (!builtinNames.has(name) && !extraNames.has(name)) {
+      const loaded = [...builtinNames, ...extraNames].join(", ");
+      throw new ClassifierManifestError(
+        `disabled classifier "${name}" is not loaded (known classifiers: ${loaded})`,
+      );
+    }
+  }
+
+  // Built-ins are filtered by both the package's default-disabled list and
+  // the caller's. Extras are filtered only by names in `disabledClassifiers`
+  // that DON'T match a built-in — when both exist, the disable targets the
+  // built-in and the extra takes its place (the "copy a built-in to
+  // customize it" workflow).
+  const disabledBuiltinNames = new Set<string>([...BUILTIN_DEFAULT_DISABLED, ...userDisabled]);
+  const disabledExtraOnlyNames = new Set<string>(
+    userDisabled.filter((name) => !builtinNames.has(name)),
+  );
+
+  const active = [
+    ...builtins.filter((m) => !disabledBuiltinNames.has(m.name)),
+    ...extras.filter((m) => !disabledExtraOnlyNames.has(m.name)),
+  ];
+  active.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
+
+  validateRegistry(active);
+
+  const registry = active as ClassifierRegistry;
+  const modulesByName = Object.fromEntries(
+    active.map((m) => [m.name, m]),
+  ) as ClassifierModuleMap;
+  const names = active.map((m) => m.name);
+
+  return { registry, modulesByName, names };
 }
 
 function loadClassifierManifest(classifierDir: string): RuntimeClassifierManifest {
@@ -96,31 +183,21 @@ function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): 
   const names = new Set<string>();
   for (const manifest of manifests) {
     if (names.has(manifest.name)) {
-      throw new ClassifierManifestError(`duplicate classifier name: ${manifest.name}`);
+      throw new ClassifierManifestError(
+        `duplicate classifier name: ${manifest.name} — collisions between built-in and extra classifiers (or between two extras) are not allowed`,
+      );
     }
     names.add(manifest.name);
   }
 }
 
-export const REGISTRY = loadClassifierRegistry() as ClassifierRegistry;
-export const CLASSIFIER_NAMES = REGISTRY.map((m) => m.name);
-export const MODULES_BY_NAME = Object.fromEntries(
-  REGISTRY.map((m) => [m.name, m]),
-) as Record<string, RuntimeClassifierManifest>;
-
-export type { ClassifierName, RunClassifier };
-export type RegistryType = typeof REGISTRY;
-
 export function validateClassifierOutput(
-  name: string,
+  manifest: RuntimeClassifierManifest,
   value: unknown,
   model: string,
 ): ClassifierOutput {
-  const manifest = MODULES_BY_NAME[name];
-  if (!manifest) {
-    throw new ClassifierManifestError(`unknown classifier: ${name}`);
-  }
-  return validateOutputForManifest(manifest, value, { classifier: name, model });
+  return validateOutputForManifest(manifest, value, { classifier: manifest.name, model });
 }
 
+export type { ClassifierName, RunClassifier };
 export type { ClassifierInput };

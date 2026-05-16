@@ -1,9 +1,5 @@
 import { assembleResult, buildPublicOutputs } from "./aggregator.js";
-import {
-  MODULES_BY_NAME,
-  REGISTRY,
-  type RunClassifier,
-} from "./classifiers.js";
+import { type RunClassifier } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
   Catalog,
@@ -39,6 +35,7 @@ export class OpenClassifyNormalizationError extends Error {
 export interface ClassifyOptions {
   runClassifier: RunClassifier;
   catalog: Catalog;
+  registry: ClassifierRegistry;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
   maxConcurrency?: number;
@@ -47,6 +44,7 @@ export interface ClassifyOptions {
 
 export interface InspectOptions {
   runClassifier: RunClassifier;
+  registry: ClassifierRegistry;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
   maxConcurrency?: number;
@@ -63,7 +61,7 @@ export async function classifyOpenClassifyInput(
 ): Promise<PipelineResult> {
   const { request, results, failedClassifiers } = await runPipeline(input, "user", options);
 
-  const reg = filteredRegistry("user");
+  const reg = filteredRegistry(options.registry, "user");
   const assembled = assembleResult({
     registry: reg,
     results,
@@ -82,7 +80,7 @@ export async function inspectOpenClassifyInput(
   options: InspectOptions,
 ): Promise<InspectResult> {
   const { request, results } = await runPipeline(input, "assistant", options);
-  const reg = filteredRegistry("assistant");
+  const reg = filteredRegistry(options.registry, "assistant");
 
   const lastMsg = request.messages[request.messages.length - 1];
 
@@ -101,6 +99,7 @@ interface PipelineRunResult {
 
 interface SharedPipelineOptions {
   runClassifier: RunClassifier;
+  registry: ClassifierRegistry;
   classifierTimeoutMs?: number;
   classifierRetryCount?: number;
   maxConcurrency?: number;
@@ -134,7 +133,7 @@ async function runPipeline(
   const classifierRetryCount = options.classifierRetryCount ?? DEFAULT_CLASSIFIER_RETRY_COUNT;
   const maxConcurrency = resolveMaxConcurrency(options.maxConcurrency);
 
-  const registry = filteredRegistry(role);
+  const registry = filteredRegistry(options.registry, role);
   const queue: ReadonlyArray<string> = registry.map((m) => m.name);
 
   try {
@@ -153,15 +152,18 @@ async function runPipeline(
         ),
     );
 
-    const { results, failedClassifiers } = collectResults(settled);
+    const { results, failedClassifiers } = collectResults(registry, settled);
     return { request, results, failedClassifiers };
   } finally {
     options.signal?.removeEventListener("abort", abortFromOptions);
   }
 }
 
-function filteredRegistry(role: "user" | "assistant"): ClassifierRegistry {
-  return REGISTRY.filter((m) => roleAppliesTo(m.appliesTo, role)) as ClassifierRegistry;
+function filteredRegistry(
+  registry: ClassifierRegistry,
+  role: "user" | "assistant",
+): ClassifierRegistry {
+  return registry.filter((m) => roleAppliesTo(m.appliesTo, role)) as ClassifierRegistry;
 }
 
 function roleAppliesTo(appliesTo: AppliesTo, role: "user" | "assistant"): boolean {
@@ -209,15 +211,24 @@ async function runWithConcurrency(
   return results;
 }
 
-function collectResults(settled: SettledClassifierResult[]): {
+function collectResults(
+  registry: ClassifierRegistry,
+  settled: SettledClassifierResult[],
+): {
   results: ClassifierResults;
   failedClassifiers: ReadonlyArray<string>;
 } {
+  const fallbackByName = new Map<string, RuntimeClassifierManifest["fallback"]>();
+  for (const m of registry) fallbackByName.set(m.name, m.fallback);
+
   const results: ClassifierResults = {};
   const failedClassifiers: string[] = [];
   for (const s of settled) {
-    const manifest = MODULES_BY_NAME[s.name];
-    results[s.name] = s.ok ? s.value : manifest.fallback;
+    const fallback = fallbackByName.get(s.name);
+    if (fallback === undefined) {
+      throw new Error(`pipeline: classifier "${s.name}" missing from registry`);
+    }
+    results[s.name] = s.ok ? s.value : fallback;
     if (!s.ok) failedClassifiers.push(s.name);
   }
   return { results, failedClassifiers };

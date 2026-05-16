@@ -12,13 +12,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  CLASSIFIER_NAMES,
-  MODULES_BY_NAME,
   validateClassifierOutput,
+  type ClassifierModuleMap,
   type ClassifierName,
   type RunClassifier,
 } from "./classifiers.js";
-import type { ClassifierOutput } from "./stock.js";
+import type { ClassifierOutput, RuntimeClassifierManifest } from "./stock.js";
 import type { ClassifierInput } from "./types.js";
 import {
   ClassifierValidationError,
@@ -28,7 +27,6 @@ import {
 export const OLLAMA_DEFAULT_HOST = "http://localhost:11434";
 export const OLLAMA_BASE_MODEL = "gemma4:e4b-it-q4_K_M";
 export const OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH = 131_072;
-export const OLLAMA_REQUIRED_PARALLELISM = CLASSIFIER_NAMES.length;
 export const OLLAMA_DEFAULT_CATALOG_PATH = "downstream-models.json";
 
 /*
@@ -45,10 +43,6 @@ const ESTIMATED_CHARS_PER_TOKEN = 3;
 
 const execFileAsync = promisify(execFile);
 
-export const OLLAMA_CLASSIFIER_MODELS = Object.fromEntries(
-  CLASSIFIER_NAMES.map((name) => [name, null]),
-) as Record<ClassifierName, string | null>;
-
 export interface OllamaOptions {
   temperature?: number;
   top_p?: number;
@@ -57,14 +51,22 @@ export interface OllamaOptions {
 }
 
 export interface OllamaClassifierRunnerConfig {
+  // The classifier module map for the registry the runner serves. Required:
+  // the runner needs every classifier's composed system prompt and validation
+  // schema. Pass `bundle.modulesByName` from `buildClassifierRegistry()`.
+  modulesByName: ClassifierModuleMap;
+  // Memory floor used by the resource check, expressed in bytes for both
+  // total and available memory. Defaults are conservative for the bundled
+  // built-in classifiers running in parallel; raise these when serving a
+  // larger registry, lower them only if you know what you're doing.
+  minTotalMemoryBytes?: number;
+  minAvailableMemoryBytes?: number;
   host?: string;
   defaultModel?: string;
   models?: Partial<Record<ClassifierName, string | null>>;
   options?: OllamaOptions;
   fetch?: typeof fetch;
   skipResourceCheck?: boolean;
-  minAvailableMemoryBytes?: number;
-  minTotalMemoryBytes?: number;
 }
 
 interface OllamaChatResponse {
@@ -100,7 +102,7 @@ export class OllamaResourceError extends Error {
     minAvailableMemoryBytes: number,
   ) {
     super(
-      `Ollama resource check failed: ${formatBytes(totalMemoryBytes)} total and ${formatBytes(availableMemoryBytes)} available; ${formatBytes(minTotalMemoryBytes)} total and ${formatBytes(minAvailableMemoryBytes)} available required for ${OLLAMA_REQUIRED_PARALLELISM} parallel classifiers`,
+      `Ollama resource check failed: ${formatBytes(totalMemoryBytes)} total and ${formatBytes(availableMemoryBytes)} available; ${formatBytes(minTotalMemoryBytes)} total and ${formatBytes(minAvailableMemoryBytes)} available required to run classifiers in parallel`,
     );
     this.name = "OllamaResourceError";
     this.totalMemoryBytes = totalMemoryBytes;
@@ -114,8 +116,12 @@ export class OllamaResourceError extends Error {
 // The resource check is lazy and runs once per runner — the first classifier
 // invocation pays for it; subsequent ones reuse the same promise.
 export function createOllamaClassifierRunner(
-  config: OllamaClassifierRunnerConfig = {},
+  config: OllamaClassifierRunnerConfig,
 ): RunClassifier {
+  if (!config?.modulesByName) {
+    throw new Error("createOllamaClassifierRunner requires `modulesByName` from buildClassifierRegistry()");
+  }
+  const modulesByName = config.modulesByName;
   const host = trimTrailingSlash(config.host ?? OLLAMA_DEFAULT_HOST);
   const fetchImpl = config.fetch ?? fetch;
   const models = config.models ?? {};
@@ -143,10 +149,19 @@ export function createOllamaClassifierRunner(
       await resourceCheck;
     }
 
+    const manifest = modulesByName[name];
+    if (manifest === undefined) {
+      throw new OllamaClassifierError(
+        name,
+        defaultModel,
+        `unknown classifier "${name}" — not present in registry`,
+      );
+    }
+
     const configuredModel = models[name];
     const model = configuredModel ?? defaultModel;
     return runOllamaClassifier(
-      name,
+      manifest,
       input,
       signal,
       fetchImpl,
@@ -184,7 +199,7 @@ export async function assertOllamaResources(
 }
 
 async function runOllamaClassifier(
-  name: ClassifierName,
+  manifest: RuntimeClassifierManifest,
   input: ClassifierInput,
   signal: AbortSignal,
   fetchImpl: typeof fetch,
@@ -193,9 +208,9 @@ async function runOllamaClassifier(
   options: OllamaOptions,
   allowManifestModel: boolean,
 ): Promise<ClassifierOutput> {
-  const module_ = MODULES_BY_NAME[name];
-  const systemPrompt = module_.systemPrompt;
-  const configuredBaseModel = module_.backend?.ollama?.base_model;
+  const name = manifest.name;
+  const systemPrompt = manifest.systemPrompt;
+  const configuredBaseModel = manifest.backend?.ollama?.base_model;
   if (allowManifestModel && configuredBaseModel) {
     model = configuredBaseModel;
   }
@@ -260,7 +275,7 @@ async function runOllamaClassifier(
 
   const parsed = parseJsonObject(content, name, model);
   try {
-    return validateClassifierOutput(name, parsed, model);
+    return validateClassifierOutput(manifest, parsed, model);
   } catch (error) {
     if (error instanceof ClassifierValidationError) {
       throw new OllamaClassifierError(name, model, error.message, error);

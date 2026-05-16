@@ -43,16 +43,28 @@ There is no "stock" vs "custom" distinction. Every classifier uses the same cont
 
 The built-in classifiers (by dispatch_order):
 
-| Name | dispatch_order | Reserved fields | applies_to |
-|---|---|---|---|
-| `preflight` | 10 | `final_reply`, `ack_reply` | `user` |
-| `model_tier` | 20 | `model_tier` | `user` |
-| `model_specialization` | 30 | `model_specialization` | `user` |
-| `tools` | 40 | `tools` | `user` |
-| `prompt_injection` | 50 | `risk_level` | **`both`** |
-| `memory_retrieval_queries` | 60 | — | `user` |
-| `conversation_digest` | 70 | — | `user` |
-| `context_shift` | 80 | — | `user` |
+| Name | dispatch_order | Reserved fields | applies_to | Default |
+|---|---|---|---|---|
+| `preflight` | 10 | `final_reply`, `ack_reply` | `user` | on |
+| `model_tier` | 20 | `model_tier` | `user` | on |
+| `model_specialization` | 30 | `model_specialization` | `user` | on |
+| `tools` | 40 | `tools` | `user` | **off** |
+| `prompt_injection` | 50 | `risk_level` | **`both`** | on |
+| `memory_retrieval_queries` | 60 | — | `user` | on |
+| `conversation_digest` | 70 | — | `user` | on |
+| `context_shift` | 80 | — | `user` | on |
+
+`tools` is shipped disabled because its `allowed_tools` list is app-specific — consumers enable it by copying `src/classifiers/tools/` into one of their `extraClassifierDirs`. The shipped-disabled set is exported as `BUILTIN_DEFAULT_DISABLED` from `src/classifiers.ts`.
+
+### Disabling classifiers
+
+Consumers turn classifiers off via `classifiers.disabled` in `open-classify.config.json` or `createClassifier({ disabledClassifiers: [...] })`. The two are unioned with `BUILTIN_DEFAULT_DISABLED`. Names that don't match a loaded classifier throw at startup.
+
+Disable semantics:
+- For built-ins (or names matching a built-in): the bundled classifier is dropped. If the consumer has an extra with the same name, the extra survives — that's the "copy a built-in to customize it" workflow.
+- For names that match only an extra: the extra is dropped.
+
+Collision check runs against the active set, not the loaded set, so disabling a built-in frees its name for an extra to take over without throwing.
 
 ### Two passes: `classify()` and `inspect()`
 
