@@ -23,6 +23,15 @@ export const BUILTIN_CLASSIFIERS_DIR = join(__dirname, "classifiers");
 // (e.g. `_prompts/`) and are not loaded as classifiers.
 const SHARED_DIRECTORY_PREFIX = "_";
 
+// Built-in classifiers that load but are disabled out of the box. Consumers
+// who want one of these enable it by copying its directory into their own
+// classifiers folder (where extras run by default). They can also be unioned
+// with consumer disables — there's no way to re-enable from config alone,
+// which is intentional: tools' opinionated `allowed_tools` list and similar
+// configuration knobs deserve to live in the consumer's repo, not behind a
+// remote flag.
+export const BUILTIN_DEFAULT_DISABLED: ReadonlyArray<string> = ["tools"];
+
 export class ClassifierManifestError extends Error {
   constructor(message: string) {
     super(message);
@@ -43,10 +52,12 @@ export interface BuildRegistryOptions {
   // Each entry is scanned the same way as the built-in directory: each
   // child folder must contain `manifest.json` + `prompt.md`. Folders whose
   // names start with `_` are skipped.
-  //
-  // A name collision between any two loaded classifiers — built-in vs
-  // extra, or between two extras — throws ClassifierManifestError.
   readonly extraDirs?: ReadonlyArray<string>;
+  // Names to drop from the active registry. Combined with the package's
+  // built-in default-disabled list (see `BUILTIN_DEFAULT_DISABLED`). Every
+  // name must exist in the loaded set (either built-in or extra) or the
+  // build throws — typos can't silently no-op.
+  readonly disabledClassifiers?: ReadonlyArray<string>;
 }
 
 // Load all classifier manifests under a single directory. Used internally to
@@ -69,30 +80,59 @@ export function loadClassifierRegistry(
 }
 
 // Build a complete classifier registry from the bundled built-ins plus any
-// extra directories supplied by the caller. Sorts by dispatch_order ascending
-// (manifests without dispatch_order sort last). Rejects duplicate names.
+// extra directories supplied by the caller. Applies the package's
+// default-disabled list and any caller-supplied disables, then sorts by
+// dispatch_order ascending (manifests without dispatch_order sort last).
+//
+// Name-collision check runs against the active set, not the loaded set, so
+// disabling a built-in frees its name for an extra to take over — that's
+// the supported "copy a built-in into your own dir to customize it"
+// workflow.
 export function buildClassifierRegistry(
   options: BuildRegistryOptions = {},
 ): ClassifierRegistryBundle {
-  const manifests: RuntimeClassifierManifest[] = [
-    ...loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR),
-  ];
+  const builtins = loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR);
+  const builtinNames = new Set(builtins.map((m) => m.name));
 
+  const extras: RuntimeClassifierManifest[] = [];
   for (const dir of options.extraDirs ?? []) {
-    manifests.push(...loadClassifierRegistry(dir));
+    extras.push(...loadClassifierRegistry(dir));
+  }
+  const extraNames = new Set(extras.map((m) => m.name));
+
+  const userDisabled = options.disabledClassifiers ?? [];
+  for (const name of userDisabled) {
+    if (!builtinNames.has(name) && !extraNames.has(name)) {
+      const loaded = [...builtinNames, ...extraNames].join(", ");
+      throw new ClassifierManifestError(
+        `disabled classifier "${name}" is not loaded (known classifiers: ${loaded})`,
+      );
+    }
   }
 
-  // Lower dispatch_order runs first. Classifiers without dispatch_order sort
-  // last (treated as +Infinity) — useful for "run me whenever there's a slot".
-  manifests.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
+  // Built-ins are filtered by both the package's default-disabled list and
+  // the caller's. Extras are filtered only by names in `disabledClassifiers`
+  // that DON'T match a built-in — when both exist, the disable targets the
+  // built-in and the extra takes its place (the "copy a built-in to
+  // customize it" workflow).
+  const disabledBuiltinNames = new Set<string>([...BUILTIN_DEFAULT_DISABLED, ...userDisabled]);
+  const disabledExtraOnlyNames = new Set<string>(
+    userDisabled.filter((name) => !builtinNames.has(name)),
+  );
 
-  validateRegistry(manifests);
+  const active = [
+    ...builtins.filter((m) => !disabledBuiltinNames.has(m.name)),
+    ...extras.filter((m) => !disabledExtraOnlyNames.has(m.name)),
+  ];
+  active.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
 
-  const registry = manifests as ClassifierRegistry;
+  validateRegistry(active);
+
+  const registry = active as ClassifierRegistry;
   const modulesByName = Object.fromEntries(
-    manifests.map((m) => [m.name, m]),
+    active.map((m) => [m.name, m]),
   ) as ClassifierModuleMap;
-  const names = manifests.map((m) => m.name);
+  const names = active.map((m) => m.name);
 
   return { registry, modulesByName, names };
 }

@@ -142,16 +142,18 @@ Example result:
 
 Open Classify ships with eight built-in classifiers; all use the same manifest shape. There is no distinction between "stock" and "custom" — the runtime only cares about which **reserved fields** a classifier declares.
 
-| Name | dispatch_order | Reserved fields | What the aggregator does with it |
-|---|---|---|---|
-| `preflight` | 10 | `final_reply`, `ack_reply` | Sets `action: "reply"` or populates `result.reply` |
-| `model_tier` | 20 | `model_tier` | Feeds the catalog resolver as a soft constraint |
-| `model_specialization` | 30 | `model_specialization` | Feeds the catalog resolver as a soft constraint |
-| `tools` | 40 | `tools` | Sets `result.tools` |
-| `prompt_injection` | 50 | `risk_level` | High-risk/unknown → `action: "block"`; suspicious → advisory |
-| `memory_retrieval_queries` | 60 | — | Passes through to `classifier_outputs` |
-| `conversation_digest` | 70 | — | Passes through |
-| `context_shift` | 80 | — | Passes through |
+Seven are **active by default**. One — `tools` — is **shipped disabled**, because its `allowed_tools` list is highly app-specific and you'll almost certainly want to edit it. To activate `tools`, copy its directory into your own classifiers folder (see [Turning classifiers on and off](#turning-classifiers-on-and-off)).
+
+| Name | dispatch_order | Reserved fields | Default | What the aggregator does with it |
+|---|---|---|---|---|
+| `preflight` | 10 | `final_reply`, `ack_reply` | on | Sets `action: "reply"` or populates `result.reply` |
+| `model_tier` | 20 | `model_tier` | on | Feeds the catalog resolver as a soft constraint |
+| `model_specialization` | 30 | `model_specialization` | on | Feeds the catalog resolver as a soft constraint |
+| `tools` | 40 | `tools` | **off** | Sets `result.tools` |
+| `prompt_injection` | 50 | `risk_level` | on | High-risk/unknown → `action: "block"`; suspicious → advisory |
+| `memory_retrieval_queries` | 60 | — | on | Passes through to `classifier_outputs` |
+| `conversation_digest` | 70 | — | on | Passes through |
+| `context_shift` | 80 | — | on | Passes through |
 
 Reserved fields are well-known output keys with canonical JSON Schemas and prompt fragments baked into the runtime. When you declare one in your manifest, you don't have to redeclare its enum values or shape — the runtime injects them.
 
@@ -245,6 +247,48 @@ const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 > Contributing a classifier back to Open Classify itself? Drop it under `src/classifiers/<name>/` in this repo instead — the manifest contract is identical.
 
 See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for the full walkthrough and [docs/manifests.md](docs/manifests.md) for the field reference.
+
+## Turning classifiers on and off
+
+There's one knob: a `disabled` list. It applies to built-ins and your own classifiers alike.
+
+```json
+{
+  "classifiers": {
+    "disabled": ["conversation_digest", "context_shift"]
+  }
+}
+```
+
+Or programmatically:
+
+```ts
+createClassifier({ disabledClassifiers: ["conversation_digest"] });
+```
+
+Names that aren't loaded throw at startup, so typos fail loud.
+
+### To enable `tools` (or any default-disabled built-in)
+
+Copy its directory out of the package and into your own classifiers folder:
+
+```sh
+cp -r node_modules/open-classify/dist/src/classifiers/tools ./classifiers/
+```
+
+Now edit `classifiers/tools/manifest.json` to tailor `allowed_tools` to your app, and tweak `prompt.md` if you like. Because it's loaded as one of your `extraClassifierDirs`, it runs by default.
+
+This is also the supported way to **customize a default-on built-in**: copy `preflight/` into your own dir, edit the prompt, then disable the bundled one. With `"disabled": ["preflight"]` in your config, the bundled `preflight` drops out and your copy takes its place — no name-collision error.
+
+### Watch out
+
+A few built-ins are load-bearing for the routing pipeline:
+
+- Disable `preflight` without providing a replacement that emits `final_reply` or `ack_reply` → every result blocks as `classification_error` (the contract is "you must produce a reply").
+- Disable `model_tier` and `model_specialization` together → routing falls back to the catalog's default model on every request, defeating per-message routing.
+- Disable `prompt_injection` → no defensive layer against instruction-override attempts.
+
+These are deliberate dependencies, not bugs. Disable with intent.
 
 ## Using reserved fields in your own classifier
 

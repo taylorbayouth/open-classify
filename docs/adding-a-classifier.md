@@ -148,11 +148,69 @@ Rules:
 
 - `extraClassifierDirs` accepts one or more directories; each is scanned the same way as the bundled built-ins (one folder per classifier).
 - Folder layout, manifest contract, and validation are identical to in-repo classifiers — see steps 1–3 above.
-- **Name collisions throw.** If any extra classifier shares a `name` with a built-in (or with another extra), `buildClassifierRegistry` raises `ClassifierManifestError` at startup. This is intentional: silent overrides would break the moment a future package update introduced a new built-in with the same name. Pick a unique name (or namespace yours, e.g. `myapp_intent`).
+- **Name collisions between two active classifiers throw.** If you want your extra to *replace* a built-in (a `preflight` of your own, say), disable the built-in via `classifiers.disabled` and your extra slides into the freed name without colliding — see [Turning classifiers on and off](#turning-classifiers-on-and-off) below. Otherwise pick a unique name (namespacing yours, e.g. `myapp_intent`, is a safe habit).
 - Use absolute paths (e.g. via `path.resolve(...)` or `fileURLToPath(import.meta.url)`); relative paths are resolved against the process working directory.
 - The introspection bundle returned on `createClassifier()` (`{ registry, classify, inspect }`) lets you iterate `registry.names` or pull manifests off `registry.modulesByName` for diagnostics.
 
 Updating Open Classify (`npm update open-classify`) only touches `node_modules`, so anything under your project's classifiers folder is left alone.
+
+## Turning classifiers on and off
+
+One knob, two surfaces. Names that aren't loaded throw at startup, so typos fail loud.
+
+In `open-classify.config.json`:
+
+```json
+{
+  "classifiers": {
+    "disabled": ["conversation_digest", "context_shift"]
+  }
+}
+```
+
+Or programmatically:
+
+```ts
+createClassifier({ disabledClassifiers: ["conversation_digest"] });
+```
+
+The two are merged with the package's default-disabled list (see below).
+
+### Default-on vs default-off built-ins
+
+Of the eight bundled classifiers, seven run by default. **`tools`** is shipped disabled — its `allowed_tools` list is highly app-specific and you'll almost certainly want to edit it.
+
+To activate `tools`, copy the bundled directory into your own classifiers folder:
+
+```sh
+cp -r node_modules/open-classify/dist/src/classifiers/tools ./classifiers/
+```
+
+Edit `classifiers/tools/manifest.json` to set the `allowed_tools` list for your app. Because it's loaded as one of your `extraClassifierDirs`, it runs by default — no need to touch the disabled list.
+
+### Overriding a default-on built-in with your own copy
+
+Same pattern in reverse: copy `preflight/` (say) into your own dir, tweak the prompt, then disable the bundled one:
+
+```json
+{
+  "classifiers": {
+    "disabled": ["preflight"]
+  }
+}
+```
+
+With `preflight` in the disabled list, the bundled version drops out and the collision check leaves your copy alone — your `preflight` runs.
+
+### Load-bearing built-ins (caveat)
+
+Some built-ins are wired into the routing pipeline:
+
+- Disable `preflight` without replacing it → every result blocks as `classification_error` (the contract is "you must produce a reply").
+- Disable `model_tier` and `model_specialization` together → routing falls back to the catalog's default model on every request.
+- Disable `prompt_injection` → no defensive layer against instruction-override attempts.
+
+Disable with intent.
 
 ## 5. Consume the output
 

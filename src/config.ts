@@ -7,6 +7,16 @@ export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
 export interface OpenClassifyConfig {
   readonly runner?: OllamaRunnerConfig;
   readonly catalog?: string;
+  readonly classifiers?: ClassifiersConfig;
+}
+
+export interface ClassifiersConfig {
+  // Names to drop from the active registry. Built-ins, extras, both — any
+  // classifier loaded by the runtime is eligible. Names that aren't loaded
+  // throw at startup so typos fail loud. See `BUILTIN_DEFAULT_DISABLED` in
+  // classifiers.ts for the package's shipped-disabled list, which is
+  // unioned with this one.
+  readonly disabled?: ReadonlyArray<string>;
 }
 
 export interface OllamaRunnerConfig {
@@ -64,12 +74,42 @@ export function validateOpenClassifyConfig(
   if (!isRecord(value)) {
     throwConfig(path, "config must be a JSON object");
   }
-  ensureAllowedKeys(value, ["runner", "catalog"], path, "<root>");
+  ensureAllowedKeys(value, ["runner", "catalog", "classifiers"], path, "<root>");
 
   return {
     ...(value.runner === undefined ? {} : { runner: validateRunner(value.runner, path) }),
     ...(value.catalog === undefined ? {} : { catalog: requireString(value.catalog, path, "catalog") }),
+    ...(value.classifiers === undefined
+      ? {}
+      : { classifiers: validateClassifiers(value.classifiers, path) }),
   };
+}
+
+function validateClassifiers(value: unknown, path: string): ClassifiersConfig {
+  if (!isRecord(value)) {
+    throwConfig(path, "classifiers must be an object");
+  }
+  ensureAllowedKeys(value, ["disabled"], path, "classifiers");
+  return value.disabled === undefined
+    ? {}
+    : { disabled: validateDisabledList(value.disabled, path) };
+}
+
+function validateDisabledList(value: unknown, path: string): ReadonlyArray<string> {
+  if (!Array.isArray(value)) {
+    throwConfig(path, "classifiers.disabled must be an array of strings");
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = requireString(value[i], path, `classifiers.disabled[${i}]`);
+    if (seen.has(item)) {
+      throwConfig(path, `classifiers.disabled[${i}] duplicates "${item}"`);
+    }
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
 }
 
 function validateRunner(value: unknown, path: string): OllamaRunnerConfig {
