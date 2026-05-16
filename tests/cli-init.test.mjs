@@ -15,7 +15,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI = join(__dirname, "..", "bin", "open-classify.mjs");
 
 function runCli(cwd, args) {
-  return spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: "utf8" });
+  // Tests run in temp dirs without network access. Skip the auto-install
+  // step for init so we don't try to fetch open-classify from the registry.
+  const finalArgs = args[0] === "init" && !args.includes("--no-install")
+    ? [...args, "--no-install"]
+    : args;
+  return spawnSync(process.execPath, [CLI, ...finalArgs], { cwd, encoding: "utf8" });
 }
 
 function freshProject() {

@@ -152,7 +152,7 @@ Options for init:
   --minimal              Write only open-classify.config.json; skip classifiers/
   --dry-run              Preview what would be created; don't write anything
   --force                Overwrite existing files without prompting
-  --no-install           Skip the "add to package.json" prompt
+  --no-install           Don't auto-install open-classify as a dependency
   --package-manager <m>  npm | pnpm | yarn | bun  (default: auto-detect)
   --classifier-dir <p>   Directory for classifiers  (default: ./classifiers)
   --yes, -y              Accept all prompts (CI mode)
@@ -206,27 +206,18 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
     process.exit(1);
   }
 
-  // 2. Offer to install if not yet a dependency (skip in --yes / --no-install mode).
+  // 2. Install as a dependency if not already (skip with --no-install).
   let installedNow = false;
-  if (!isOpenClassifyDep(pkg) && !noInstall && !yes) {
-    process.stdout.write(`ℹ  open-classify is not yet a dependency of this project.\n\n`);
-    const doInstall = await confirm("? Add open-classify to package.json and install it now? (Y/n) ", true);
-    if (doInstall) {
-      const pm = packageManager || detectPackageManager(cwd);
-      const installCmd = pm === "npm" ? ["install", "open-classify"] : ["add", "open-classify"];
-      process.stdout.write(`\n  Running: ${pm} ${installCmd.join(" ")}\n\n`);
-      const result = spawnSync(pm, installCmd, { cwd, stdio: "inherit" });
-      if (result.status !== 0) {
-        process.stderr.write(`\n✖  Install failed. Run manually: ${pm} ${installCmd.join(" ")}\n`);
-        process.exit(1);
-      }
-      installedNow = true;
-      process.stdout.write("\n");
-    } else {
-      process.stdout.write(
-        `  Skipped. You'll need to run \`npm install open-classify\` before importing.\n\n`,
-      );
+  if (!isOpenClassifyDep(pkg) && !noInstall) {
+    const pm = packageManager || detectPackageManager(cwd);
+    const installCmd = pm === "npm" ? ["install", "open-classify"] : ["add", "open-classify"];
+    process.stdout.write(`Installing open-classify as a dependency (${pm} ${installCmd.join(" ")})...\n\n`);
+    const result = spawnSync(pm, installCmd, { cwd, stdio: "inherit" });
+    if (result.status !== 0) {
+      process.stderr.write(`\n✖  Install failed. Run manually: ${pm} ${installCmd.join(" ")}\n`);
+      process.exit(1);
     }
+    installedNow = true;
   }
 
   // 3. Plan.
