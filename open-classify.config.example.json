@@ -13,12 +13,8 @@
       "preflight": "gemma4:e4b-it-q4_K_M",
       "model_tier": "gemma4:e4b-it-q4_K_M",
       "model_specialization": "gemma4:e4b-it-q4_K_M",
-      "prompt_injection": "gemma4:e4b-it-q4_K_M",
-      "memory_retrieval_queries": "gemma4:e4b-it-q4_K_M"
+      "prompt_injection": "gemma4:e4b-it-q4_K_M"
     }
-  },
-  "classifiers": {
-    "disabled": ["conversation_digest", "context_shift"]
   },
   "catalog": "downstream-models.json"
 }

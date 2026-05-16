@@ -41,43 +41,53 @@ Every classifier uses the same manifest shape and emits the same output envelope
 - **Shape downstream context intentionally.** Built-in and custom classifiers can recommend tools, retrieval queries, summaries, or other context hints without passing the full conversation history back to the caller.
 - **Add another defensive layer.** The `prompt_injection` classifier surfaces instruction-override attempts. High-risk or unknown injection risk automatically sets `action: "block"`.
 
-## Install
+## Getting started
+
+Node 18+. The packaged runner uses local Ollama with `gemma4:e4b-it-q4_K_M` as the zero-config classifier model. Pluggable via `open-classify.config.json` or a custom `RunClassifier`.
+
+**1. Install**
 
 ```sh
 npm install open-classify
 ```
 
-Node 18+. The packaged runner is local Ollama and ships with `gemma4:e4b-it-q4_K_M` as the zero-config classifier model. That runner is configurable through `open-classify.config.json`; arbitrary backends are supported in code by implementing `RunClassifier`.
+**2. Scaffold**
 
-## Hello World
+```sh
+npx open-classify init
+```
+
+This creates `open-classify.config.json` and a `classifiers/` directory in your project root. You'll see exactly what will be written and asked to confirm. Re-run safe: existing files are skipped.
+
+**3. Use it**
 
 ```ts
 import { createClassifier } from "open-classify";
 
-const { classify, inspect } = createClassifier();
-
-const result = await classify({
-  messages: [
-    { role: "user", text: "Can you review the attached contract?" },
-  ],
+const { classify } = createClassifier({
+  extraClassifierDirs: ["./classifiers"],
 });
 
-if (result.action === "block") {
-  // classification error or prompt injection — handle appropriately
-  console.error(result.block_reason, result.failed_classifiers);
-} else if (result.action === "reply") {
-  // preflight can answer this immediately — skip the downstream model
-  respondToUser(result.reply.text);
-} else {
-  // route to the downstream model
-  callDownstream(result.model_id, result.tools);
-  respondToUser(result.reply?.text); // show the ack while it works
-}
+const result = await classify({
+  messages: [{ role: "user", text: "Can you review the attached contract?" }],
+});
 
-const queries = result.classifier_outputs.memory_retrieval_queries?.queries;
+if (result.action === "reply") respondToUser(result.reply.text);          // preflight answered it
+else if (result.action === "block") handleBlock(result.block_reason);     // injection or error
+else callDownstream(result.model_id, result.tools, result.reply?.text);   // route the real request
 ```
 
-`createClassifier` builds the runner and loads the model catalog once. Reuse the returned `classify` and `inspect` functions across your app — every call is a plain function invocation, no re-initialization.
+**4. Activate or customize a classifier**
+
+Inside `classifiers/` you'll find four `_<name>/` directories — templates copied from the package, inactive because of the underscore prefix. To turn one on, drop the underscore:
+
+```sh
+mv classifiers/_tools classifiers/tools
+```
+
+Edit `manifest.json` first if you need to (e.g. trim `allowed_tools` for your app). The same underscore convention works the other way too: rename `my_classifier/` → `_my_classifier/` to take any classifier out of the active set without deleting it.
+
+To write a new classifier from scratch, drop a `<name>/manifest.json` + `<name>/prompt.md` in `classifiers/`. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md).
 
 ### Classifying assistant output
 
@@ -140,44 +150,36 @@ Example result:
 
 ## Classifier model
 
-Open Classify ships with eight built-in classifiers; all use the same manifest shape. There is no distinction between "stock" and "custom" — the runtime only cares about which **reserved fields** a classifier declares.
+Every classifier — bundled or your own — uses the same two-file shape (`manifest.json` + `prompt.md`) and emits the same envelope: `{ reason, certainty, ...payload }`. Some payload fields are **reserved** (like `model_tier`, `final_reply`, `risk_level`); the aggregator knows how to consume them into the routing decision. Everything else passes through to the caller.
 
-Seven are **active by default**. One — `tools` — is **shipped disabled**, because its `allowed_tools` list is highly app-specific and you'll almost certainly want to edit it. To activate `tools`, copy its directory into your own classifiers folder (see [Turning classifiers on and off](#turning-classifiers-on-and-off)).
+Open Classify ships eight built-in classifiers. **Four are mandatory** — they always load, they can't be turned off, and extras can't override them. The other four ship as **templates** that `init` copies into your project as inactive (`_<name>/`); rename to activate.
 
-| Name | dispatch_order | Reserved fields | Default | What the aggregator does with it |
+| Name | dispatch_order | Reserved fields | Bundled as | What the aggregator does with it |
 |---|---|---|---|---|
-| `preflight` | 10 | `final_reply`, `ack_reply` | on | Sets `action: "reply"` or populates `result.reply` |
-| `model_tier` | 20 | `model_tier` | on | Feeds the catalog resolver as a soft constraint |
-| `model_specialization` | 30 | `model_specialization` | on | Feeds the catalog resolver as a soft constraint |
-| `tools` | 40 | `tools` | **off** | Sets `result.tools` |
-| `prompt_injection` | 50 | `risk_level` | on | High-risk/unknown → `action: "block"`; suspicious → advisory |
-| `memory_retrieval_queries` | 60 | — | on | Passes through to `classifier_outputs` |
-| `conversation_digest` | 70 | — | on | Passes through |
-| `context_shift` | 80 | — | on | Passes through |
+| `preflight` | 10 | `final_reply`, `ack_reply` | mandatory | Sets `action: "reply"` or populates `result.reply` |
+| `model_tier` | 20 | `model_tier` | mandatory | Feeds the catalog resolver as a soft constraint |
+| `model_specialization` | 30 | `model_specialization` | mandatory | Feeds the catalog resolver as a soft constraint |
+| `prompt_injection` | 50 | `risk_level` | mandatory | High-risk/unknown → `action: "block"`; suspicious → advisory |
+| `tools` | 40 | `tools` | template | Sets `result.tools` |
+| `memory_retrieval_queries` | 60 | — | template | Passes through to `classifier_outputs` |
+| `conversation_digest` | 70 | — | template | Passes through |
+| `context_shift` | 80 | — | template | Passes through |
 
-Reserved fields are well-known output keys with canonical JSON Schemas and prompt fragments baked into the runtime. When you declare one in your manifest, you don't have to redeclare its enum values or shape — the runtime injects them.
+The directory-naming convention (`_<name>/` = inactive) is the only on/off mechanism, and it applies equally to bundled templates and your own classifiers. No `disabled` config, no allow-lists, no flags. If a folder is in `classifiers/` without a leading underscore, it runs.
 
-## Adding a classifier
+> Need to customize `preflight`'s prompt or any other mandatory built-in? Use a custom `RunClassifier` (see [Bring your own backend](#bring-your-own-backend)) to intercept it, or fork the package.
 
-If you've installed Open Classify as a dependency, **keep your classifiers inside your own project tree** and point `createClassifier` at the parent directory. Don't put them under `node_modules/open-classify/` — every `npm install`/`npm update` rebuilds `node_modules` from package contents and wipes them.
+## Adding your own classifier
 
-A classifier is two files in a directory named after it. Here's the full end-to-end setup for a consumer project:
-
-### 1. Lay out the classifier in your project
+The two files are:
 
 ```
-my-app/
-├── classifiers/
-│   └── topic_tags/
-│       ├── manifest.json
-│       └── prompt.md
-└── src/
-    └── classify.ts
+classifiers/topic_tags/
+├── manifest.json
+└── prompt.md
 ```
 
-The directory name (`topic_tags`) must match `manifest.json`'s `name` field.
-
-### 2. Write `manifest.json`
+`manifest.json` declares the output shape and a fallback for when the classifier errors:
 
 ```json
 {
@@ -202,93 +204,22 @@ The directory name (`topic_tags`) must match `manifest.json`'s `name` field.
 }
 ```
 
-### 3. Write `prompt.md`
-
-Describe the classification rule in plain language. You don't need to write JSON examples — the runtime synthesizes one from your schema — and you don't paste enum values for reserved fields:
+`prompt.md` is the classification rule in plain language. No need to write JSON examples — the runtime synthesizes one from your schema — and no need to paste enum values for reserved fields:
 
 ```markdown
 You are the topic_tags classifier.
 
 `tags` are short single-word topic labels (lowercase, no spaces). Use at most five.
 Return an empty array when no clear topic applies.
-Do not invent tags for vague or ambiguous messages.
 ```
 
-### 4. Register the directory and consume the output
-
-Pass an **absolute path** to `extraClassifierDirs`. Resolving via `import.meta.url` (or `__dirname` in CommonJS) keeps it correct no matter where the process is launched from — `"./classifiers"` would silently resolve against `process.cwd()` and break the moment you run from a different directory:
+Consume:
 
 ```ts
-import { createClassifier } from "open-classify";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-
-const here = dirname(fileURLToPath(import.meta.url));
-
-const { classify } = createClassifier({
-  extraClassifierDirs: [resolve(here, "../classifiers")],
-});
-
-const result = await classify({
-  messages: [{ role: "user", text: "Can you review the attached contract?" }],
-});
-
 const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 ```
 
-### Rules
-
-- `name` must match the directory name.
-- Reserved field names cannot appear in `output_schema.properties` — declare them in `reserved_fields` instead.
-- `fallback` requires only `reason` and `certainty`; reserved and custom required fields are exempt from the fallback check.
-- If you want hand-picked examples (preflight does this), add an `output_schema.examples` array. Each entry must validate against the composed schema at load time. Otherwise the runtime synthesizes a skeleton example for you.
-- **Name collisions with built-ins (or between two extra dirs) throw `ClassifierManifestError` at startup.** Pick a unique name — namespacing yours (e.g. `myapp_topic_tags`) is a safe habit if you want to stay clear of future built-ins.
-
-> Contributing a classifier back to Open Classify itself? Drop it under `src/classifiers/<name>/` in this repo instead — the manifest contract is identical.
-
-See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for the full walkthrough and [docs/manifests.md](docs/manifests.md) for the field reference.
-
-## Turning classifiers on and off
-
-There's one knob: a `disabled` list. It applies to built-ins and your own classifiers alike.
-
-```json
-{
-  "classifiers": {
-    "disabled": ["conversation_digest", "context_shift"]
-  }
-}
-```
-
-Or programmatically:
-
-```ts
-createClassifier({ disabledClassifiers: ["conversation_digest"] });
-```
-
-Names that aren't loaded throw at startup, so typos fail loud.
-
-### To enable `tools` (or any default-disabled built-in)
-
-Copy its directory out of the package and into your own classifiers folder:
-
-```sh
-cp -r node_modules/open-classify/dist/src/classifiers/tools ./classifiers/
-```
-
-Now edit `classifiers/tools/manifest.json` to tailor `allowed_tools` to your app, and tweak `prompt.md` if you like. Because it's loaded as one of your `extraClassifierDirs`, it runs by default.
-
-This is also the supported way to **customize a default-on built-in**: copy `preflight/` into your own dir, edit the prompt, then disable the bundled one. With `"disabled": ["preflight"]` in your config, the bundled `preflight` drops out and your copy takes its place — no name-collision error.
-
-### Watch out
-
-A few built-ins are load-bearing for the routing pipeline:
-
-- Disable `preflight` without providing a replacement that emits `final_reply` or `ack_reply` → every result blocks as `classification_error` (the contract is "you must produce a reply").
-- Disable `model_tier` and `model_specialization` together → routing falls back to the catalog's default model on every request, defeating per-message routing.
-- Disable `prompt_injection` → no defensive layer against instruction-override attempts.
-
-These are deliberate dependencies, not bugs. Disable with intent.
+Rules: `name` must match the directory name; reserved-field names can't appear in `output_schema.properties` (declare them under `reserved_fields` instead); `fallback` only needs `reason` and `certainty`; name collisions throw at startup. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for the full reference.
 
 ## Using reserved fields in your own classifier
 

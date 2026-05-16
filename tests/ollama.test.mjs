@@ -21,19 +21,25 @@ import {
   OLLAMA_DEFAULT_HOST,
 } from "../dist/src/ollama.js";
 import {
-  builtinAsExtra,
   classifierInput,
   jsonResponse,
+  templateAsExtra,
   TEST_CATALOG,
   validClassifierOutputs as validOutputs,
 } from "./fixtures.mjs";
 
 // The Ollama runner tests exercise classifier-specific validation paths
-// (including for `tools`, which is default-disabled), so the runner's
-// module map needs every built-in available. We enable `tools` by adding
-// it as an extra — that's the same workflow consumers use.
+// (including for `tools`, `memory_retrieval_queries`, `conversation_digest`,
+// `context_shift` — the four templates), so the runner's module map needs
+// every classifier available. Templates aren't loaded from the package by
+// default; we enable them by passing them as extras, same as consumers.
 const REGISTRY = buildClassifierRegistry({
-  extraDirs: [builtinAsExtra("tools")],
+  extraDirs: [
+    templateAsExtra("tools"),
+    templateAsExtra("memory_retrieval_queries"),
+    templateAsExtra("conversation_digest"),
+    templateAsExtra("context_shift"),
+  ],
 });
 const MODULES_BY_NAME = REGISTRY.modulesByName;
 
@@ -238,7 +244,7 @@ test("createClassifier rejects config models that name unknown classifiers", () 
       }),
     (error) =>
       error instanceof OpenClassifyConfigError &&
-      /definitely_not_real is not an active classifier/.test(error.message),
+      /definitely_not_real is not a loaded classifier/.test(error.message),
   );
 });
 
@@ -585,13 +591,15 @@ test("createClassifier accepts a custom RunClassifier and bypasses Ollama", asyn
   });
 
   assert.equal(result.action, "route");
-  // Every active classifier should have been invoked through the fake runner
-  // (tools is default-disabled so it's not in the active set).
-  for (const name of Object.keys(validOutputs)) {
-    if (name === "tools") continue;
+  // Only the four mandatory built-ins run by default; templates aren't
+  // loaded unless added via extraClassifierDirs.
+  const mandatory = ["preflight", "model_tier", "model_specialization", "prompt_injection"];
+  for (const name of mandatory) {
     assert.ok(seen.includes(name), `runner should have been called for ${name}`);
   }
-  assert.equal(seen.includes("tools"), false, "tools is default-disabled and should not run");
+  for (const template of ["tools", "memory_retrieval_queries", "conversation_digest", "context_shift"]) {
+    assert.equal(seen.includes(template), false, `${template} is a template, not a default-loaded built-in`);
+  }
 });
 
 function runnerReturning(payload) {

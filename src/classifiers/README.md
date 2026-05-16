@@ -1,12 +1,12 @@
-# Classifiers
+# Classifiers (mandatory built-ins)
 
-Each subdirectory here is one classifier — the bundled built-ins that ship with the package. The runtime loads every directory in this folder at startup, validates the manifest, composes the system prompt, and registers the classifier with the pipeline.
+Each subdirectory here is one of the **mandatory** built-in classifiers — `preflight`, `model_tier`, `model_specialization`, `prompt_injection`. The runtime loads every directory in this folder at startup, validates the manifest, composes the system prompt, and registers the classifier with the pipeline. There's no way to turn them off, and extras can't override them.
 
-Directories whose names start with `_` (like `_prompts/`) hold shared assets and are skipped by the loader.
+Directories whose names start with `_` (like `_prompts/`) hold shared assets and are skipped by the loader. Consumers can use the same convention in their own classifier directories to deactivate a classifier without deleting it (`my_classifier/` ↔ `_my_classifier/`).
 
-Seven of the eight built-ins are active by default. **`tools` ships disabled** because its `allowed_tools` list is app-specific — consumers enable it by copying `tools/` into their own `classifiers/` directory (where extras run by default) and editing the manifest. The shipped-disabled set is the `BUILTIN_DEFAULT_DISABLED` constant in `../classifiers.ts`. Consumers can disable additional classifiers via `classifiers.disabled` in their config or `createClassifier({ disabledClassifiers: [...] })`.
+The other four bundled classifiers — `tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift` — live in `/templates/` at the package root, not here. They aren't loaded by the runtime; `npx open-classify init` copies them into the consumer's project as `_<name>/` (inactive) so they can be edited and activated locally.
 
-> **Adding a classifier from a consumer project?** Don't put it here — `node_modules/open-classify/` is rebuilt on every `npm install`/`npm update` and your work would be wiped. Keep your classifiers in your own project tree and pass their parent directory to `createClassifier({ extraClassifierDirs: [...] })`. The folder layout and manifest contract documented below are identical for built-ins and consumer extras. See [docs/adding-a-classifier.md](../../docs/adding-a-classifier.md#adding-classifiers-from-a-consumer-project) for the full consumer flow.
+> **Adding a classifier from a consumer project?** Don't put it here — `node_modules/open-classify/` is rebuilt on every `npm install`/`npm update` and your work would be wiped. Keep your classifiers in your own project tree (typically `./classifiers/`, scaffolded by `npx open-classify init`). See [docs/adding-a-classifier.md](../../docs/adding-a-classifier.md) for the consumer flow.
 
 ## Creating a new classifier
 
