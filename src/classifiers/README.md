@@ -1,8 +1,10 @@
 # Classifiers
 
-Each subdirectory here is one classifier. The runtime loads every directory in this folder at startup, validates the manifest, composes the system prompt, and registers the classifier with the pipeline.
+Each subdirectory here is one classifier — the bundled built-ins that ship with the package. The runtime loads every directory in this folder at startup, validates the manifest, composes the system prompt, and registers the classifier with the pipeline.
 
 Directories whose names start with `_` (like `_prompts/`) hold shared assets and are skipped by the loader.
+
+> **Adding a classifier from a consumer project?** Don't put it here — `node_modules/open-classify/` is rebuilt on every `npm install`/`npm update` and your work would be wiped. Keep your classifiers in your own project tree and pass their parent directory to `createClassifier({ extraClassifierDirs: [...] })`. The folder layout and manifest contract documented below are identical for built-ins and consumer extras. See [docs/adding-a-classifier.md](../../docs/adding-a-classifier.md#adding-classifiers-from-a-consumer-project) for the full consumer flow.
 
 ## Creating a new classifier
 

@@ -1,13 +1,20 @@
-// High-level facade for the pipeline. Builds the runner and catalog once,
-// then returns two functions — classify() for the user-input/routing pass
-// and inspect() for the assistant-output lean pass. Backend-agnostic: pass a
-// custom `runClassifier` to bypass the bundled Ollama runner entirely.
+// High-level facade for the pipeline. Builds the runner, registry, and
+// catalog once, then returns two functions — classify() for the
+// user-input/routing pass and inspect() for the assistant-output lean pass.
+// Backend-agnostic: pass a custom `runClassifier` to bypass the bundled
+// Ollama runner entirely.
 
 import { loadCatalog } from "./catalog.js";
-import { type RunClassifier } from "./classifiers.js";
+import {
+  buildClassifierRegistry,
+  ClassifierManifestError,
+  type ClassifierRegistryBundle,
+  type RunClassifier,
+} from "./classifiers.js";
 import {
   classifierModelsFromConfig,
   loadOpenClassifyConfig,
+  OpenClassifyConfigError,
   type OpenClassifyConfig,
 } from "./config.js";
 import type {
@@ -39,6 +46,11 @@ export type Inspector = (
 export interface OpenClassify {
   readonly classify: Classifier;
   readonly inspect: Inspector;
+  // The composed registry used by this instance — built-ins plus any
+  // `extraClassifierDirs` the caller supplied. Exposed so callers can
+  // introspect what's wired in (e.g. for diagnostics or surfacing a list
+  // in their app).
+  readonly registry: ClassifierRegistryBundle;
 }
 
 export interface CreateClassifierOptions {
@@ -46,6 +58,16 @@ export interface CreateClassifierOptions {
   // or the file-backed catalog loader.
   runClassifier?: RunClassifier;
   catalog?: Catalog;
+
+  // Extra classifier directories merged into the registry alongside the
+  // built-ins. Each directory is scanned the same way as the bundled
+  // classifiers (one folder per classifier, each containing manifest.json
+  // + prompt.md). A name collision between any two loaded classifiers —
+  // built-in vs extra, or between two extras — throws ClassifierManifestError.
+  //
+  // Use this to keep your own classifiers inside your project so they
+  // survive `npm install` / `npm update` of this package.
+  extraClassifierDirs?: ReadonlyArray<string>;
 
   // Config sources. `config` wins; otherwise `configPath` is loaded; otherwise
   // `open-classify.config.json` is tried (silently optional).
@@ -68,6 +90,10 @@ export interface CreateClassifierOptions {
 export function createClassifier(
   options: CreateClassifierOptions = {},
 ): OpenClassify {
+  const registryBundle = buildClassifierRegistry({
+    extraDirs: options.extraClassifierDirs,
+  });
+
   const fileConfig =
     options.config ??
     loadOpenClassifyConfig(options.configPath, {
@@ -75,6 +101,20 @@ export function createClassifier(
         options.configPath === undefined &&
         process.env.OPEN_CLASSIFY_CONFIG === undefined,
     });
+
+  // Cross-check `runner.models` keys against the loaded registry so a typo
+  // or stale reference fails fast at construction time instead of being
+  // silently ignored by the runner.
+  if (fileConfig?.runner?.models !== undefined) {
+    const known = new Set(registryBundle.names);
+    for (const name of Object.keys(fileConfig.runner.models)) {
+      if (!known.has(name)) {
+        throw new OpenClassifyConfigError(
+          `runner.models.${name} is not a known classifier (loaded: ${registryBundle.names.join(", ")})`,
+        );
+      }
+    }
+  }
 
   // When we own the runner, hoist the resource check to the wrapper so a
   // failure surfaces as a top-level rejection — the per-classifier fallback
@@ -85,6 +125,7 @@ export function createClassifier(
   const runClassifier =
     options.runClassifier ??
     createOllamaClassifierRunner({
+      modulesByName: registryBundle.modulesByName,
       host: fileConfig?.runner?.host,
       defaultModel: fileConfig?.runner?.defaultModel,
       models: classifierModelsFromConfig(fileConfig),
@@ -114,6 +155,7 @@ export function createClassifier(
     return classifyOpenClassifyInput(input, {
       runClassifier,
       catalog,
+      registry: registryBundle.registry,
       classifierTimeoutMs: options.classifierTimeoutMs,
       classifierRetryCount: options.classifierRetryCount,
       maxConcurrency: options.maxConcurrency,
@@ -125,6 +167,7 @@ export function createClassifier(
     await ensureResources();
     return inspectOpenClassifyInput(input, {
       runClassifier,
+      registry: registryBundle.registry,
       classifierTimeoutMs: options.classifierTimeoutMs,
       classifierRetryCount: options.classifierRetryCount,
       maxConcurrency: options.maxConcurrency,
@@ -132,5 +175,9 @@ export function createClassifier(
     });
   };
 
-  return { classify, inspect };
+  return { classify, inspect, registry: registryBundle };
 }
+
+// Re-export so callers can `import { ClassifierManifestError } from "open-classify"`
+// and catch directory/name collision errors from createClassifier().
+export { ClassifierManifestError };

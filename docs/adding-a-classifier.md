@@ -2,10 +2,17 @@
 
 Every classifier — reserved-field-bearing or pure custom — uses the same two-file layout. There is no separate "stock" vs "custom" distinction; the runtime only cares about which reserved fields a classifier opts into.
 
+There are two places a classifier can live:
+
+- **Inside this repo**, under `src/classifiers/<name>/` — only do this if you're contributing back to Open Classify.
+- **Inside your own app**, in any directory you point at via `extraClassifierDirs` — this is the right path when you've installed Open Classify as a dependency. See [Adding classifiers from a consumer project](#adding-classifiers-from-a-consumer-project) below.
+
+Either way, the layout and contract are identical.
+
 ## 1. Create the directory
 
 ```
-src/classifiers/<name>/
+<your-classifiers-dir>/<name>/
 ├── manifest.json
 └── prompt.md
 ```
@@ -92,12 +99,60 @@ Don't paste enum values for reserved fields — the runtime injects them with ca
 
 ## 4. Build and test
 
+If your classifier lives inside this repo:
+
 ```sh
 npm run build   # validates the manifest, composes the schema, copies assets
 npm test
 ```
 
 If the manifest is malformed, the loader throws `ClassifierManifestError` with the path and a specific reason.
+
+If your classifier lives in a consumer project, validation runs the moment you call `createClassifier({ extraClassifierDirs: [...] })` — the same `ClassifierManifestError` will surface there.
+
+## Adding classifiers from a consumer project
+
+If you've installed Open Classify as an npm dependency, **do not** add classifiers under `node_modules/open-classify/` — every `npm install`/`npm update` rebuilds `node_modules` from package contents and wipes them.
+
+Instead, keep your custom classifiers inside your own project tree and pass their parent directory (or directories) to `createClassifier`:
+
+```
+my-app/
+├── classifiers/
+│   ├── topic_tags/
+│   │   ├── manifest.json
+│   │   └── prompt.md
+│   └── intent/
+│       ├── manifest.json
+│       └── prompt.md
+└── src/
+    └── index.ts
+```
+
+```ts
+import { createClassifier } from "open-classify";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+const { classify, registry } = createClassifier({
+  extraClassifierDirs: [resolve(here, "../classifiers")],
+});
+
+console.log(registry.names);
+// → [ "preflight", "model_tier", ..., "topic_tags", "intent" ]
+```
+
+Rules:
+
+- `extraClassifierDirs` accepts one or more directories; each is scanned the same way as the bundled built-ins (one folder per classifier).
+- Folder layout, manifest contract, and validation are identical to in-repo classifiers — see steps 1–3 above.
+- **Name collisions throw.** If any extra classifier shares a `name` with a built-in (or with another extra), `buildClassifierRegistry` raises `ClassifierManifestError` at startup. This is intentional: silent overrides would break the moment a future package update introduced a new built-in with the same name. Pick a unique name (or namespace yours, e.g. `myapp_intent`).
+- Use absolute paths (e.g. via `path.resolve(...)` or `fileURLToPath(import.meta.url)`); relative paths are resolved against the process working directory.
+- The introspection bundle returned on `createClassifier()` (`{ registry, classify, inspect }`) lets you iterate `registry.names` or pull manifests off `registry.modulesByName` for diagnostics.
+
+Updating Open Classify (`npm update open-classify`) only touches `node_modules`, so anything under your project's classifiers folder is left alone.
 
 ## 5. Consume the output
 

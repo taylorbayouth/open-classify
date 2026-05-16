@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { buildClassifierRegistry } from "../dist/src/classifiers.js";
 import {
   classifyOpenClassifyInput,
   DEFAULT_MAX_CONCURRENCY,
@@ -12,12 +13,15 @@ import {
   validClassifierOutputs as results,
 } from "./fixtures.mjs";
 
+const BUILTIN_REGISTRY = buildClassifierRegistry();
+
 function assistantMessage(text) {
   return { role: "assistant", text };
 }
 
 const baseOptions = (overrides = {}) => ({
   catalog: TEST_CATALOG,
+  registry: BUILTIN_REGISTRY.registry,
   ...overrides,
 });
 
@@ -466,6 +470,7 @@ test("inspectOpenClassifyInput runs only applies_to=both classifiers on assistan
   const result = await inspectOpenClassifyInput(
     { messages: [userMessage("draft please"), assistantMessage("Here is your draft.")] },
     {
+      registry: BUILTIN_REGISTRY.registry,
       maxConcurrency: 10,
       async runClassifier(name) {
         seen.push(name);
@@ -487,7 +492,10 @@ test("inspectOpenClassifyInput requires assistant-final message", async () => {
   await assert.rejects(
     inspectOpenClassifyInput(
       { messages: [userMessage("hi")] },
-      { async runClassifier() { return results.prompt_injection; } },
+      {
+        registry: BUILTIN_REGISTRY.registry,
+        async runClassifier() { return results.prompt_injection; },
+      },
     ),
     OpenClassifyNormalizationError,
   );

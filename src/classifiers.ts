@@ -18,7 +18,7 @@ import {
 } from "./stock-validation.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CLASSIFIERS_DIR = join(__dirname, "classifiers");
+export const BUILTIN_CLASSIFIERS_DIR = join(__dirname, "classifiers");
 // Directories whose names start with "_" are reserved for shared assets
 // (e.g. `_prompts/`) and are not loaded as classifiers.
 const SHARED_DIRECTORY_PREFIX = "_";
@@ -30,8 +30,30 @@ export class ClassifierManifestError extends Error {
   }
 }
 
+export type ClassifierModuleMap = Readonly<Record<string, RuntimeClassifierManifest>>;
+
+export interface ClassifierRegistryBundle {
+  readonly registry: ClassifierRegistry;
+  readonly modulesByName: ClassifierModuleMap;
+  readonly names: ReadonlyArray<string>;
+}
+
+export interface BuildRegistryOptions {
+  // Additional classifier directories to merge with the bundled built-ins.
+  // Each entry is scanned the same way as the built-in directory: each
+  // child folder must contain `manifest.json` + `prompt.md`. Folders whose
+  // names start with `_` are skipped.
+  //
+  // A name collision between any two loaded classifiers — built-in vs
+  // extra, or between two extras — throws ClassifierManifestError.
+  readonly extraDirs?: ReadonlyArray<string>;
+}
+
+// Load all classifier manifests under a single directory. Used internally to
+// load the built-ins and each extra directory; callers wanting the merged
+// registry should use `buildClassifierRegistry()` instead.
 export function loadClassifierRegistry(
-  classifiersDir = CLASSIFIERS_DIR,
+  classifiersDir: string = BUILTIN_CLASSIFIERS_DIR,
 ): RuntimeClassifierManifest[] {
   if (!existsSync(classifiersDir)) {
     throw new ClassifierManifestError(`classifier directory not found: ${classifiersDir}`);
@@ -43,11 +65,36 @@ export function loadClassifierRegistry(
     if (entry.name.startsWith(SHARED_DIRECTORY_PREFIX)) continue;
     manifests.push(loadClassifierManifest(join(classifiersDir, entry.name)));
   }
+  return manifests;
+}
+
+// Build a complete classifier registry from the bundled built-ins plus any
+// extra directories supplied by the caller. Sorts by dispatch_order ascending
+// (manifests without dispatch_order sort last). Rejects duplicate names.
+export function buildClassifierRegistry(
+  options: BuildRegistryOptions = {},
+): ClassifierRegistryBundle {
+  const manifests: RuntimeClassifierManifest[] = [
+    ...loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR),
+  ];
+
+  for (const dir of options.extraDirs ?? []) {
+    manifests.push(...loadClassifierRegistry(dir));
+  }
+
   // Lower dispatch_order runs first. Classifiers without dispatch_order sort
   // last (treated as +Infinity) — useful for "run me whenever there's a slot".
   manifests.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
+
   validateRegistry(manifests);
-  return manifests;
+
+  const registry = manifests as ClassifierRegistry;
+  const modulesByName = Object.fromEntries(
+    manifests.map((m) => [m.name, m]),
+  ) as ClassifierModuleMap;
+  const names = manifests.map((m) => m.name);
+
+  return { registry, modulesByName, names };
 }
 
 function loadClassifierManifest(classifierDir: string): RuntimeClassifierManifest {
@@ -96,31 +143,21 @@ function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): 
   const names = new Set<string>();
   for (const manifest of manifests) {
     if (names.has(manifest.name)) {
-      throw new ClassifierManifestError(`duplicate classifier name: ${manifest.name}`);
+      throw new ClassifierManifestError(
+        `duplicate classifier name: ${manifest.name} — collisions between built-in and extra classifiers (or between two extras) are not allowed`,
+      );
     }
     names.add(manifest.name);
   }
 }
 
-export const REGISTRY = loadClassifierRegistry() as ClassifierRegistry;
-export const CLASSIFIER_NAMES = REGISTRY.map((m) => m.name);
-export const MODULES_BY_NAME = Object.fromEntries(
-  REGISTRY.map((m) => [m.name, m]),
-) as Record<string, RuntimeClassifierManifest>;
-
-export type { ClassifierName, RunClassifier };
-export type RegistryType = typeof REGISTRY;
-
 export function validateClassifierOutput(
-  name: string,
+  manifest: RuntimeClassifierManifest,
   value: unknown,
   model: string,
 ): ClassifierOutput {
-  const manifest = MODULES_BY_NAME[name];
-  if (!manifest) {
-    throw new ClassifierManifestError(`unknown classifier: ${name}`);
-  }
-  return validateOutputForManifest(manifest, value, { classifier: name, model });
+  return validateOutputForManifest(manifest, value, { classifier: manifest.name, model });
 }
 
+export type { ClassifierName, RunClassifier };
 export type { ClassifierInput };

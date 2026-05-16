@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { CLASSIFIER_NAMES, type ClassifierName } from "./classifiers.js";
+import type { ClassifierName } from "./classifiers.js";
 import { isRecord } from "./validation.js";
 
 export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
@@ -120,12 +120,8 @@ function validateModels(value: unknown, path: string): Readonly<Record<string, s
   if (!isRecord(value)) {
     throwConfig(path, "runner.models must be an object");
   }
-  const allowed = new Set(CLASSIFIER_NAMES);
   const out: Record<string, string> = {};
   for (const [name, model] of Object.entries(value)) {
-    if (!allowed.has(name)) {
-      throwConfig(path, `runner.models.${name} is not a known classifier`);
-    }
     out[name] = requireString(model, path, `runner.models.${name}`);
   }
   return out;

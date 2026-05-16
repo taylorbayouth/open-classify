@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { CLASSIFIER_NAMES, MODULES_BY_NAME } from "../dist/src/classifiers.js";
+import { buildClassifierRegistry } from "../dist/src/classifiers.js";
 import {
   classifierModelsFromConfig,
   loadOpenClassifyConfig,
@@ -17,10 +17,8 @@ import {
   OllamaResourceError,
   OLLAMA_BASE_MODEL,
   OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH,
-  OLLAMA_CLASSIFIER_MODELS,
   OLLAMA_CONTEXT_LENGTH,
   OLLAMA_DEFAULT_HOST,
-  OLLAMA_REQUIRED_PARALLELISM,
 } from "../dist/src/ollama.js";
 import {
   classifierInput,
@@ -29,19 +27,25 @@ import {
   validClassifierOutputs as validOutputs,
 } from "./fixtures.mjs";
 
+const BUILTIN_REGISTRY = buildClassifierRegistry();
+const MODULES_BY_NAME = BUILTIN_REGISTRY.modulesByName;
+
+// Shorthand: every test in this file uses the bundled built-in registry.
+// Inlining `modulesByName` at every call site adds noise without value.
+function makeRunner(config) {
+  return createOllamaClassifierRunner({ modulesByName: MODULES_BY_NAME, ...config });
+}
+
 test("exports Ollama default runtime identity", () => {
   assert.equal(OLLAMA_DEFAULT_HOST, "http://localhost:11434");
   assert.equal(OLLAMA_BASE_MODEL, "gemma4:e4b-it-q4_K_M");
   assert.equal(OLLAMA_BASE_MODEL_NATIVE_CONTEXT_LENGTH, 131_072);
-  assert.equal(OLLAMA_REQUIRED_PARALLELISM, CLASSIFIER_NAMES.length);
   assert.equal(OLLAMA_CONTEXT_LENGTH, 4096);
-  assert.equal(OLLAMA_CLASSIFIER_MODELS.preflight, null);
-  assert.equal(OLLAMA_CLASSIFIER_MODELS.model_specialization, null);
 });
 
 test("createOllamaClassifierRunner posts classifier chat request with model override", async () => {
   const calls = [];
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     host: "http://ollama.test/",
     models: { preflight: "custom-preflight" },
     skipResourceCheck: true,
@@ -82,7 +86,7 @@ test("createOllamaClassifierRunner posts classifier chat request with model over
 
 test("createOllamaClassifierRunner drops older whole messages to fit estimated context", async () => {
   const calls = [];
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     skipResourceCheck: true,
     options: { num_ctx: 1500 },
     fetch: async (_url, init) => {
@@ -113,7 +117,7 @@ test("createOllamaClassifierRunner drops older whole messages to fit estimated c
 
 test("createOllamaClassifierRunner rejects when target alone exceeds estimated context", async () => {
   let called = false;
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     skipResourceCheck: true,
     options: { num_ctx: 1000 },
     fetch: async () => {
@@ -143,7 +147,7 @@ test("createOllamaClassifierRunner rejects when target alone exceeds estimated c
 
 test("createOllamaClassifierRunner uses base model when classifier model is null", async () => {
   const calls = [];
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     models: { preflight: null },
     skipResourceCheck: true,
     fetch: async (_url, init) => {
@@ -161,7 +165,7 @@ test("createOllamaClassifierRunner uses base model when classifier model is null
 
 test("createOllamaClassifierRunner accepts a configured default model", async () => {
   const calls = [];
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     defaultModel: "configured-default",
     skipResourceCheck: true,
     fetch: async (_url, init) => {
@@ -210,7 +214,7 @@ test("loadOpenClassifyConfig rejects aggregator field (removed)", () => {
   );
 });
 
-test("loadOpenClassifyConfig rejects unknown classifier names", () => {
+test("createClassifier rejects config models that name unknown classifiers", () => {
   const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
   const path = join(dir, "open-classify.config.json");
   writeFileSync(path, JSON.stringify({
@@ -221,7 +225,12 @@ test("loadOpenClassifyConfig rejects unknown classifier names", () => {
   }));
 
   assert.throws(
-    () => loadOpenClassifyConfig(path),
+    () =>
+      createClassifier({
+        configPath: path,
+        skipResourceCheck: true,
+        catalog: TEST_CATALOG,
+      }),
     (error) =>
       error instanceof OpenClassifyConfigError &&
       /definitely_not_real is not a known classifier/.test(error.message),
@@ -365,7 +374,7 @@ test("createOllamaClassifierRunner rejects prompt_injection signals field", asyn
 });
 
 test("createOllamaClassifierRunner surfaces non-JSON model output", async () => {
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     skipResourceCheck: true,
     fetch: async () =>
       jsonResponse({ message: { content: "this is not json" } }),
@@ -380,7 +389,7 @@ test("createOllamaClassifierRunner surfaces non-JSON model output", async () => 
 });
 
 test("createOllamaClassifierRunner accepts fenced JSON model output", async () => {
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     skipResourceCheck: true,
     fetch: async () =>
       jsonResponse({
@@ -399,7 +408,7 @@ ${JSON.stringify(validOutputs.preflight, null, 2)}
 });
 
 test("createOllamaClassifierRunner surfaces Ollama HTTP errors", async () => {
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     skipResourceCheck: true,
     fetch: async () => jsonResponse({ error: "model not found" }, { ok: false, statusText: "Not Found" }),
   });
@@ -514,7 +523,7 @@ test("createClassifier picks up models from the config file", async () => {
 
 test("resource check can fail before fetch is called", async () => {
   let called = false;
-  const runner = createOllamaClassifierRunner({
+  const runner = makeRunner({
     minTotalMemoryBytes: Number.MAX_SAFE_INTEGER,
     minAvailableMemoryBytes: Number.MAX_SAFE_INTEGER,
     fetch: async () => {
@@ -578,7 +587,7 @@ test("createClassifier accepts a custom RunClassifier and bypasses Ollama", asyn
 });
 
 function runnerReturning(payload) {
-  return createOllamaClassifierRunner({
+  return makeRunner({
     skipResourceCheck: true,
     fetch: async () =>
       jsonResponse({ message: { content: JSON.stringify(payload) } }),

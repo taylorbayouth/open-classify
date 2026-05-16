@@ -157,7 +157,21 @@ Reserved fields are well-known output keys with canonical JSON Schemas and promp
 
 ## Adding a classifier
 
-Every classifier is two files in `src/classifiers/<name>/`:
+A classifier is two files in a directory named after it. There are two places that directory can live:
+
+- **In a consumer project** (when you've installed `open-classify` as a dependency): keep your classifiers inside your own project tree (e.g. `my-app/classifiers/<name>/`) and pass the parent directory to `createClassifier`:
+
+  ```ts
+  const { classify } = createClassifier({
+    extraClassifierDirs: ["./classifiers"],
+  });
+  ```
+
+  This is the right path for almost everyone. Updating the package (`npm update open-classify`) only touches `node_modules`, so your classifiers are never at risk. **Don't put custom classifiers under `node_modules/open-classify/`** — they'll be wiped on the next install. Name collisions with built-ins throw at startup, so pick unique names.
+
+- **In this repo** under `src/classifiers/<name>/` (only when contributing back to Open Classify itself).
+
+Either way, the manifest contract and validation are identical.
 
 `manifest.json` describes the output shape and a fallback for when the classifier errors:
 
