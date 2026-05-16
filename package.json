@@ -29,11 +29,16 @@
       "default": "./dist/src/index.js"
     }
   },
+  "bin": {
+    "open-classify": "./bin/open-classify.mjs"
+  },
   "files": [
+    "bin",
     "dist/src",
     "docs",
     "downstream-models.json",
     "open-classify.config.example.json",
+    "templates",
     "LICENSE",
     "README.md"
   ],

@@ -33,38 +33,41 @@ Every classifier always runs. The result `action` is `"route"`, `"block"`, or `"
 
 ### Classifiers
 
-Each classifier lives under `src/classifiers/<name>/` with exactly two files:
+Each classifier lives in a directory with exactly two files:
 - `manifest.json` — declares `name`, `version`, `purpose`, optional `dispatch_order`, `applies_to`, `output_schema`, `fallback`, and optionally `reserved_fields` + `allowed_tools` + `backend` hints
 - `prompt.md` — the classifier-specific instructions
 
-Shared base prompt fragments live in `src/classifiers/_prompts/`. Directories whose names start with `_` are skipped by the loader.
+Shared base prompt fragments live in `src/classifiers/_prompts/`. Directories whose names start with `_` are skipped by the loader — that's the only on/off mechanism. Consumers can use the same trick: rename `my_classifier/` → `_my_classifier/` to deactivate without deleting.
 
 There is no "stock" vs "custom" distinction. Every classifier uses the same contract. What used to be a stock classifier is now a regular classifier that happens to opt into one or more **reserved fields** (well-known output keys the aggregator knows how to consume).
 
-The built-in classifiers (by dispatch_order):
+#### Mandatory built-ins (live in `src/classifiers/`)
 
-| Name | dispatch_order | Reserved fields | applies_to | Default |
-|---|---|---|---|---|
-| `preflight` | 10 | `final_reply`, `ack_reply` | `user` | on |
-| `model_tier` | 20 | `model_tier` | `user` | on |
-| `model_specialization` | 30 | `model_specialization` | `user` | on |
-| `tools` | 40 | `tools` | `user` | **off** |
-| `prompt_injection` | 50 | `risk_level` | **`both`** | on |
-| `memory_retrieval_queries` | 60 | — | `user` | on |
-| `conversation_digest` | 70 | — | `user` | on |
-| `context_shift` | 80 | — | `user` | on |
+| Name | dispatch_order | Reserved fields | applies_to |
+|---|---|---|---|
+| `preflight` | 10 | `final_reply`, `ack_reply` | `user` |
+| `model_tier` | 20 | `model_tier` | `user` |
+| `model_specialization` | 30 | `model_specialization` | `user` |
+| `prompt_injection` | 50 | `risk_level` | **`both`** |
 
-`tools` is shipped disabled because its `allowed_tools` list is app-specific — consumers enable it by copying `src/classifiers/tools/` into one of their `extraClassifierDirs`. The shipped-disabled set is exported as `BUILTIN_DEFAULT_DISABLED` from `src/classifiers.ts`.
+These always load. Extras can't override them — name collisions throw. To customize behaviour, use a custom `RunClassifier`.
 
-### Disabling classifiers
+#### Templates (live in `templates/` at the package root)
 
-Consumers turn classifiers off via `classifiers.disabled` in `open-classify.config.json` or `createClassifier({ disabledClassifiers: [...] })`. The two are unioned with `BUILTIN_DEFAULT_DISABLED`. Names that don't match a loaded classifier throw at startup.
+| Name | dispatch_order | Reserved fields | applies_to |
+|---|---|---|---|
+| `tools` | 40 | `tools` | `user` |
+| `memory_retrieval_queries` | 60 | — | `user` |
+| `conversation_digest` | 70 | — | `user` |
+| `context_shift` | 80 | — | `user` |
 
-Disable semantics:
-- For built-ins (or names matching a built-in): the bundled classifier is dropped. If the consumer has an extra with the same name, the extra survives — that's the "copy a built-in to customize it" workflow.
-- For names that match only an extra: the extra is dropped.
+These ship with the package but the runtime never loads them. `npx open-classify init` copies them into the consumer's `classifiers/` directory as `_<name>/` (inactive). The consumer activates one by dropping the underscore (`mv _tools tools`).
 
-Collision check runs against the active set, not the loaded set, so disabling a built-in frees its name for an extra to take over without throwing.
+### CLI
+
+`bin/open-classify.mjs` is a plain ESM script (no compile step) registered via the package's `bin` field. Currently exposes one subcommand:
+
+- `init [--yes]` — scaffold `open-classify.config.json` + `classifiers/` (with `README.md` + the four `_<template>/` directories). Strictly never overwrites existing files; if everything's present, prints "Nothing to do." Y/n confirmation skipped by `--yes`. Integration-tested in `tests/cli-init.test.mjs` by spawning the script in a temp dir.
 
 ### Two passes: `classify()` and `inspect()`
 

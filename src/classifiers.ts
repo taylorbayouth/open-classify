@@ -20,17 +20,10 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const BUILTIN_CLASSIFIERS_DIR = join(__dirname, "classifiers");
 // Directories whose names start with "_" are reserved for shared assets
-// (e.g. `_prompts/`) and are not loaded as classifiers.
+// (e.g. `_prompts/`) and are not loaded as classifiers. Consumers can use
+// the same convention in their own classifier directories: rename a
+// classifier to `_<name>/` to deactivate it without deleting it.
 const SHARED_DIRECTORY_PREFIX = "_";
-
-// Built-in classifiers that load but are disabled out of the box. Consumers
-// who want one of these enable it by copying its directory into their own
-// classifiers folder (where extras run by default). They can also be unioned
-// with consumer disables — there's no way to re-enable from config alone,
-// which is intentional: tools' opinionated `allowed_tools` list and similar
-// configuration knobs deserve to live in the consumer's repo, not behind a
-// remote flag.
-export const BUILTIN_DEFAULT_DISABLED: ReadonlyArray<string> = ["tools"];
 
 export class ClassifierManifestError extends Error {
   constructor(message: string) {
@@ -51,13 +44,8 @@ export interface BuildRegistryOptions {
   // Additional classifier directories to merge with the bundled built-ins.
   // Each entry is scanned the same way as the built-in directory: each
   // child folder must contain `manifest.json` + `prompt.md`. Folders whose
-  // names start with `_` are skipped.
+  // names start with `_` are skipped — that's the deactivation mechanism.
   readonly extraDirs?: ReadonlyArray<string>;
-  // Names to drop from the active registry. Combined with the package's
-  // built-in default-disabled list (see `BUILTIN_DEFAULT_DISABLED`). Every
-  // name must exist in the loaded set (either built-in or extra) or the
-  // build throws — typos can't silently no-op.
-  readonly disabledClassifiers?: ReadonlyArray<string>;
 }
 
 // Load all classifier manifests under a single directory. Used internally to
@@ -80,59 +68,31 @@ export function loadClassifierRegistry(
 }
 
 // Build a complete classifier registry from the bundled built-ins plus any
-// extra directories supplied by the caller. Applies the package's
-// default-disabled list and any caller-supplied disables, then sorts by
-// dispatch_order ascending (manifests without dispatch_order sort last).
+// extra directories supplied by the caller. Sorts by dispatch_order
+// ascending (manifests without dispatch_order sort last). Rejects duplicate
+// names.
 //
-// Name-collision check runs against the active set, not the loaded set, so
-// disabling a built-in frees its name for an extra to take over — that's
-// the supported "copy a built-in into your own dir to customize it"
-// workflow.
+// Mandatory built-ins (preflight, model_tier, model_specialization,
+// prompt_injection) always load. Extras with the same name as a built-in
+// throw — there's no override mechanism. Customise by editing the bundled
+// manifest in your own fork, or replace behaviour entirely with a custom
+// `runClassifier`.
 export function buildClassifierRegistry(
   options: BuildRegistryOptions = {},
 ): ClassifierRegistryBundle {
-  const builtins = loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR);
-  const builtinNames = new Set(builtins.map((m) => m.name));
-
-  const extras: RuntimeClassifierManifest[] = [];
-  for (const dir of options.extraDirs ?? []) {
-    extras.push(...loadClassifierRegistry(dir));
-  }
-  const extraNames = new Set(extras.map((m) => m.name));
-
-  const userDisabled = options.disabledClassifiers ?? [];
-  for (const name of userDisabled) {
-    if (!builtinNames.has(name) && !extraNames.has(name)) {
-      const loaded = [...builtinNames, ...extraNames].join(", ");
-      throw new ClassifierManifestError(
-        `disabled classifier "${name}" is not loaded (known classifiers: ${loaded})`,
-      );
-    }
-  }
-
-  // Built-ins are filtered by both the package's default-disabled list and
-  // the caller's. Extras are filtered only by names in `disabledClassifiers`
-  // that DON'T match a built-in — when both exist, the disable targets the
-  // built-in and the extra takes its place (the "copy a built-in to
-  // customize it" workflow).
-  const disabledBuiltinNames = new Set<string>([...BUILTIN_DEFAULT_DISABLED, ...userDisabled]);
-  const disabledExtraOnlyNames = new Set<string>(
-    userDisabled.filter((name) => !builtinNames.has(name)),
-  );
-
-  const active = [
-    ...builtins.filter((m) => !disabledBuiltinNames.has(m.name)),
-    ...extras.filter((m) => !disabledExtraOnlyNames.has(m.name)),
+  const manifests = [
+    ...loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR),
+    ...(options.extraDirs ?? []).flatMap((dir) => loadClassifierRegistry(dir)),
   ];
-  active.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
+  manifests.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
 
-  validateRegistry(active);
+  validateRegistry(manifests);
 
-  const registry = active as ClassifierRegistry;
+  const registry = manifests as ClassifierRegistry;
   const modulesByName = Object.fromEntries(
-    active.map((m) => [m.name, m]),
+    manifests.map((m) => [m.name, m]),
   ) as ClassifierModuleMap;
-  const names = active.map((m) => m.name);
+  const names = manifests.map((m) => m.name);
 
   return { registry, modulesByName, names };
 }
@@ -184,7 +144,7 @@ function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): 
   for (const manifest of manifests) {
     if (names.has(manifest.name)) {
       throw new ClassifierManifestError(
-        `duplicate classifier name: ${manifest.name} — collisions between built-in and extra classifiers (or between two extras) are not allowed`,
+        `duplicate classifier name: ${manifest.name} — extras cannot override built-ins or other extras. Rename your classifier or run it under a different name.`,
       );
     }
     names.add(manifest.name);

@@ -2,8 +2,11 @@
 
 import { cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { BUILTIN_CLASSIFIERS_DIR } from "../dist/src/classifiers.js";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = join(__dirname, "..", "templates");
 
 // Sample valid outputs for each built-in classifier manifest. Reserved fields
 // and custom payload fields sit at the top level alongside `reason` and
@@ -117,13 +120,12 @@ export function userMessage(text, extra = {}) {
   return { role: "user", text, ...extra };
 }
 
-// Copy one of the bundled built-in classifiers into a temp directory so a
-// test can pass it via `extraClassifierDirs`. Useful when a test needs to
-// exercise a default-disabled built-in (e.g. `tools`) — the production
-// workflow is exactly this: copy the classifier into your own dir to
-// activate it.
-export function builtinAsExtra(name) {
-  const dir = mkdtempSync(join(tmpdir(), "open-classify-builtin-extra-"));
-  cpSync(join(BUILTIN_CLASSIFIERS_DIR, name), join(dir, name), { recursive: true });
+// Copy one of the package's templates (the four non-mandatory classifiers
+// that ship in `templates/`) into a temp directory so a test can pass it
+// via `extraClassifierDirs`. Mirrors what `npx open-classify init` does
+// for consumers, minus the underscore prefix.
+export function templateAsExtra(name) {
+  const dir = mkdtempSync(join(tmpdir(), "open-classify-template-extra-"));
+  cpSync(join(TEMPLATES_DIR, name), join(dir, name), { recursive: true });
   return dir;
 }

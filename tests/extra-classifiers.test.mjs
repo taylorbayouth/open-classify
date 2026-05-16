@@ -4,14 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  BUILTIN_DEFAULT_DISABLED,
   buildClassifierRegistry,
   ClassifierManifestError,
 } from "../dist/src/classifiers.js";
 import { createClassifier } from "../dist/src/classify.js";
-import { OpenClassifyConfigError } from "../dist/src/config.js";
 import {
-  builtinAsExtra,
+  templateAsExtra,
   TEST_CATALOG,
   validClassifierOutputs as validOutputs,
 } from "./fixtures.mjs";
@@ -77,7 +75,7 @@ test("buildClassifierRegistry sorts merged manifests by dispatch_order", () => {
   assert.ok(customIdx < modelTierIdx, "early_custom should sort before model_tier");
 });
 
-test("buildClassifierRegistry throws when an extra collides with an active built-in", () => {
+test("buildClassifierRegistry throws when an extra collides with a mandatory built-in", () => {
   const root = mkdtempSync(join(tmpdir(), "open-classify-extra-"));
   writeClassifier(root, "preflight", {
     dispatch_order: 999,
@@ -117,6 +115,18 @@ test("buildClassifierRegistry throws when an extra dir does not exist", () => {
       error instanceof ClassifierManifestError &&
       /classifier directory not found/.test(error.message),
   );
+});
+
+test("loader skips classifier directories whose names start with `_`", () => {
+  const root = mkdtempSync(join(tmpdir(), "open-classify-extra-"));
+  writeClassifier(root, "active_classifier");
+  writeClassifier(root, "_dormant_classifier");
+
+  const bundle = buildClassifierRegistry({ extraDirs: [root] });
+
+  assert.ok(bundle.names.includes("active_classifier"));
+  assert.equal(bundle.names.includes("_dormant_classifier"), false);
+  assert.equal(bundle.names.includes("dormant_classifier"), false);
 });
 
 test("createClassifier runs extra classifiers through the pipeline", async () => {
@@ -167,149 +177,27 @@ test("createClassifier exposes the merged registry bundle for introspection", ()
   assert.equal(typeof registry.modulesByName.topic_tags.systemPrompt, "string");
 });
 
-// ─── disabled mechanism ─────────────────────────────────────────────────────
+// ─── templates (the four non-mandatory classifiers in `templates/`) ──────────
 
-test("tools is shipped disabled by default", () => {
-  assert.deepEqual([...BUILTIN_DEFAULT_DISABLED], ["tools"]);
-  const { names, modulesByName } = buildClassifierRegistry();
-  assert.equal(names.includes("tools"), false);
-  assert.equal(modulesByName.tools, undefined);
+test("templates are not loaded from the package by default", () => {
+  const { names } = buildClassifierRegistry();
+  for (const template of ["tools", "memory_retrieval_queries", "conversation_digest", "context_shift"]) {
+    assert.equal(names.includes(template), false, `${template} must not be loaded by default`);
+  }
 });
 
-test("disabledClassifiers drops a built-in from the active registry", () => {
-  const { names } = buildClassifierRegistry({
-    disabledClassifiers: ["conversation_digest"],
-  });
-  assert.equal(names.includes("conversation_digest"), false);
-  assert.ok(names.includes("preflight"));
-});
-
-test("disabledClassifiers drops an extra classifier", () => {
-  const root = mkdtempSync(join(tmpdir(), "open-classify-extra-"));
-  writeClassifier(root, "topic_tags");
-
-  const { names } = buildClassifierRegistry({
-    extraDirs: [root],
-    disabledClassifiers: ["topic_tags"],
-  });
-  assert.equal(names.includes("topic_tags"), false);
-});
-
-test("disabledClassifiers rejects unknown names with a clear error", () => {
-  assert.throws(
-    () => buildClassifierRegistry({ disabledClassifiers: ["definitely_not_real"] }),
-    (error) =>
-      error instanceof ClassifierManifestError &&
-      /disabled classifier "definitely_not_real" is not loaded/.test(error.message),
-  );
-});
-
-test("copying a default-disabled built-in into extras activates it", () => {
+test("a template activates when copied into an extra dir", () => {
   const { names, modulesByName } = buildClassifierRegistry({
-    extraDirs: [builtinAsExtra("tools")],
+    extraDirs: [templateAsExtra("tools")],
   });
   assert.ok(names.includes("tools"));
-  // The extra's manifest is the same as the bundled one — name collision is
-  // avoided because the bundled tools is in the default-disabled set.
   assert.equal(typeof modulesByName.tools.systemPrompt, "string");
 });
 
-test("disabling a core built-in frees its name for an extra to override", () => {
-  const root = mkdtempSync(join(tmpdir(), "open-classify-extra-"));
-  // A minimal classifier with the same name as a core built-in.
-  const dir = join(root, "preflight");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, "manifest.json"),
-    JSON.stringify({
-      name: "preflight",
-      version: "1.0.0",
-      purpose: "Custom preflight replacement.",
-      dispatch_order: 5,
-      reserved_fields: ["final_reply", "ack_reply"],
-      fallback: {
-        reason: "Custom preflight fallback.",
-        certainty: "no_signal",
-      },
-    }),
-  );
-  writeFileSync(join(dir, "prompt.md"), "Decide whether to short-circuit.");
-
-  const { names, modulesByName } = buildClassifierRegistry({
-    extraDirs: [root],
-    disabledClassifiers: ["preflight"],
-  });
-
-  // No collision — bundled preflight is disabled, so the extra preflight
-  // takes the name.
-  assert.ok(names.includes("preflight"));
-  assert.match(
-    modulesByName.preflight.fallback.reason,
-    /Custom preflight fallback/,
-  );
-});
-
-test("createClassifier honours disabledClassifiers from the programmatic option", async () => {
-  const seen = [];
-  const { classify } = createClassifier({
-    catalog: TEST_CATALOG,
-    disabledClassifiers: ["conversation_digest"],
-    runClassifier: async (name) => {
-      seen.push(name);
-      return validOutputs[name];
-    },
-  });
-
-  await classify({ messages: [{ role: "user", text: "review this" }] });
-  assert.equal(seen.includes("conversation_digest"), false);
-  assert.ok(seen.includes("preflight"));
-});
-
-test("createClassifier merges classifiers.disabled from the config file", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "open-classify-config-"));
-  const configPath = join(dir, "open-classify.config.json");
-  writeFileSync(configPath, JSON.stringify({
-    classifiers: { disabled: ["context_shift"] },
-  }));
-
-  const seen = [];
-  const { classify } = createClassifier({
-    configPath,
-    catalog: TEST_CATALOG,
-    disabledClassifiers: ["conversation_digest"],
-    runClassifier: async (name) => {
-      seen.push(name);
-      return validOutputs[name];
-    },
-  });
-
-  await classify({ messages: [{ role: "user", text: "review this" }] });
-  assert.equal(seen.includes("context_shift"), false);
-  assert.equal(seen.includes("conversation_digest"), false);
-  assert.ok(seen.includes("preflight"));
-});
-
-test("createClassifier rejects runner.models entries that name an inactive classifier", () => {
-  const dir = mkdtempSync(join(tmpdir(), "open-classify-config-"));
-  const configPath = join(dir, "open-classify.config.json");
-  // tools is default-disabled, so listing a model for it without enabling
-  // tools as an extra is a configuration error.
-  writeFileSync(configPath, JSON.stringify({
-    runner: {
-      provider: "ollama",
-      models: { tools: "some-model" },
-    },
-  }));
-
-  assert.throws(
-    () =>
-      createClassifier({
-        configPath,
-        catalog: TEST_CATALOG,
-        skipResourceCheck: true,
-      }),
-    (error) =>
-      error instanceof OpenClassifyConfigError &&
-      /runner.models.tools is not an active classifier/.test(error.message),
+test("only the four mandatory built-ins load by default", () => {
+  const { names } = buildClassifierRegistry();
+  assert.deepEqual(
+    [...names].sort(),
+    ["model_specialization", "model_tier", "preflight", "prompt_injection"],
   );
 });

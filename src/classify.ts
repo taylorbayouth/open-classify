@@ -62,20 +62,16 @@ export interface CreateClassifierOptions {
   // Extra classifier directories merged into the registry alongside the
   // built-ins. Each directory is scanned the same way as the bundled
   // classifiers (one folder per classifier, each containing manifest.json
-  // + prompt.md). A name collision between two ACTIVE classifiers throws
-  // ClassifierManifestError — so disabling a built-in frees its name for
-  // an extra to take over (that's the "copy a built-in to customize it"
-  // workflow).
+  // + prompt.md). Folders with a `_` prefix are skipped — that's how a
+  // consumer deactivates a classifier without deleting it.
+  //
+  // Name collisions throw — extras cannot override the mandatory built-ins
+  // (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`).
   //
   // Use this to keep your own classifiers inside your project so they
-  // survive `npm install` / `npm update` of this package.
+  // survive `npm install` / `npm update` of this package. `npx
+  // open-classify init` scaffolds the standard layout for you.
   extraClassifierDirs?: ReadonlyArray<string>;
-
-  // Names of classifiers to skip — merged with the config-file equivalent
-  // (`classifiers.disabled`) and with the package's default-disabled list.
-  // Every name must exist in the loaded set (built-in or extra), or the
-  // call throws.
-  disabledClassifiers?: ReadonlyArray<string>;
 
   // Config sources. `config` wins; otherwise `configPath` is loaded; otherwise
   // `open-classify.config.json` is tried (silently optional).
@@ -106,17 +102,11 @@ export function createClassifier(
         process.env.OPEN_CLASSIFY_CONFIG === undefined,
     });
 
-  const disabledClassifiers = [
-    ...(fileConfig?.classifiers?.disabled ?? []),
-    ...(options.disabledClassifiers ?? []),
-  ];
-
   const registryBundle = buildClassifierRegistry({
     extraDirs: options.extraClassifierDirs,
-    disabledClassifiers,
   });
 
-  // Cross-check `runner.models` keys against the active registry so a typo
+  // Cross-check `runner.models` keys against the loaded registry so a typo
   // or stale reference fails fast at construction time instead of being
   // silently ignored by the runner.
   if (fileConfig?.runner?.models !== undefined) {
@@ -124,7 +114,7 @@ export function createClassifier(
     for (const name of Object.keys(fileConfig.runner.models)) {
       if (!known.has(name)) {
         throw new OpenClassifyConfigError(
-          `runner.models.${name} is not an active classifier (active: ${registryBundle.names.join(", ")})`,
+          `runner.models.${name} is not a loaded classifier (loaded: ${registryBundle.names.join(", ")})`,
         );
       }
     }

@@ -8,12 +8,24 @@ import {
   OpenClassifyNormalizationError,
 } from "../dist/src/pipeline.js";
 import {
+  templateAsExtra,
   TEST_CATALOG,
   userMessage,
   validClassifierOutputs as results,
 } from "./fixtures.mjs";
 
-const BUILTIN_REGISTRY = buildClassifierRegistry();
+// Pipeline tests assert against the full classifier surface, so we enable
+// every template as an extra. This mirrors what a consumer gets after
+// running `npx open-classify init` and renaming each `_<template>` dir to
+// drop the underscore.
+const FULL_REGISTRY = buildClassifierRegistry({
+  extraDirs: [
+    templateAsExtra("tools"),
+    templateAsExtra("memory_retrieval_queries"),
+    templateAsExtra("conversation_digest"),
+    templateAsExtra("context_shift"),
+  ],
+});
 
 function assistantMessage(text) {
   return { role: "assistant", text };
@@ -21,7 +33,7 @@ function assistantMessage(text) {
 
 const baseOptions = (overrides = {}) => ({
   catalog: TEST_CATALOG,
-  registry: BUILTIN_REGISTRY.registry,
+  registry: FULL_REGISTRY.registry,
   ...overrides,
 });
 
@@ -57,23 +69,23 @@ test("runs all active classifiers and returns a route result", async () => {
   assert.equal(result.action, "route");
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.equal(result.model_id, "gemma4:e4b-it-q4_K_M");
-  // tools classifier is default-disabled, so result.tools is empty.
-  assert.deepEqual(result.tools, []);
+  assert.deepEqual(result.tools, ["workspace"]);
   assert.deepEqual(result.reply, { text: "Let me check." });
   assert.deepEqual(result.prompt_injection, { risk_level: "normal" });
   assert.deepEqual(result.failed_classifiers, []);
   assert.ok(result.classifier_outputs);
 
-  // Every active classifier ran (tools excluded — default-disabled).
-  const expectedActive = Object.keys(results).filter((n) => n !== "tools").sort();
-  assert.deepEqual(started.sort(), expectedActive);
+  // FULL_REGISTRY enables every template, so every classifier in the
+  // fixture should have run.
+  assert.deepEqual(started.sort(), Object.keys(results).sort());
 
   // classifier_outputs includes certainty as float and reason
   assert.equal(result.classifier_outputs.model_tier.model_tier, "local_strong");
   assert.equal(result.classifier_outputs.model_tier.certainty, CERTAINTY.strong);
   assert.equal(typeof result.classifier_outputs.model_tier.reason, "string");
 
-  assert.equal(result.classifier_outputs.tools, undefined);
+  assert.deepEqual(result.classifier_outputs.tools.tools, ["workspace"]);
+  assert.equal(result.classifier_outputs.tools.certainty, CERTAINTY.very_strong);
 
   assert.deepEqual(result.classifier_outputs.memory_retrieval_queries.queries, ["user review preferences"]);
   assert.equal(result.classifier_outputs.memory_retrieval_queries.certainty, CERTAINTY.strong);
@@ -83,7 +95,6 @@ test("runs all active classifiers and returns a route result", async () => {
 
   assert.equal(result.classifier_outputs.context_shift.decision, "same_active_thread");
 
-  // Certainty summary over the 7 active classifiers (tools excluded).
   assert.equal(result.min_certainty, CERTAINTY.strong);
   assert.ok(result.avg_certainty > CERTAINTY.strong);
 });
@@ -152,9 +163,7 @@ test("preflight final_reply produces action=reply; all classifiers still run", a
 
   assert.equal(result.action, "reply");
   assert.deepEqual(result.reply, { text: "Anytime." });
-  // Every active classifier ran (tools is default-disabled).
-  const expectedActive = Object.keys(results).filter((n) => n !== "tools").sort();
-  assert.deepEqual(started.sort(), expectedActive);
+  assert.deepEqual(started.sort(), Object.keys(results).sort());
   assert.equal(result.block_reason, undefined);
 });
 
@@ -316,8 +325,7 @@ test("external abort signal cancels in-flight classifiers and yields block with 
   // All classifiers failed → classification_error block
   assert.equal(result.action, "block");
   assert.equal(result.block_reason, "classification_error");
-  const expectedActive = Object.keys(results).filter((n) => n !== "tools").sort();
-  assert.deepEqual(started.sort(), expectedActive);
+  assert.deepEqual(started.sort(), Object.keys(results).sort());
   assert.ok(result.failed_classifiers.includes("preflight"));
   assert.ok(result.failed_classifiers.includes("prompt_injection"));
 });
@@ -374,7 +382,7 @@ test("classifierRetryCount of 0 attempts each classifier exactly once", async ()
       classifierRetryCount: 0,
       async runClassifier(name) {
         attempts[name] = (attempts[name] ?? 0) + 1;
-        if (name === "memory_retrieval_queries") {
+        if (name === "tools") {
           throw new Error("model unavailable");
         }
         return results[name];
@@ -384,8 +392,8 @@ test("classifierRetryCount of 0 attempts each classifier exactly once", async ()
 
   assert.equal(result.action, "block");
   assert.equal(result.block_reason, "classification_error");
-  assert.equal(attempts.memory_retrieval_queries, 1);
-  assert.ok(result.failed_classifiers.includes("memory_retrieval_queries"));
+  assert.equal(attempts.tools, 1);
+  assert.ok(result.failed_classifiers.includes("tools"));
 });
 
 // ─── Concurrency + ordering ──────────────────────────────────────────────────
@@ -471,7 +479,7 @@ test("inspectOpenClassifyInput runs only applies_to=both classifiers on assistan
   const result = await inspectOpenClassifyInput(
     { messages: [userMessage("draft please"), assistantMessage("Here is your draft.")] },
     {
-      registry: BUILTIN_REGISTRY.registry,
+      registry: FULL_REGISTRY.registry,
       maxConcurrency: 10,
       async runClassifier(name) {
         seen.push(name);
@@ -494,7 +502,7 @@ test("inspectOpenClassifyInput requires assistant-final message", async () => {
     inspectOpenClassifyInput(
       { messages: [userMessage("hi")] },
       {
-        registry: BUILTIN_REGISTRY.registry,
+        registry: FULL_REGISTRY.registry,
         async runClassifier() { return results.prompt_injection; },
       },
     ),
