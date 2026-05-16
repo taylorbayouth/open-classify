@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// open-classify CLI. Subcommands: init, doctor, try.
+// open-classify CLI. Subcommands: init, uninstall, doctor, try.
 //
 // init: scaffold the standard project layout for a consumer.
+// uninstall: remove the files created by init.
 // doctor: verify the install, config, Ollama, and classifiers are all working.
 // try: run the pipeline against a single message and print the result.
 
@@ -14,8 +15,16 @@ import { spawnSync } from "node:child_process";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(SCRIPT_DIR, "..");
 const TEMPLATES_DIR = join(PACKAGE_ROOT, "templates");
+const DOWNSTREAM_MODELS_FILENAME = "downstream-models.json";
+const DOWNSTREAM_MODELS_PATH = join(PACKAGE_ROOT, DOWNSTREAM_MODELS_FILENAME);
 
 const TEMPLATE_NAMES = ["conversation_digest", "context_shift", "memory_retrieval_queries", "tools"];
+const STOCK_CONFIG = {
+  tools: false,
+  memory_retrieval_queries: false,
+  conversation_digest: false,
+  context_shift: false,
+};
 
 const TEMPLATE_DESCRIPTIONS = {
   conversation_digest: "rolling summary of recent turns",
@@ -36,17 +45,35 @@ Drop a folder here per classifier. Each folder needs:
 \`\`\`js
 import { createClassifier } from "open-classify";
 
-const { classify } = createClassifier({
-  extraClassifierDirs: ["./classifiers"],
-});
+const { classify } = createClassifier();
 \`\`\`
 
 Place this in your server entry point. Call \`classify(input)\` for each user message.
-\`extraClassifierDirs\` is resolved relative to the current working directory.
+\`open-classify.config.json\` wires in \`./classifiers\` automatically.
 
-## Activating templates
+## Stock classifiers
 
-The four \`_<name>/\` directories below are templates copied from the package — they ship inactive (the loader skips any folder starting with \`_\`). Activate one by dropping the underscore:
+\`tools\`, \`memory_retrieval_queries\`, \`conversation_digest\`, and \`context_shift\`
+ship with the package but are disabled by default in \`open-classify.config.json\`.
+Enable a package-owned stock classifier by setting it to \`true\`:
+
+\`\`\`json
+{
+  "classifiers": {
+    "stock": {
+      "tools": true
+    }
+  }
+}
+\`\`\`
+
+Package-owned stock classifiers are updated by \`npm update open-classify\`.
+
+## Customizing a stock classifier
+
+The four \`_<name>/\` directories below are editable copies of the stock classifiers.
+They are inactive because the loader skips any folder starting with \`_\`. To customize one,
+keep the matching \`classifiers.stock.<name>\` value \`false\`, edit the files, then drop the underscore:
 
 \`\`\`sh
 mv _tools tools
@@ -65,8 +92,22 @@ const DEFAULT_CONFIG = {
     host: "http://127.0.0.1:11434",
     defaultModel: "gemma4:e4b-it-q4_K_M",
   },
-  catalog: "downstream-models.json",
+  catalog: DOWNSTREAM_MODELS_FILENAME,
+  classifiers: {
+    dirs: ["classifiers"],
+    stock: STOCK_CONFIG,
+  },
 };
+
+function configForInit({ minimal }) {
+  if (!minimal) return DEFAULT_CONFIG;
+  return {
+    ...DEFAULT_CONFIG,
+    classifiers: {
+      stock: STOCK_CONFIG,
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -84,6 +125,12 @@ async function main() {
   if (subcommand === "init") {
     const flags = parseInitFlags(args.slice(1));
     await runInit({ cwd: process.cwd(), ...flags });
+    return;
+  }
+
+  if (subcommand === "uninstall") {
+    const flags = parseUninstallFlags(args.slice(1));
+    await runUninstall({ cwd: process.cwd(), ...flags });
     return;
   }
 
@@ -134,12 +181,36 @@ function parseInitFlags(args) {
   return flags;
 }
 
+function parseUninstallFlags(args) {
+  const flags = {
+    yes: false,
+    dryRun: false,
+    force: false,
+    classifierDir: "classifiers",
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--yes" || arg === "-y") flags.yes = true;
+    else if (arg === "--dry-run") flags.dryRun = true;
+    else if (arg === "--force") flags.force = true;
+    else if (arg === "--classifier-dir" && args[i + 1]) flags.classifierDir = args[++i];
+    else if (arg.startsWith("--classifier-dir=")) flags.classifierDir = arg.split("=")[1];
+  }
+
+  return flags;
+}
+
 function printHelp() {
   process.stdout.write(`open-classify — runtime CLI
 
 Commands:
   init [options]    Scaffold open-classify.config.json and classifiers/ in the
                     current directory. Re-run safe: existing files are skipped.
+
+  uninstall         Remove open-classify scaffold files from the current
+                    directory. Use --force to remove the whole classifiers/
+                    directory, including active/custom classifiers.
 
   doctor            Check that the install, config, Ollama, and classifiers are
                     all working. Exits non-zero on failure.
@@ -149,11 +220,17 @@ Commands:
                     application code.
 
 Options for init:
-  --minimal              Write only open-classify.config.json; skip classifiers/
+  --minimal              Write runtime config/catalog only; skip classifiers/
   --dry-run              Preview what would be created; don't write anything
   --force                Overwrite existing files without prompting
   --no-install           Skip the "add to package.json" prompt
   --package-manager <m>  npm | pnpm | yarn | bun  (default: auto-detect)
+  --classifier-dir <p>   Directory for classifiers  (default: ./classifiers)
+  --yes, -y              Accept all prompts (CI mode)
+
+Options for uninstall:
+  --dry-run              Preview what would be removed; don't delete anything
+  --force                Remove the whole classifiers/ directory
   --classifier-dir <p>   Directory for classifiers  (default: ./classifiers)
   --yes, -y              Accept all prompts (CI mode)
 
@@ -231,8 +308,9 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
 
   // 3. Plan.
   const resolvedClassifierDir = resolve(cwd, classifierDir);
-  const wrote = { config: false, readme: false, templateCount: 0 };
-  let plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force, wrote });
+  const config = configForInit({ minimal });
+  const wrote = { config: false, catalog: false, readme: false, templateCount: 0 };
+  let plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force, wrote, config });
 
   // Nothing to do.
   if (plan.toCreate.length === 0) {
@@ -271,13 +349,13 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
   if (plan.toSkip.length > 0 && !yes && !force) {
     const choice = await promptConflict();
     if (choice === "diff") {
-      showDiffs(plan.toSkip, cwd, resolvedClassifierDir);
+      showDiffs(plan.toSkip, cwd, resolvedClassifierDir, config);
       const choice2 = await promptConflict();
       if (choice2 === "y") {
-        plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force: true, wrote });
+        plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force: true, wrote, config });
       }
     } else if (choice === "y") {
-      plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force: true, wrote });
+      plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force: true, wrote, config });
     }
   }
 
@@ -301,6 +379,7 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
     process.stdout.write(`✓ open-classify installed${v ? ` (v${v})` : ""}\n`);
   }
   if (wrote.config) process.stdout.write("✓ wrote open-classify.config.json\n");
+  if (wrote.catalog) process.stdout.write(`✓ wrote ${DOWNSTREAM_MODELS_FILENAME}\n`);
   if (wrote.readme || wrote.templateCount > 0) {
     const classifierDirRel = relative(cwd, resolvedClassifierDir);
     if (wrote.templateCount > 0) {
@@ -315,7 +394,7 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
 Next steps:
 
   1. Pull the default model:
-       ollama pull ${DEFAULT_CONFIG.runner.defaultModel}
+       ollama pull ${config.runner.defaultModel}
 
   2. Wire it into your server (example for a Node entrypoint):
        see  ./${classifierDirRel}/README.md  →  "Quickstart"
@@ -330,7 +409,7 @@ Docs:  https://github.com/taylorbayouth/open-classify#readme
 `);
 }
 
-function planInit(cwd, { minimal = false, classifierDir, force = false, wrote }) {
+function planInit(cwd, { minimal = false, classifierDir, force = false, wrote, config }) {
   const toCreate = [];
   const toSkip = [];
   const actions = [];
@@ -343,11 +422,26 @@ function planInit(cwd, { minimal = false, classifierDir, force = false, wrote })
     toSkip.push(configRel);
   } else {
     toCreate.push(configRel);
-    preview.push({ label: configRel, description: `(default Ollama setup, ${DEFAULT_CONFIG.runner.defaultModel})` });
+    preview.push({ label: configRel, description: `(default Ollama setup, ${config.runner.defaultModel})` });
     actions.push(() => {
-      writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
+      writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
       process.stdout.write(`  wrote ${configRel}\n`);
       wrote.config = true;
+    });
+  }
+
+  // Downstream model catalog.
+  const catalogPath = join(cwd, DOWNSTREAM_MODELS_FILENAME);
+  const catalogRel = relative(cwd, catalogPath);
+  if (existsSync(catalogPath) && !force) {
+    toSkip.push(catalogRel);
+  } else {
+    toCreate.push(catalogRel);
+    preview.push({ label: catalogRel, description: "default downstream model catalog" });
+    actions.push(() => {
+      cpSync(DOWNSTREAM_MODELS_PATH, catalogPath);
+      process.stdout.write(`  wrote ${catalogRel}\n`);
+      wrote.catalog = true;
     });
   }
 
@@ -422,7 +516,7 @@ function planInit(cwd, { minimal = false, classifierDir, force = false, wrote })
   return { toCreate, toSkip, actions, preview };
 }
 
-function showDiffs(conflicts, cwd, classifierDir) {
+function showDiffs(conflicts, cwd, classifierDir, config = DEFAULT_CONFIG) {
   for (const p of conflicts) {
     const isDir = p.endsWith("/");
     const relPath = isDir ? p.slice(0, -1) : p;
@@ -439,7 +533,11 @@ function showDiffs(conflicts, cwd, classifierDir) {
         process.stdout.write("    (could not read)\n");
       }
       process.stdout.write("\n  would become:\n");
-      for (const line of JSON.stringify(DEFAULT_CONFIG, null, 2).split("\n")) {
+      const replacement =
+        basename(relPath) === DOWNSTREAM_MODELS_FILENAME
+          ? readFileSync(DOWNSTREAM_MODELS_PATH, "utf8")
+          : JSON.stringify(config, null, 2);
+      for (const line of replacement.split("\n")) {
         process.stdout.write(`    ${line}\n`);
       }
     } else {
@@ -458,6 +556,122 @@ function showDiffs(conflicts, cwd, classifierDir) {
     }
   }
   process.stdout.write("\n");
+}
+
+// ---------------------------------------------------------------------------
+// uninstall
+// ---------------------------------------------------------------------------
+
+async function runUninstall({ cwd, yes, dryRun, force, classifierDir }) {
+  const resolvedClassifierDir = resolve(cwd, classifierDir);
+  const plan = planUninstall(cwd, { classifierDir: resolvedClassifierDir, force });
+
+  if (plan.toRemove.length === 0) {
+    process.stdout.write("Nothing to remove — no open-classify scaffold found.\n");
+    if (plan.toSkip.length > 0) {
+      process.stdout.write("\nSkipped active/custom classifier dirs:\n");
+      for (const p of plan.toSkip) process.stdout.write(`  ${p}\n`);
+      process.stdout.write("\nUse --force to remove the whole classifiers/ directory.\n");
+    }
+    return;
+  }
+
+  process.stdout.write(`\nThe following open-classify scaffold will be removed from ${cwd}:\n\n`);
+  for (const p of plan.toRemove) process.stdout.write(`  ${p}\n`);
+
+  if (plan.toSkip.length > 0) {
+    process.stdout.write("\nSkipped active/custom classifier dirs:\n");
+    for (const p of plan.toSkip) process.stdout.write(`  ${p}\n`);
+    process.stdout.write("\nUse --force to remove the whole classifiers/ directory.\n");
+  }
+
+  if (dryRun) {
+    process.stdout.write("\n(dry run — nothing removed)\n");
+    return;
+  }
+
+  if (!yes) {
+    const proceed = await confirm("\n? Continue? (Y/n) ", true);
+    if (!proceed) {
+      process.stdout.write("Aborted.\n");
+      process.exit(1);
+    }
+  }
+
+  process.stdout.write("\n");
+  for (const action of plan.actions) action();
+  process.stdout.write("\n✓ removed open-classify scaffold\n");
+  process.stdout.write("To remove the package dependency too, run: npm uninstall open-classify\n");
+}
+
+function planUninstall(cwd, { classifierDir, force }) {
+  const toRemove = [];
+  const toSkip = [];
+  const actions = [];
+
+  for (const filename of ["open-classify.config.json", DOWNSTREAM_MODELS_FILENAME]) {
+    const path = join(cwd, filename);
+    if (!existsSync(path)) continue;
+    toRemove.push(filename);
+    actions.push(() => {
+      rmSync(path, { force: true });
+      process.stdout.write(`  removed ${filename}\n`);
+    });
+  }
+
+  const classifierRel = relative(cwd, classifierDir);
+  if (!existsSync(classifierDir)) {
+    return { toRemove, toSkip, actions };
+  }
+
+  if (force) {
+    toRemove.push(`${classifierRel}/`);
+    actions.push(() => {
+      rmSync(classifierDir, { recursive: true, force: true });
+      process.stdout.write(`  removed ${classifierRel}/\n`);
+    });
+    return { toRemove, toSkip, actions };
+  }
+
+  const readmePath = join(classifierDir, "README.md");
+  const readmeRel = relative(cwd, readmePath);
+  if (existsSync(readmePath)) {
+    toRemove.push(readmeRel);
+    actions.push(() => {
+      rmSync(readmePath, { force: true });
+      process.stdout.write(`  removed ${readmeRel}\n`);
+    });
+  }
+
+  for (const name of TEMPLATE_NAMES) {
+    const inactivePath = join(classifierDir, `_${name}`);
+    const inactiveRel = relative(cwd, inactivePath);
+    if (existsSync(inactivePath)) {
+      toRemove.push(`${inactiveRel}/`);
+      actions.push(() => {
+        rmSync(inactivePath, { recursive: true, force: true });
+        process.stdout.write(`  removed ${inactiveRel}/\n`);
+      });
+    }
+
+    const activePath = join(classifierDir, name);
+    if (existsSync(activePath)) {
+      toSkip.push(`${relative(cwd, activePath)}/`);
+    }
+  }
+
+  actions.push(() => {
+    try {
+      if (readdirSync(classifierDir).length === 0) {
+        rmSync(classifierDir, { recursive: true, force: true });
+        process.stdout.write(`  removed ${classifierRel}/\n`);
+      }
+    } catch {
+      // Non-empty: custom/active classifiers remain, which is intentional.
+    }
+  });
+
+  return { toRemove, toSkip, actions };
 }
 
 // ---------------------------------------------------------------------------
@@ -494,14 +708,24 @@ async function runDoctor({ cwd }) {
       config = JSON.parse(readFileSync(configPath, "utf8"));
       process.stdout.write("✓  open-classify.config.json parses OK\n");
 
-      // 3. Ollama reachable.
+      // 3. Catalog exists.
+      const catalog = config.catalog || DEFAULT_CONFIG.catalog;
+      const catalogPath = resolve(cwd, catalog);
+      if (existsSync(catalogPath)) {
+        process.stdout.write(`✓  ${catalog} found\n`);
+      } else {
+        process.stdout.write(`✖  ${catalog} not found — run: npx open-classify init\n`);
+        allGood = false;
+      }
+
+      // 4. Ollama reachable.
       const host = config.runner?.host || DEFAULT_CONFIG.runner.host;
       try {
         const res = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(3000) });
         if (res.ok) {
           process.stdout.write(`✓  Ollama reachable at ${host}\n`);
 
-          // 4. Default model pulled.
+          // 5. Default model pulled.
           const data = await res.json();
           const model = config.runner?.defaultModel || DEFAULT_CONFIG.runner.defaultModel;
           const pulled = data.models?.some((m) => m.name === model || m.model === model);
@@ -525,9 +749,20 @@ async function runDoctor({ cwd }) {
     }
   }
 
-  // 5. Classifiers directory.
-  const classifiersDir = join(cwd, "classifiers");
-  if (existsSync(classifiersDir)) {
+  // 6. Classifiers directories.
+  const doctorConfig = configFromFile(cwd);
+  const configuredClassifierDirs =
+    doctorConfig?.classifiers === undefined
+      ? ["classifiers"]
+      : doctorConfig.classifiers.dirs ?? [];
+  for (const configuredDir of configuredClassifierDirs) {
+    const classifiersDir = resolve(cwd, configuredDir);
+    const classifiersRel = relative(cwd, classifiersDir);
+    if (!existsSync(classifiersDir)) {
+      process.stdout.write(`ℹ  No ${classifiersRel}/ directory — run: npx open-classify init\n`);
+      continue;
+    }
+
     let active = 0;
     let bad = 0;
     try {
@@ -538,7 +773,7 @@ async function runDoctor({ cwd }) {
           existsSync(join(dir, "manifest.json")) && existsSync(join(dir, "prompt.md"));
         if (ok) active++;
         else {
-          process.stdout.write(`✖  classifiers/${entry.name}/ is missing manifest.json or prompt.md\n`);
+          process.stdout.write(`✖  ${classifiersRel}/${entry.name}/ is missing manifest.json or prompt.md\n`);
           bad++;
           allGood = false;
         }
@@ -547,15 +782,21 @@ async function runDoctor({ cwd }) {
     if (bad === 0) {
       process.stdout.write(
         active > 0
-          ? `✓  ${active} active classifier(s) in classifiers/\n`
-          : "ℹ  No active classifiers in classifiers/ (activate a template with: mv _name name)\n",
+          ? `✓  ${active} active classifier(s) in ${classifiersRel}/\n`
+          : `ℹ  No active classifiers in ${classifiersRel}/ (enable stock in config or customize a _name template)\n`,
       );
     }
-  } else {
-    process.stdout.write("ℹ  No classifiers/ directory — run: npx open-classify init\n");
   }
 
   if (!allGood) process.exit(1);
+}
+
+function configFromFile(cwd) {
+  try {
+    return JSON.parse(readFileSync(join(cwd, "open-classify.config.json"), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -601,9 +842,12 @@ async function runTry({ cwd, message }) {
   const classifiersDir = join(cwd, "classifiers");
   let classifier;
   try {
+    const config = configFromFile(cwd);
+    const hasConfiguredClassifierDirs = Array.isArray(config?.classifiers?.dirs);
     classifier = createClassifier({
       configPath,
-      extraClassifierDirs: existsSync(classifiersDir) ? [classifiersDir] : [],
+      extraClassifierDirs:
+        hasConfiguredClassifierDirs || !existsSync(classifiersDir) ? [] : [classifiersDir],
       skipResourceCheck: false,
     });
   } catch (err) {

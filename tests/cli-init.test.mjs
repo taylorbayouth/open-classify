@@ -31,9 +31,12 @@ test("init scaffolds the standard layout", () => {
   assert.equal(result.status, 0, `exit code 0; stderr: ${result.stderr}`);
 
   assert.ok(existsSync(join(cwd, "open-classify.config.json")));
+  assert.ok(existsSync(join(cwd, "downstream-models.json")));
   const config = JSON.parse(readFileSync(join(cwd, "open-classify.config.json"), "utf8"));
   assert.equal(config.runner.provider, "ollama");
   assert.equal(config.catalog, "downstream-models.json");
+  assert.deepEqual(config.classifiers.dirs, ["classifiers"]);
+  assert.equal(config.classifiers.stock.tools, false);
 
   assert.ok(existsSync(join(cwd, "classifiers", "README.md")));
   for (const template of ["_conversation_digest", "_context_shift", "_memory_retrieval_queries", "_tools"]) {
@@ -42,6 +45,7 @@ test("init scaffolds the standard layout", () => {
   }
 
   assert.match(result.stdout, /wrote open-classify\.config\.json/);
+  assert.match(result.stdout, /wrote downstream-models\.json/);
   assert.match(result.stdout, /Next steps/);
   assert.match(result.stdout, /ollama pull/);
 });
@@ -89,6 +93,39 @@ test("scaffolded layout produces a working registry after activation", () => {
   assert.ok(after.names.includes("tools"));
 });
 
+test("scaffolded config wires classifier dirs and stock classifiers into createClassifier", async () => {
+  const cwd = freshProject();
+  runCli(cwd, ["init", "--yes"]);
+
+  const { createClassifier } = await import("../dist/src/classify.js");
+  const classifier = createClassifier({
+    configPath: join(cwd, "open-classify.config.json"),
+    catalog: { models: [{ id: "local", specializations: ["general"], tier: "local_fast", params_in_billions: null, context_window: 4096 }], default: "local" },
+    runClassifier: async (name) => ({
+      reason: `stub ${name}`,
+      certainty: "no_signal",
+      ...(name === "preflight" ? {} : {}),
+    }),
+  });
+
+  assert.deepEqual(
+    [...classifier.registry.names].sort(),
+    ["model_specialization", "model_tier", "preflight", "prompt_injection"],
+  );
+
+  const config = JSON.parse(readFileSync(join(cwd, "open-classify.config.json"), "utf8"));
+  config.classifiers.stock.tools = true;
+  writeFileSync(join(cwd, "open-classify.config.json"), JSON.stringify(config, null, 2));
+
+  const withTools = createClassifier({
+    configPath: join(cwd, "open-classify.config.json"),
+    catalog: { models: [{ id: "local", specializations: ["general"], tier: "local_fast", params_in_billions: null, context_window: 4096 }], default: "local" },
+    runClassifier: async () => ({ reason: "stub", certainty: "no_signal" }),
+  });
+
+  assert.ok(withTools.registry.names.includes("tools"));
+});
+
 test("init does not overwrite an existing config", () => {
   const cwd = freshProject();
   const customConfig = '{"catalog":"./my-custom-catalog.json"}\n';
@@ -128,11 +165,12 @@ test("init --dry-run previews without writing any files", () => {
   assert.equal(existsSync(join(cwd, "classifiers")), false);
 });
 
-test("init --minimal writes only the config file", () => {
+test("init --minimal writes runtime config and catalog only", () => {
   const cwd = freshProject();
   const result = runCli(cwd, ["init", "--minimal", "--yes"]);
   assert.equal(result.status, 0);
   assert.ok(existsSync(join(cwd, "open-classify.config.json")));
+  assert.ok(existsSync(join(cwd, "downstream-models.json")));
   assert.equal(existsSync(join(cwd, "classifiers")), false);
 });
 
@@ -148,4 +186,32 @@ test("init --force overwrites an existing config", () => {
   assert.equal(config.runner.provider, "ollama");
   // Activated classifiers should NOT have been overwritten.
   assert.ok(existsSync(join(cwd, "classifiers", "_tools")));
+});
+
+test("uninstall removes scaffolded files and inactive templates", () => {
+  const cwd = freshProject();
+  runCli(cwd, ["init", "--yes"]);
+
+  const result = runCli(cwd, ["uninstall", "--yes"]);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+
+  assert.equal(existsSync(join(cwd, "open-classify.config.json")), false);
+  assert.equal(existsSync(join(cwd, "downstream-models.json")), false);
+  assert.equal(existsSync(join(cwd, "classifiers")), false);
+});
+
+test("uninstall keeps active/custom classifiers unless forced", () => {
+  const cwd = freshProject();
+  runCli(cwd, ["init", "--yes"]);
+  renameSync(join(cwd, "classifiers", "_tools"), join(cwd, "classifiers", "tools"));
+  writeFileSync(join(cwd, "classifiers", "notes.txt"), "custom");
+
+  const result = runCli(cwd, ["uninstall", "--yes"]);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  assert.ok(existsSync(join(cwd, "classifiers", "tools")));
+  assert.ok(existsSync(join(cwd, "classifiers", "notes.txt")));
+
+  const force = runCli(cwd, ["uninstall", "--force", "--yes"]);
+  assert.equal(force.status, 0, `stderr: ${force.stderr}`);
+  assert.equal(existsSync(join(cwd, "classifiers")), false);
 });

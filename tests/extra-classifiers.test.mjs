@@ -186,6 +186,23 @@ test("templates are not loaded from the package by default", () => {
   }
 });
 
+test("stock classifiers load from the package when enabled", () => {
+  const { names, modulesByName } = buildClassifierRegistry({
+    stockClassifierNames: ["tools"],
+  });
+  assert.ok(names.includes("tools"));
+  assert.equal(typeof modulesByName.tools.systemPrompt, "string");
+});
+
+test("unknown stock classifier names fail fast", () => {
+  assert.throws(
+    () => buildClassifierRegistry({ stockClassifierNames: ["definitely_not_real"] }),
+    (error) =>
+      error instanceof ClassifierManifestError &&
+      /unknown stock classifier: definitely_not_real/.test(error.message),
+  );
+});
+
 test("a template activates when copied into an extra dir", () => {
   const { names, modulesByName } = buildClassifierRegistry({
     extraDirs: [templateAsExtra("tools")],

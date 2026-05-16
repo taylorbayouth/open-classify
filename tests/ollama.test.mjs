@@ -225,6 +225,15 @@ test("loadOpenClassifyConfig rejects aggregator field (removed)", () => {
   );
 });
 
+test("loadOpenClassifyConfig rejects unknown stock classifiers", () => {
+  assert.throws(
+    () => validateOpenClassifyConfig({ classifiers: { stock: { definitely_not_real: false } } }),
+    (error) =>
+      error instanceof OpenClassifyConfigError &&
+      /classifiers\.stock\.definitely_not_real is not supported/.test(error.message),
+  );
+});
+
 test("createClassifier rejects config models that name unknown classifiers", () => {
   const dir = mkdtempSync(join(tmpdir(), "open-classify-"));
   const path = join(dir, "open-classify.config.json");

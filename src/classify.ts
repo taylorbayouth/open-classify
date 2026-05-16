@@ -4,6 +4,7 @@
 // Backend-agnostic: pass a custom `runClassifier` to bypass the bundled
 // Ollama runner entirely.
 
+import { dirname, isAbsolute, resolve } from "node:path";
 import { loadCatalog } from "./catalog.js";
 import {
   buildClassifierRegistry,
@@ -12,9 +13,12 @@ import {
   type RunClassifier,
 } from "./classifiers.js";
 import {
+  classifierDirsFromConfig,
   classifierModelsFromConfig,
+  DEFAULT_OPEN_CLASSIFY_CONFIG_PATH,
   loadOpenClassifyConfig,
   OpenClassifyConfigError,
+  stockClassifierNamesFromConfig,
   type OpenClassifyConfig,
 } from "./config.js";
 import type {
@@ -46,10 +50,10 @@ export type Inspector = (
 export interface OpenClassify {
   readonly classify: Classifier;
   readonly inspect: Inspector;
-  // The composed registry used by this instance — built-ins plus any
-  // `extraClassifierDirs` the caller supplied. Exposed so callers can
-  // introspect what's wired in (e.g. for diagnostics or surfacing a list
-  // in their app).
+  // The composed registry used by this instance — mandatory built-ins,
+  // enabled stock classifiers, config dirs, and any `extraClassifierDirs`
+  // the caller supplied. Exposed so callers can introspect what's wired in
+  // (e.g. for diagnostics or surfacing a list in their app).
   readonly registry: ClassifierRegistryBundle;
 }
 
@@ -60,10 +64,11 @@ export interface CreateClassifierOptions {
   catalog?: Catalog;
 
   // Extra classifier directories merged into the registry alongside the
-  // built-ins. Each directory is scanned the same way as the bundled
-  // classifiers (one folder per classifier, each containing manifest.json
-  // + prompt.md). Folders with a `_` prefix are skipped — that's how a
-  // consumer deactivates a classifier without deleting it.
+  // built-ins and any directories listed in open-classify.config.json.
+  // Each directory is scanned the same way as the bundled classifiers (one
+  // folder per classifier, each containing manifest.json + prompt.md).
+  // Folders with a `_` prefix are skipped — that's how a consumer
+  // deactivates a copied/custom classifier without deleting it.
   //
   // Name collisions throw — extras cannot override the mandatory built-ins
   // (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`).
@@ -72,6 +77,10 @@ export interface CreateClassifierOptions {
   // survive `npm install` / `npm update` of this package. `npx
   // open-classify init` scaffolds the standard layout for you.
   extraClassifierDirs?: ReadonlyArray<string>;
+
+  // Optional package-owned stock classifiers to load. Config-driven stock
+  // classifiers are also loaded; duplicates are ignored.
+  stockClassifierNames?: ReadonlyArray<string>;
 
   // Config sources. `config` wins; otherwise `configPath` is loaded; otherwise
   // `open-classify.config.json` is tried (silently optional).
@@ -94,6 +103,12 @@ export interface CreateClassifierOptions {
 export function createClassifier(
   options: CreateClassifierOptions = {},
 ): OpenClassify {
+  const configPath =
+    options.config === undefined
+      ? options.configPath ?? process.env.OPEN_CLASSIFY_CONFIG ?? DEFAULT_OPEN_CLASSIFY_CONFIG_PATH
+      : undefined;
+  const configBaseDir = configPath === undefined ? process.cwd() : dirname(resolve(configPath));
+
   const fileConfig =
     options.config ??
     loadOpenClassifyConfig(options.configPath, {
@@ -103,7 +118,14 @@ export function createClassifier(
     });
 
   const registryBundle = buildClassifierRegistry({
-    extraDirs: options.extraClassifierDirs,
+    extraDirs: uniqueStrings([
+      ...classifierDirsFromConfig(fileConfig).map((dir) => resolveFromConfigBase(dir, configBaseDir)),
+      ...(options.extraClassifierDirs ?? []),
+    ]),
+    stockClassifierNames: uniqueStrings([
+      ...stockClassifierNamesFromConfig(fileConfig),
+      ...(options.stockClassifierNames ?? []),
+    ]),
   });
 
   // Cross-check `runner.models` keys against the loaded registry so a typo
@@ -141,7 +163,10 @@ export function createClassifier(
   const catalog =
     options.catalog ??
     loadCatalog(
-      options.catalogPath ?? fileConfig?.catalog ?? OLLAMA_DEFAULT_CATALOG_PATH,
+      options.catalogPath ??
+        (fileConfig?.catalog === undefined
+          ? OLLAMA_DEFAULT_CATALOG_PATH
+          : resolveFromConfigBase(fileConfig.catalog, configBaseDir)),
     );
 
   let resourceCheck: Promise<void> | undefined;
@@ -180,6 +205,14 @@ export function createClassifier(
   };
 
   return { classify, inspect, registry: registryBundle };
+}
+
+function uniqueStrings(values: ReadonlyArray<string>): string[] {
+  return [...new Set(values)];
+}
+
+function resolveFromConfigBase(path: string, configBaseDir: string): string {
+  return isAbsolute(path) ? path : resolve(configBaseDir, path);
 }
 
 // Re-export so callers can `import { ClassifierManifestError } from "open-classify"`

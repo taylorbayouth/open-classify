@@ -64,9 +64,7 @@ This creates `open-classify.config.json` and a `classifiers/` directory in your 
 ```ts
 import { createClassifier } from "open-classify";
 
-const { classify } = createClassifier({
-  extraClassifierDirs: ["./classifiers"],
-});
+const { classify } = createClassifier();
 
 const result = await classify({
   messages: [{ role: "user", text: "Can you review the attached contract?" }],
@@ -77,15 +75,29 @@ else if (result.action === "block") handleBlock(result.block_reason);     // inj
 else callDownstream(result.model_id, result.tools, result.reply?.text);   // route the real request
 ```
 
-**4. Activate or customize a classifier**
+**4. Enable or customize optional classifiers**
 
-Inside `classifiers/` you'll find four `_<name>/` directories — templates copied from the package, inactive because of the underscore prefix. To turn one on, drop the underscore:
+`init` writes `open-classify.config.json`, which enables package-owned stock classifiers without copying them into your project. They default to `false` so the four mandatory base classifiers run automatically:
+
+```json
+{
+  "classifiers": {
+    "stock": {
+      "tools": false
+    }
+  }
+}
+```
+
+Set `"tools": true` to run the package-owned stock `tools` classifier. Because it stays in `node_modules/open-classify`, `npm update open-classify` can improve its prompt later without touching your project files.
+
+Inside `classifiers/` you'll also find four `_<name>/` directories — editable copies of the stock classifiers, inactive because of the underscore prefix. To customize one, keep the matching `classifiers.stock.<name>` value `false`, edit the copy, then drop the underscore:
 
 ```sh
 mv classifiers/_tools classifiers/tools
 ```
 
-Edit `manifest.json` first if you need to (e.g. trim `allowed_tools` for your app). The same underscore convention works the other way too: rename `my_classifier/` → `_my_classifier/` to take any classifier out of the active set without deleting it.
+Edit `manifest.json` first if you need to (e.g. trim `allowed_tools` for your app). The same underscore convention works the other way too: rename `my_classifier/` → `_my_classifier/` to take any copied/custom classifier out of the active set without deleting it.
 
 To write a new classifier from scratch, drop a `<name>/manifest.json` + `<name>/prompt.md` in `classifiers/`. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md).
 
@@ -152,7 +164,7 @@ Example result:
 
 Every classifier — bundled or your own — uses the same two-file shape (`manifest.json` + `prompt.md`) and emits the same envelope: `{ reason, certainty, ...payload }`. Some payload fields are **reserved** (like `model_tier`, `final_reply`, `risk_level`); the aggregator knows how to consume them into the routing decision. Everything else passes through to the caller.
 
-Open Classify ships eight built-in classifiers. **Four are mandatory** — they always load, they can't be turned off, and extras can't override them. The other four ship as **templates** that `init` copies into your project as inactive (`_<name>/`); rename to activate.
+Open Classify ships four mandatory base classifiers and four optional stock classifiers. The mandatory base classifiers always load from the package, can't be turned off, and are updated by `npm update open-classify`. Optional stock classifiers also live in the package, but are enabled by `open-classify.config.json`.
 
 | Name | dispatch_order | Reserved fields | Bundled as | What the aggregator does with it |
 |---|---|---|---|---|
@@ -160,12 +172,27 @@ Open Classify ships eight built-in classifiers. **Four are mandatory** — they 
 | `model_tier` | 20 | `model_tier` | mandatory | Feeds the catalog resolver as a soft constraint |
 | `model_specialization` | 30 | `model_specialization` | mandatory | Feeds the catalog resolver as a soft constraint |
 | `prompt_injection` | 50 | `risk_level` | mandatory | High-risk/unknown → `action: "block"`; suspicious → advisory |
-| `tools` | 40 | `tools` | template | Sets `result.tools` |
-| `memory_retrieval_queries` | 60 | — | template | Passes through to `classifier_outputs` |
-| `conversation_digest` | 70 | — | template | Passes through |
-| `context_shift` | 80 | — | template | Passes through |
+| `tools` | 40 | `tools` | optional stock | Sets `result.tools` |
+| `memory_retrieval_queries` | 60 | — | optional stock | Passes through to `classifier_outputs` |
+| `conversation_digest` | 70 | — | optional stock | Passes through |
+| `context_shift` | 80 | — | optional stock | Passes through |
 
-The directory-naming convention (`_<name>/` = inactive) is the only on/off mechanism, and it applies equally to bundled templates and your own classifiers. No `disabled` config, no allow-lists, no flags. If a folder is in `classifiers/` without a leading underscore, it runs.
+For package-owned stock classifiers, `open-classify.config.json` is the on/off switch:
+
+```json
+{
+  "classifiers": {
+    "stock": {
+      "tools": true,
+      "memory_retrieval_queries": false,
+      "conversation_digest": false,
+      "context_shift": false
+    }
+  }
+}
+```
+
+For copied/custom classifiers in `classifiers/`, the directory-naming convention still applies: `_<name>/` is inactive; `<name>/` runs. Root project files are user-owned, so `init` skips existing config/classifier files unless you pass `--force`.
 
 > Need to customize `preflight`'s prompt or any other mandatory built-in? Use a custom `RunClassifier` (see [Bring your own backend](#bring-your-own-backend)) to intercept it, or fork the package.
 
@@ -308,11 +335,20 @@ cp open-classify.config.example.json open-classify.config.json
       "memory_retrieval_queries": "qwen2.5:7b-instruct-q4_K_M"
     }
   },
-  "catalog": "downstream-models.json"
+  "catalog": "downstream-models.json",
+  "classifiers": {
+    "dirs": ["classifiers"],
+    "stock": {
+      "tools": false,
+      "memory_retrieval_queries": false,
+      "conversation_digest": false,
+      "context_shift": false
+    }
+  }
 }
 ```
 
-`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit `runner.models` entry. `runner.models` is a flat map keyed by classifier name.
+`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit `runner.models` entry. `runner.models` is a flat map keyed by classifier name. `classifiers.dirs` is for user-owned copied/custom classifiers; `classifiers.stock` toggles package-owned optional classifiers.
 
 ## Bring your own backend
 

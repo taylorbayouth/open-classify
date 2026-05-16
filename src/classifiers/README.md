@@ -4,7 +4,7 @@ Each subdirectory here is one of the **mandatory** built-in classifiers — `pre
 
 Directories whose names start with `_` (like `_prompts/`) hold shared assets and are skipped by the loader. Consumers can use the same convention in their own classifier directories to deactivate a classifier without deleting it (`my_classifier/` ↔ `_my_classifier/`).
 
-The other four bundled classifiers — `tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift` — live in `/templates/` at the package root, not here. They aren't loaded by the runtime; `npx open-classify init` copies them into the consumer's project as `_<name>/` (inactive) so they can be edited and activated locally.
+The other four bundled classifiers — `tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift` — live in `/templates/` at the package root, not here. They load only when `open-classify.config.json` enables them under `classifiers.stock`. `npx open-classify init` also copies editable versions into the consumer's project as `_<name>/` (inactive) so they can be customized without npm updates overwriting local work.
 
 > **Adding a classifier from a consumer project?** Don't put it here — `node_modules/open-classify/` is rebuilt on every `npm install`/`npm update` and your work would be wiped. Keep your classifiers in your own project tree (typically `./classifiers/`, scaffolded by `npx open-classify init`). See [docs/adding-a-classifier.md](../../docs/adding-a-classifier.md) for the consumer flow.
 

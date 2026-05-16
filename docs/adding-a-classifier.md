@@ -1,10 +1,10 @@
 # Adding a classifier
 
-Every classifier — bundled or your own — uses the same two-file layout. There is no separate "stock" vs "custom" distinction; the runtime only cares about which reserved fields a classifier opts into.
+Every classifier — package-owned or your own — uses the same two-file layout. The runtime only cares about which reserved fields a classifier opts into; ownership just decides whether `npm update open-classify` can replace the prompt.
 
 There are two places a classifier can live:
 
-- **In your own app**, in a directory you pass to `extraClassifierDirs` (almost always `./classifiers/` after `npx open-classify init`). This is the right path when you've installed Open Classify as a dependency.
+- **In your own app**, in a directory listed in `open-classify.config.json` under `classifiers.dirs` (almost always `./classifiers/` after `npx open-classify init`). This is the right path when you've installed Open Classify as a dependency.
 - **In this repo**, under `src/classifiers/<name>/`. Only do this when you're contributing a new mandatory built-in back to Open Classify.
 
 Either way, the layout and contract are identical.
@@ -98,14 +98,12 @@ Don't paste enum values for reserved fields — the runtime injects them with ca
 
 ## 4. Use it
 
-After `npx open-classify init`, your `classifiers/` directory already exists. Drop your folder in and point `createClassifier` at the parent dir:
+After `npx open-classify init`, your `classifiers/` directory already exists and `open-classify.config.json` points at it. Drop your folder there and call `createClassifier()`:
 
 ```ts
 import { createClassifier } from "open-classify";
 
-const { classify } = createClassifier({
-  extraClassifierDirs: ["./classifiers"],
-});
+const { classify } = createClassifier();
 
 const result = await classify({
   messages: [{ role: "user", text: "Can you review the attached contract?" }],
@@ -114,19 +112,31 @@ const result = await classify({
 const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 ```
 
-> Production tip: `"./classifiers"` resolves against `process.cwd()`, which is fine for `npm start` but breaks if the process launches from a different directory. For long-running services, resolve absolutely via `fileURLToPath(import.meta.url) + path.resolve(...)`.
+`classifiers.dirs` entries resolve relative to the config file, so the scaffold keeps working even if your server starts from a different current working directory.
 
 If the manifest is malformed, `createClassifier` throws `ClassifierManifestError` at startup with the path and a specific reason — typos fail loud.
 
-## Activating one of the bundled templates
+## Enabling or customizing optional stock classifiers
 
-`npx open-classify init` copies four templates (`tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift`) into your `classifiers/` directory as `_<name>/` — inactive because of the underscore prefix. To turn one on:
+`tools`, `memory_retrieval_queries`, `conversation_digest`, and `context_shift` ship as package-owned optional stock classifiers. Enable one in `open-classify.config.json` if you want package updates to keep improving its prompt:
+
+```json
+{
+  "classifiers": {
+    "stock": {
+      "tools": true
+    }
+  }
+}
+```
+
+`npx open-classify init` also copies editable templates into your `classifiers/` directory as `_<name>/` — inactive because of the underscore prefix. To customize one, keep the matching `classifiers.stock.<name>` value `false`, edit the copy, then turn it on:
 
 ```sh
 mv classifiers/_tools classifiers/tools
 ```
 
-Edit `manifest.json` first if you need to (`tools` in particular ships with an opinionated `allowed_tools` list you'll almost certainly want to tailor). The reverse works on any classifier: rename `<name>/` → `_<name>/` to deactivate without deleting.
+Edit `manifest.json` first if you need to (`tools` in particular ships with an opinionated `allowed_tools` list you'll almost certainly want to tailor). The reverse works on any copied/custom classifier: rename `<name>/` → `_<name>/` to deactivate without deleting.
 
 ## Targeting the assistant response
 
@@ -167,7 +177,7 @@ In `open-classify.config.json`:
 }
 ```
 
-`runner.defaultModel` applies to every classifier without an override. `runner.models` is a flat map keyed by classifier name — works for built-ins, templates, and your own.
+`runner.defaultModel` applies to every classifier without an override. `runner.models` is a flat map keyed by classifier name — works for mandatory base classifiers, optional stock classifiers, and your own.
 
 Classifier manifests may also carry an Ollama hint:
 

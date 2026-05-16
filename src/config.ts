@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { ClassifierName } from "./classifiers.js";
+import { STOCK_CLASSIFIER_NAMES, type ClassifierName } from "./classifiers.js";
 import { isRecord } from "./validation.js";
 
 export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
@@ -7,6 +7,12 @@ export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
 export interface OpenClassifyConfig {
   readonly runner?: OllamaRunnerConfig;
   readonly catalog?: string;
+  readonly classifiers?: OpenClassifyClassifierConfig;
+}
+
+export interface OpenClassifyClassifierConfig {
+  readonly dirs?: ReadonlyArray<string>;
+  readonly stock?: Readonly<Record<string, boolean>>;
 }
 
 export interface OllamaRunnerConfig {
@@ -57,6 +63,20 @@ export function classifierModelsFromConfig(
   return { ...config?.runner?.models };
 }
 
+export function classifierDirsFromConfig(
+  config: OpenClassifyConfig | undefined,
+): ReadonlyArray<string> {
+  return config?.classifiers?.dirs ?? [];
+}
+
+export function stockClassifierNamesFromConfig(
+  config: OpenClassifyConfig | undefined,
+): ReadonlyArray<string> {
+  return Object.entries(config?.classifiers?.stock ?? {})
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+}
+
 export function validateOpenClassifyConfig(
   value: unknown,
   path = "open-classify config",
@@ -64,11 +84,28 @@ export function validateOpenClassifyConfig(
   if (!isRecord(value)) {
     throwConfig(path, "config must be a JSON object");
   }
-  ensureAllowedKeys(value, ["runner", "catalog"], path, "<root>");
+  ensureAllowedKeys(value, ["runner", "catalog", "classifiers"], path, "<root>");
 
   return {
     ...(value.runner === undefined ? {} : { runner: validateRunner(value.runner, path) }),
     ...(value.catalog === undefined ? {} : { catalog: requireString(value.catalog, path, "catalog") }),
+    ...(value.classifiers === undefined
+      ? {}
+      : { classifiers: validateClassifiers(value.classifiers, path) }),
+  };
+}
+
+function validateClassifiers(value: unknown, path: string): OpenClassifyClassifierConfig {
+  if (!isRecord(value)) {
+    throwConfig(path, "classifiers must be an object");
+  }
+  ensureAllowedKeys(value, ["dirs", "stock"], path, "classifiers");
+
+  return {
+    ...(value.dirs === undefined ? {} : { dirs: validateStringArray(value.dirs, path, "classifiers.dirs") }),
+    ...(value.stock === undefined
+      ? {}
+      : { stock: validateBooleanMap(value.stock, path, "classifiers.stock", STOCK_CLASSIFIER_NAMES) }),
   };
 }
 
@@ -123,6 +160,40 @@ function validateModels(value: unknown, path: string): Readonly<Record<string, s
   const out: Record<string, string> = {};
   for (const [name, model] of Object.entries(value)) {
     out[name] = requireString(model, path, `runner.models.${name}`);
+  }
+  return out;
+}
+
+function validateStringArray(
+  value: unknown,
+  path: string,
+  field: string,
+): ReadonlyArray<string> {
+  if (!Array.isArray(value)) {
+    throwConfig(path, `${field} must be an array`);
+  }
+  return value.map((item, index) => requireString(item, path, `${field}[${index}]`));
+}
+
+function validateBooleanMap(
+  value: unknown,
+  path: string,
+  field: string,
+  allowedKeys?: ReadonlyArray<string>,
+): Readonly<Record<string, boolean>> {
+  if (!isRecord(value)) {
+    throwConfig(path, `${field} must be an object`);
+  }
+  const allowed = allowedKeys === undefined ? undefined : new Set(allowedKeys);
+  const out: Record<string, boolean> = {};
+  for (const [name, enabled] of Object.entries(value)) {
+    if (allowed !== undefined && !allowed.has(name)) {
+      throwConfig(path, `${field}.${name} is not supported (available: ${[...allowed].join(", ")})`);
+    }
+    if (typeof enabled !== "boolean") {
+      throwConfig(path, `${field}.${name} must be a boolean`);
+    }
+    out[name] = enabled;
   }
   return out;
 }

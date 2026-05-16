@@ -16,5 +16,14 @@
       "prompt_injection": "gemma4:e4b-it-q4_K_M"
     }
   },
-  "catalog": "downstream-models.json"
+  "catalog": "downstream-models.json",
+  "classifiers": {
+    "dirs": ["classifiers"],
+    "stock": {
+      "tools": false,
+      "memory_retrieval_queries": false,
+      "conversation_digest": false,
+      "context_shift": false
+    }
+  }
 }
