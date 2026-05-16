@@ -19,7 +19,9 @@ function runCli(cwd, args) {
 }
 
 function freshProject() {
-  return mkdtempSync(join(tmpdir(), "open-classify-init-"));
+  const dir = mkdtempSync(join(tmpdir(), "open-classify-init-"));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "test-project", version: "1.0.0" }));
+  return dir;
 }
 
 test("init scaffolds the standard layout", () => {
@@ -40,7 +42,8 @@ test("init scaffolds the standard layout", () => {
   }
 
   assert.match(result.stdout, /wrote open-classify\.config\.json/);
-  assert.match(result.stdout, /Wire it into your code/);
+  assert.match(result.stdout, /Next steps/);
+  assert.match(result.stdout, /ollama pull/);
 });
 
 test("init is idempotent — second run is a no-op", () => {
@@ -103,4 +106,46 @@ test("init prints help when no subcommand is given", () => {
   const result = runCli(cwd, []);
   assert.notEqual(result.status, 0);
   assert.match(result.stdout, /init/);
+});
+
+test("init fails with a clear message when there is no package.json", () => {
+  // Use a raw temp dir — no package.json written.
+  const cwd = mkdtempSync(join(tmpdir(), "open-classify-nopkg-"));
+  const result = runCli(cwd, ["init", "--yes"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /No package\.json/);
+  assert.match(result.stderr, /npm init/);
+});
+
+test("init --dry-run previews without writing any files", () => {
+  const cwd = freshProject();
+  const result = runCli(cwd, ["init", "--dry-run", "--yes"]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /The following will be created/);
+  assert.match(result.stdout, /dry run/);
+  // Nothing should have been written.
+  assert.equal(existsSync(join(cwd, "open-classify.config.json")), false);
+  assert.equal(existsSync(join(cwd, "classifiers")), false);
+});
+
+test("init --minimal writes only the config file", () => {
+  const cwd = freshProject();
+  const result = runCli(cwd, ["init", "--minimal", "--yes"]);
+  assert.equal(result.status, 0);
+  assert.ok(existsSync(join(cwd, "open-classify.config.json")));
+  assert.equal(existsSync(join(cwd, "classifiers")), false);
+});
+
+test("init --force overwrites an existing config", () => {
+  const cwd = freshProject();
+  const customConfig = '{"catalog":"./my-custom-catalog.json"}\n';
+  writeFileSync(join(cwd, "open-classify.config.json"), customConfig);
+
+  const result = runCli(cwd, ["init", "--force", "--yes"]);
+  assert.equal(result.status, 0);
+  // Config should have been replaced with the default.
+  const config = JSON.parse(readFileSync(join(cwd, "open-classify.config.json"), "utf8"));
+  assert.equal(config.runner.provider, "ollama");
+  // Activated classifiers should NOT have been overwritten.
+  assert.ok(existsSync(join(cwd, "classifiers", "_tools")));
 });
