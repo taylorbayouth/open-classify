@@ -35,55 +35,29 @@ const TEMPLATE_DESCRIPTIONS = {
 
 const CLASSIFIERS_README = `# classifiers/
 
-Drop a folder here per classifier. Each folder needs:
+Each classifier is a folder with two files:
 
-- \`manifest.json\` — see [open-classify docs](https://github.com/taylorbayouth/open-classify/blob/main/docs/adding-a-classifier.md)
-- \`prompt.md\` — the classifier-specific instructions
+- \`manifest.json\` — declares the output shape and fallback
+- \`prompt.md\` — the classification instructions
 
-## Quickstart
+The loader skips any folder whose name starts with \`_\`. That's how the
+four \`_<name>/\` templates here stay inactive until you opt in: drop the
+underscore (\`mv _tools tools\`) and the classifier runs on the next start.
 
-\`\`\`js
-import { createClassifier } from "open-classify";
+Each template mirrors a package-owned stock classifier. You have two ways
+to use them:
 
-const { classify } = createClassifier();
-\`\`\`
+1. **Enable in place** — set \`classifiers.stock.<name>: true\` in
+   \`open-classify.config.json\`. The package-owned version runs and is
+   updated by \`npm update open-classify\`.
+2. **Customize a local copy** — keep the stock toggle off, drop the
+   underscore on the template here, and edit \`prompt.md\` /
+   \`manifest.json\` to taste.
 
-Place this in your server entry point. Call \`classify(input)\` for each user message.
-\`open-classify.config.json\` wires in \`./classifiers\` automatically.
-
-## Stock classifiers
-
-\`tools\`, \`memory_retrieval_queries\`, \`conversation_digest\`, and \`context_shift\`
-ship with the package but are disabled by default in \`open-classify.config.json\`.
-Enable a package-owned stock classifier by setting it to \`true\`:
-
-\`\`\`json
-{
-  "classifiers": {
-    "stock": {
-      "tools": true
-    }
-  }
-}
-\`\`\`
-
-Package-owned stock classifiers are updated by \`npm update open-classify\`.
-
-## Customizing a stock classifier
-
-The four \`_<name>/\` directories below are editable copies of the stock classifiers.
-They are inactive because the loader skips any folder starting with \`_\`. To customize one,
-keep the matching \`classifiers.stock.<name>\` value \`false\`, edit the files, then drop the underscore:
-
-\`\`\`sh
-mv _tools tools
-\`\`\`
-
-You probably also want to edit its \`manifest.json\` first to fit your app (e.g. trim the \`allowed_tools\` list).
-
-## Deactivating without deleting
-
-Same trick in reverse — rename \`my_classifier\` → \`_my_classifier\` to take it out of the active set without losing your work.
+To write your own classifier, drop a new \`<name>/\` folder here with its
+own \`manifest.json\` and \`prompt.md\`. The folder name must match the
+manifest's \`name\` field. See the
+[author guide](https://github.com/taylorbayouth/open-classify/blob/main/docs/adding-a-classifier.md).
 `;
 
 const DEFAULT_CONFIG = {
@@ -389,21 +363,31 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
     }
   }
 
-  const classifierDirRel = relative(cwd, resolvedClassifierDir);
   process.stdout.write(`
 Next steps:
 
-  1. Pull the default model:
+  1. Pull the default classifier model:
+
        ollama pull ${config.runner.defaultModel}
 
-  2. Wire it into your server (example for a Node entrypoint):
-       see  ./${classifierDirRel}/README.md  →  "Quickstart"
+  2. Verify everything is wired up:
 
-  3. Verify the install:
        npx open-classify doctor
 
-  4. Run a one-shot classification against your config:
-       npx open-classify try "hello world"
+  3. Try it without writing any code:
+
+       npx open-classify try "hello"
+
+  4. Use it from your code:
+
+       import { createClassifier } from "open-classify";
+       const { classify } = createClassifier();
+       const result = await classify({
+         messages: [{ role: "user", text: "hello" }],
+       });
+
+     The factory finds open-classify.config.json in your working
+     directory and wires in the classifiers/ folder automatically.
 
 Docs:  https://github.com/taylorbayouth/open-classify#readme
 `);

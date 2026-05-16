@@ -43,23 +43,21 @@ Every classifier uses the same manifest shape and emits the same output envelope
 
 ## Getting started
 
-Node 18+. The packaged runner uses local Ollama with `gemma4:e4b-it-q4_K_M` as the zero-config classifier model. Pluggable via `open-classify.config.json` or a custom `RunClassifier`.
-
-**1. Install**
+Prerequisites: Node 18+, [Ollama](https://ollama.com), and the default classifier model:
 
 ```sh
-npm install open-classify
+ollama pull gemma4:e4b-it-q4_K_M
 ```
 
-**2. Scaffold**
+**1. Scaffold (from your project root)**
 
 ```sh
 npx open-classify init
 ```
 
-This creates `open-classify.config.json` and a `classifiers/` directory in your project root. You'll see exactly what will be written and asked to confirm. Re-run safe: existing files are skipped.
+If the package isn't installed yet, `init` offers to add it. It writes `open-classify.config.json`, `downstream-models.json`, and a `classifiers/` directory. Re-run safe: existing files are skipped. Verify the install at any time with `npx open-classify doctor`.
 
-**3. Use it**
+**2. Use it**
 
 ```ts
 import { createClassifier } from "open-classify";
@@ -75,31 +73,29 @@ else if (result.action === "block") handleBlock(result.block_reason);     // inj
 else callDownstream(result.model_id, result.tools, result.reply?.text);   // route the real request
 ```
 
-**4. Enable or customize optional classifiers**
+`createClassifier()` looks for `open-classify.config.json` in the working directory, so the scaffolded layout works with no further wiring.
 
-`init` writes `open-classify.config.json`, which enables package-owned stock classifiers without copying them into your project. They default to `false` so the four mandatory base classifiers run automatically:
+**3. Enable or customize optional classifiers**
+
+Four mandatory base classifiers (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`) always run from the package. Four more (`tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift`) are optional and default to off.
+
+You have two ways to use the optional ones:
 
 ```json
-{
-  "classifiers": {
-    "stock": {
-      "tools": false
-    }
-  }
-}
+{ "classifiers": { "stock": { "tools": true } } }
 ```
 
-Set `"tools": true` to run the package-owned stock `tools` classifier. Because it stays in `node_modules/open-classify`, `npm update open-classify` can improve its prompt later without touching your project files.
+Set the toggle to `true` to run the package-owned version. `npm update open-classify` keeps the prompt current.
 
-Inside `classifiers/` you'll also find four `_<name>/` directories — editable copies of the stock classifiers, inactive because of the underscore prefix. To customize one, keep the matching `classifiers.stock.<name>` value `false`, edit the copy, then drop the underscore:
+Or customize a local copy. `init` scaffolds editable templates in `classifiers/_<name>/` (inactive because of the underscore prefix). To take one over, keep the stock toggle off and rename the folder:
 
 ```sh
 mv classifiers/_tools classifiers/tools
 ```
 
-Edit `manifest.json` first if you need to (e.g. trim `allowed_tools` for your app). The same underscore convention works the other way too: rename `my_classifier/` → `_my_classifier/` to take any copied/custom classifier out of the active set without deleting it.
+The same convention works in reverse: rename any active classifier `<name>/` → `_<name>/` to deactivate without deleting.
 
-To write a new classifier from scratch, drop a `<name>/manifest.json` + `<name>/prompt.md` in `classifiers/`. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md).
+To write a new classifier, drop a `<name>/manifest.json` + `<name>/prompt.md` in `classifiers/`. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md).
 
 ### Classifying assistant output
 
@@ -310,45 +306,20 @@ The resolver picks the cheapest model matching `model_specialization` and `model
 - Open Classify keeps whole messages only, drops oldest first to fit a 5,000-char budget, and caps history at 20 messages.
 - Unknown fields are rejected, not passed through.
 
-## Local setup
+## Configuration
 
-```sh
-npm run setup
-```
+`npx open-classify init` writes a working `open-classify.config.json` for you. To customize, edit it directly — the full set of supported fields (with realistic example values) lives in [open-classify.config.example.json](open-classify.config.example.json).
 
-Checks prerequisites (Node, npm, Ollama), confirms the base model is pulled, installs dependencies, and builds. Idempotent — safe to re-run.
-
-Optional Ollama runtime config:
-
-```sh
-cp open-classify.config.example.json open-classify.config.json
-```
-
-```json
-{
-  "runner": {
-    "provider": "ollama",
-    "defaultModel": "gemma4:e4b-it-q4_K_M",
-    "models": {
-      "model_tier": "qwen2.5:7b-instruct-q4_K_M",
-      "prompt_injection": "llama-guard3:8b",
-      "memory_retrieval_queries": "qwen2.5:7b-instruct-q4_K_M"
-    }
-  },
-  "catalog": "downstream-models.json",
-  "classifiers": {
-    "dirs": ["classifiers"],
-    "stock": {
-      "tools": false,
-      "memory_retrieval_queries": false,
-      "conversation_digest": false,
-      "context_shift": false
-    }
-  }
-}
-```
-
-`runner.provider` currently supports `"ollama"` only. `runner.defaultModel` applies to any classifier without an explicit `runner.models` entry. `runner.models` is a flat map keyed by classifier name. `classifiers.dirs` is for user-owned copied/custom classifiers; `classifiers.stock` toggles package-owned optional classifiers.
+| Field | What it controls |
+|---|---|
+| `runner.provider` | Backend. Currently `"ollama"` only. |
+| `runner.host` | Ollama host URL. Defaults to `http://127.0.0.1:11434`. |
+| `runner.defaultModel` | Classifier model used when there is no per-classifier override. |
+| `runner.options` | Ollama generation options: `temperature`, `top_p`, `seed`, `num_ctx`. |
+| `runner.models` | Per-classifier model overrides. Flat map keyed by classifier name. |
+| `catalog` | Path to the downstream model catalog (relative to the config file). |
+| `classifiers.dirs` | Directories of user-owned classifiers to load. |
+| `classifiers.stock` | Toggles for package-owned optional stock classifiers. |
 
 ## Bring your own backend
 
@@ -383,8 +354,6 @@ For the lowest-level entry points, `classifyOpenClassifyInput(input, { runClassi
 - [docs/resolver.md](docs/resolver.md) — aggregation and model resolution
 - [docs/adding-a-classifier.md](docs/adding-a-classifier.md) — author guide
 
-## Development
+## Contributing
 
-```sh
-npm test    # build + run the Node test runner suite
-```
+Clone the repo, then `npm run setup` (checks Node/Ollama, pulls the base model, installs and builds) and `npm test` (build + Node test runner). PRs welcome.

@@ -1,13 +1,6 @@
 # Adding a classifier
 
-Every classifier — package-owned or your own — uses the same two-file layout. The runtime only cares about which reserved fields a classifier opts into; ownership just decides whether `npm update open-classify` can replace the prompt.
-
-There are two places a classifier can live:
-
-- **In your own app**, in a directory listed in `open-classify.config.json` under `classifiers.dirs` (almost always `./classifiers/` after `npx open-classify init`). This is the right path when you've installed Open Classify as a dependency.
-- **In this repo**, under `src/classifiers/<name>/`. Only do this when you're contributing a new mandatory built-in back to Open Classify.
-
-Either way, the layout and contract are identical.
+Every classifier uses the same two-file layout. Drop a folder into a directory listed under `classifiers.dirs` in `open-classify.config.json` (defaults to `./classifiers/` after `npx open-classify init`) and the runtime picks it up on the next start.
 
 ## 1. Create the directory
 

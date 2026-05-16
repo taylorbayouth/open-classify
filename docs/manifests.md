@@ -1,16 +1,15 @@
 # Manifest reference
 
-Every classifier lives in `src/classifiers/<name>/` and contains exactly two files:
+Every classifier is a directory with exactly two files:
 
 ```
-src/classifiers/
-  _prompts/                   # shared base markdown (base.md, reason.md, confidence.md)
+classifiers/
   <classifier_name>/
     manifest.json
     prompt.md
 ```
 
-The loader skips any top-level directory whose name starts with `_` (those are shared assets, not classifiers).
+Folders whose names start with `_` are skipped by the loader — that's how the scaffolded `_<name>/` templates stay inactive until you drop the underscore.
 
 ## Fields
 
@@ -145,7 +144,7 @@ A manifest may declare both reserved fields and custom properties; they sit alon
 
 `prompt.md` is the classifier-specific instruction text. The runtime composes the system prompt at load time from:
 
-1. Shared base sections (JSON-only contract, `reason` + `certainty` rules) from `src/classifiers/_prompts/`
+1. Shared base sections (JSON-only contract, `reason` + `certainty` rules)
 2. The classifier header (name and purpose, with the purpose stated as a hard scope boundary)
 3. Auto-injected fragments for each declared reserved field (canonical enum values included, so you can't drift)
 4. Your `prompt.md`

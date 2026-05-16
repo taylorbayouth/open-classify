@@ -4,16 +4,13 @@
     "host": "http://127.0.0.1:11434",
     "defaultModel": "gemma4:e4b-it-q4_K_M",
     "options": {
-      "num_ctx": 4096,
       "temperature": 0,
       "top_p": 1,
-      "seed": 0
+      "seed": 0,
+      "num_ctx": 4096
     },
     "models": {
-      "preflight": "gemma4:e4b-it-q4_K_M",
-      "model_tier": "gemma4:e4b-it-q4_K_M",
-      "model_specialization": "gemma4:e4b-it-q4_K_M",
-      "prompt_injection": "gemma4:e4b-it-q4_K_M"
+      "prompt_injection": "llama-guard3:8b"
     }
   },
   "catalog": "downstream-models.json",
