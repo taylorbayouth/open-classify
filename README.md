@@ -157,23 +157,25 @@ Reserved fields are well-known output keys with canonical JSON Schemas and promp
 
 ## Adding a classifier
 
-A classifier is two files in a directory named after it. There are two places that directory can live:
+If you've installed Open Classify as a dependency, **keep your classifiers inside your own project tree** and point `createClassifier` at the parent directory. Don't put them under `node_modules/open-classify/` — every `npm install`/`npm update` rebuilds `node_modules` from package contents and wipes them.
 
-- **In a consumer project** (when you've installed `open-classify` as a dependency): keep your classifiers inside your own project tree (e.g. `my-app/classifiers/<name>/`) and pass the parent directory to `createClassifier`:
+A classifier is two files in a directory named after it. Here's the full end-to-end setup for a consumer project:
 
-  ```ts
-  const { classify } = createClassifier({
-    extraClassifierDirs: ["./classifiers"],
-  });
-  ```
+### 1. Lay out the classifier in your project
 
-  This is the right path for almost everyone. Updating the package (`npm update open-classify`) only touches `node_modules`, so your classifiers are never at risk. **Don't put custom classifiers under `node_modules/open-classify/`** — they'll be wiped on the next install. Name collisions with built-ins throw at startup, so pick unique names.
+```
+my-app/
+├── classifiers/
+│   └── topic_tags/
+│       ├── manifest.json
+│       └── prompt.md
+└── src/
+    └── classify.ts
+```
 
-- **In this repo** under `src/classifiers/<name>/` (only when contributing back to Open Classify itself).
+The directory name (`topic_tags`) must match `manifest.json`'s `name` field.
 
-Either way, the manifest contract and validation are identical.
-
-`manifest.json` describes the output shape and a fallback for when the classifier errors:
+### 2. Write `manifest.json`
 
 ```json
 {
@@ -198,7 +200,9 @@ Either way, the manifest contract and validation are identical.
 }
 ```
 
-`prompt.md` describes the classification rule in plain language. You don't need to write JSON examples — the runtime synthesizes one from your schema and shows it to the model — and you don't paste enum values for reserved fields. Just describe what each output key means and when to abstain:
+### 3. Write `prompt.md`
+
+Describe the classification rule in plain language. You don't need to write JSON examples — the runtime synthesizes one from your schema — and you don't paste enum values for reserved fields:
 
 ```markdown
 You are the topic_tags classifier.
@@ -208,21 +212,39 @@ Return an empty array when no clear topic applies.
 Do not invent tags for vague or ambiguous messages.
 ```
 
-Rules:
+### 4. Register the directory and consume the output
+
+Pass an **absolute path** to `extraClassifierDirs`. Resolving via `import.meta.url` (or `__dirname` in CommonJS) keeps it correct no matter where the process is launched from — `"./classifiers"` would silently resolve against `process.cwd()` and break the moment you run from a different directory:
+
+```ts
+import { createClassifier } from "open-classify";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+const { classify } = createClassifier({
+  extraClassifierDirs: [resolve(here, "../classifiers")],
+});
+
+const result = await classify({
+  messages: [{ role: "user", text: "Can you review the attached contract?" }],
+});
+
+const tags = result.classifier_outputs.topic_tags?.tags ?? [];
+```
+
+### Rules
 
 - `name` must match the directory name.
 - Reserved field names cannot appear in `output_schema.properties` — declare them in `reserved_fields` instead.
 - `fallback` requires only `reason` and `certainty`; reserved and custom required fields are exempt from the fallback check.
 - If you want hand-picked examples (preflight does this), add an `output_schema.examples` array. Each entry must validate against the composed schema at load time. Otherwise the runtime synthesizes a skeleton example for you.
+- **Name collisions with built-ins (or between two extra dirs) throw `ClassifierManifestError` at startup.** Pick a unique name — namespacing yours (e.g. `myapp_topic_tags`) is a safe habit if you want to stay clear of future built-ins.
 
-Consume your output:
+> Contributing a classifier back to Open Classify itself? Drop it under `src/classifiers/<name>/` in this repo instead — the manifest contract is identical.
 
-```ts
-const result = await classify(input);
-const tags = result.classifier_outputs.topic_tags?.tags ?? [];
-```
-
-See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for a full walkthrough and [docs/manifests.md](docs/manifests.md) for the field reference.
+See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for the full walkthrough and [docs/manifests.md](docs/manifests.md) for the field reference.
 
 ## Using reserved fields in your own classifier
 
