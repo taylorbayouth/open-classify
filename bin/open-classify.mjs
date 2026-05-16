@@ -231,7 +231,7 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
 
   // 3. Plan.
   const resolvedClassifierDir = resolve(cwd, classifierDir);
-  const wrote = { config: false, readme: false, templateCount: 0 };
+  const wrote = { config: false, catalog: false, readme: false, templateCount: 0 };
   let plan = planInit(cwd, { minimal, classifierDir: resolvedClassifierDir, force, wrote });
 
   // Nothing to do.
@@ -301,6 +301,7 @@ async function runInit({ cwd, yes, minimal, dryRun, force, noInstall, packageMan
     process.stdout.write(`✓ open-classify installed${v ? ` (v${v})` : ""}\n`);
   }
   if (wrote.config) process.stdout.write("✓ wrote open-classify.config.json\n");
+  if (wrote.catalog) process.stdout.write("✓ wrote downstream-models.json\n");
   if (wrote.readme || wrote.templateCount > 0) {
     const classifierDirRel = relative(cwd, resolvedClassifierDir);
     if (wrote.templateCount > 0) {
@@ -348,6 +349,22 @@ function planInit(cwd, { minimal = false, classifierDir, force = false, wrote })
       writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
       process.stdout.write(`  wrote ${configRel}\n`);
       wrote.config = true;
+    });
+  }
+
+  // Catalog file (downstream-models.json).
+  const catalogSrc = join(PACKAGE_ROOT, "downstream-models.json");
+  const catalogPath = join(cwd, "downstream-models.json");
+  const catalogRel = relative(cwd, catalogPath);
+  if (existsSync(catalogPath) && !force) {
+    toSkip.push(catalogRel);
+  } else if (existsSync(catalogSrc)) {
+    toCreate.push(catalogRel);
+    preview.push({ label: catalogRel, description: "(catalog of available downstream models)" });
+    actions.push(() => {
+      cpSync(catalogSrc, catalogPath);
+      process.stdout.write(`  wrote ${catalogRel}\n`);
+      wrote.catalog = true;
     });
   }
 

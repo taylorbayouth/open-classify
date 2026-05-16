@@ -35,6 +35,7 @@ test("init scaffolds the standard layout", () => {
   assert.equal(config.runner.provider, "ollama");
   assert.equal(config.catalog, "downstream-models.json");
 
+  assert.ok(existsSync(join(cwd, "downstream-models.json")));
   assert.ok(existsSync(join(cwd, "classifiers", "README.md")));
   for (const template of ["_conversation_digest", "_context_shift", "_memory_retrieval_queries", "_tools"]) {
     assert.ok(existsSync(join(cwd, "classifiers", template, "manifest.json")), `${template}/manifest.json missing`);
