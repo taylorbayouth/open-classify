@@ -37,9 +37,9 @@ Each classifier lives in a directory with exactly two files:
 - `manifest.json` — declares `name`, `version`, `purpose`, optional `dispatch_order`, `applies_to`, `output_schema`, `fallback`, and optionally `reserved_fields` + `allowed_tools` + `backend` hints
 - `prompt.md` — the classifier-specific instructions
 
-Shared base prompt fragments live in `src/classifiers/_prompts/`. Directories whose names start with `_` are skipped by the loader — that's the only on/off mechanism. Consumers can use the same trick: rename `my_classifier/` → `_my_classifier/` to deactivate without deleting.
+Shared base prompt fragments live in `src/classifiers/_prompts/`. Directories whose names start with `_` are skipped by the loader. Consumers can use the same trick to deactivate a custom classifier without deleting it: rename `my_classifier/` → `_my_classifier/`.
 
-There is no "stock" vs "custom" distinction. Every classifier uses the same contract. What used to be a stock classifier is now a regular classifier that happens to opt into one or more **reserved fields** (well-known output keys the aggregator knows how to consume).
+Every classifier — mandatory built-in, optional stock, or user — uses the same contract. Reserved fields (well-known output keys the aggregator consumes into routing) are opt-in via the `reserved_fields` array; everything else is custom data that passes through to `classifier_outputs`.
 
 #### Mandatory built-ins (live in `src/classifiers/`)
 
@@ -52,7 +52,7 @@ There is no "stock" vs "custom" distinction. Every classifier uses the same cont
 
 These always load. Extras can't override them — name collisions throw. To customize behaviour, use a custom `RunClassifier`.
 
-#### Templates (live in `templates/` at the package root)
+#### Optional stock classifiers (live in `templates/stock/` at the package root)
 
 | Name | dispatch_order | Reserved fields | applies_to |
 |---|---|---|---|
@@ -61,13 +61,18 @@ These always load. Extras can't override them — name collisions throw. To cust
 | `conversation_digest` | 70 | — | `user` |
 | `context_shift` | 80 | — | `user` |
 
-These ship with the package but the runtime never loads them. `npx open-classify init` copies them into the consumer's `classifiers/` directory as `_<name>/` (inactive). The consumer activates one by dropping the underscore (`mv _tools tools`).
+Off by default. Consumers enable one by listing it in `classifiers.stock` in `open-classify/config.json` — the package version runs from `node_modules/open-classify/templates/stock/<name>/`. To customize one, `npx open-classify eject <name>` copies the files into `open-classify/classifiers/<name>/` and the runtime transparently switches to the local copy (a user classifier with the same name as a stock classifier always wins).
 
 ### CLI
 
-`bin/open-classify.mjs` is a plain ESM script (no compile step) registered via the package's `bin` field. Currently exposes one subcommand:
+`bin/open-classify.mjs` is a plain ESM script (no compile step) registered via the package's `bin` field. Subcommands:
 
-- `init [--yes]` — scaffold `open-classify.config.json` + `classifiers/` (with `README.md` + the four `_<template>/` directories). Strictly never overwrites existing files; if everything's present, prints "Nothing to do." Y/n confirmation skipped by `--yes`. Integration-tested in `tests/cli-init.test.mjs` by spawning the script in a temp dir.
+- `init` — copy `templates/scaffold/open-classify/` to `./open-classify/` in the consumer's project. Skips existing files unless `--force`. Flags: `--yes`, `--force`, `--dry-run`.
+- `eject <name>` — copy `templates/stock/<name>/` to `./open-classify/classifiers/<name>/`. Refuses to overwrite without `--force`. Validates that `<name>` is one of the four stock classifiers.
+- `doctor` — verify package dep, config parse, catalog presence, Ollama reachability, default model pulled, classifier dirs.
+- `try <message>` — load the runtime via `dist/src/index.js` and run a one-shot classification.
+
+There is intentionally no `uninstall` subcommand — `rm -rf open-classify/` + `npm uninstall open-classify` is the documented path. Bundling that into the CLI created confusion (the npx "needs to install" prompt when the package isn't a dep yet).
 
 ### Two passes: `classify()` and `inspect()`
 
@@ -142,11 +147,19 @@ Certainty: labels stay internal (LLM understands them); floats appear in the fin
 
 Fallback validation: only `reason` and `certainty` are required in a fallback object. Reserved fields and `output_schema.required` entries are exempt — the "no signal" state cannot meaningfully populate them.
 
-### Configuration files
+### Configuration files (consumer-side)
 
-- `downstream-models.json` — Required catalog of available downstream models
-- `open-classify.config.example.json` — Example runtime config: Ollama model overrides (flat `models: { [name]: model_id }`), catalog path
+After `npx open-classify init`, the consumer's project has a single `open-classify/` directory:
+
+- `open-classify/config.json` — runtime config (Ollama host, default model, per-classifier model overrides, `classifiers.dirs`, `classifiers.stock` enable list)
+- `open-classify/downstream-models.json` — model catalog the aggregator resolves against
+- `open-classify/classifiers/` — user classifiers and any ejected stock classifiers
 - Base classifier model: `gemma4:e4b-it-q4_K_M`
+
+Package-side templates (what `init` and `eject` copy from):
+
+- `templates/scaffold/open-classify/` — copied wholesale by `init`
+- `templates/stock/<name>/` — copied one folder at a time by `eject <name>`
 
 ### Design constraints
 

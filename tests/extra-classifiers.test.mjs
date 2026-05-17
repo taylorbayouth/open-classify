@@ -89,7 +89,7 @@ test("buildClassifierRegistry throws when an extra collides with a mandatory bui
     () => buildClassifierRegistry({ extraDirs: [root] }),
     (error) =>
       error instanceof ClassifierManifestError &&
-      /duplicate classifier name: preflight/.test(error.message),
+      /duplicate classifier name: "preflight"/.test(error.message),
   );
 });
 
@@ -103,7 +103,7 @@ test("buildClassifierRegistry throws when two extra dirs declare the same name",
     () => buildClassifierRegistry({ extraDirs: [a, b] }),
     (error) =>
       error instanceof ClassifierManifestError &&
-      /duplicate classifier name: topic_tags/.test(error.message),
+      /duplicate classifier name: "topic_tags"/.test(error.message),
   );
 });
 

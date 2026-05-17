@@ -1,11 +1,11 @@
 # Adding a classifier
 
-Every classifier uses the same two-file layout. Drop a folder into a directory listed under `classifiers.dirs` in `open-classify.config.json` (defaults to `./classifiers/` after `npx open-classify init`) and the runtime picks it up on the next start.
+Every classifier uses the same two-file layout. Drop a folder into a directory listed under `classifiers.dirs` in `open-classify/config.json` (defaults to `open-classify/classifiers/` after `npx open-classify init`) and the runtime picks it up on the next start.
 
 ## 1. Create the directory
 
 ```
-classifiers/<name>/
+open-classify/classifiers/<name>/
 ├── manifest.json
 └── prompt.md
 ```
@@ -71,7 +71,7 @@ Rules:
 - `reason` and `certainty` are added to the composed schema by the runtime — don't declare them.
 - `fallback` must validate against the composed schema. Only `reason` and `certainty` are required in fallback; reserved fields and `output_schema.required` fields are exempt (a "no signal" fallback usually omits them).
 - `output_schema.examples` (JSON Schema standard) must validate against the composed schema at load time, so a broken example fails the build, not the model call.
-- **Name collisions throw.** Extras cannot override the mandatory built-ins (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`). To customize one of those, use a custom `RunClassifier` to intercept it (see "Replacing the backend" below).
+- **Name collisions throw.** A user classifier cannot override a mandatory built-in (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`). To customize one of those, use a custom `RunClassifier` to intercept it (see "Replacing the backend" below).
 
 See [manifests.md](manifests.md) for the full field list.
 
@@ -87,11 +87,11 @@ Return an empty array when no clear topic applies.
 Do not invent tags for vague or ambiguous messages.
 ```
 
-Don't paste enum values for reserved fields — the runtime injects them with canonical wording so they never drift from `src/enums.ts`.
+Don't paste enum values for reserved fields — the runtime injects them with canonical wording so they never drift from the source enums.
 
 ## 4. Use it
 
-After `npx open-classify init`, your `classifiers/` directory already exists and `open-classify.config.json` points at it. Drop your folder there and call `createClassifier()`:
+After `npx open-classify init`, `open-classify/classifiers/` exists and `open-classify/config.json` points at it. Drop your folder there and call `createClassifier()`:
 
 ```ts
 import { createClassifier } from "open-classify";
@@ -105,31 +105,32 @@ const result = await classify({
 const tags = result.classifier_outputs.topic_tags?.tags ?? [];
 ```
 
-`classifiers.dirs` entries resolve relative to the config file, so the scaffold keeps working even if your server starts from a different current working directory.
+`classifiers.dirs` entries resolve relative to the config file, so the scaffold keeps working even when your server starts from a different working directory.
 
 If the manifest is malformed, `createClassifier` throws `ClassifierManifestError` at startup with the path and a specific reason — typos fail loud.
 
 ## Enabling or customizing optional stock classifiers
 
-`tools`, `memory_retrieval_queries`, `conversation_digest`, and `context_shift` ship as package-owned optional stock classifiers. Enable one in `open-classify.config.json` if you want package updates to keep improving its prompt:
+`tools`, `memory_retrieval_queries`, `conversation_digest`, and `context_shift` ship as package-owned optional stock classifiers. They're off by default. To enable one, list it in `open-classify/config.json`:
 
 ```json
 {
   "classifiers": {
-    "stock": {
-      "tools": true
-    }
+    "dirs": ["classifiers"],
+    "stock": ["tools"]
   }
 }
 ```
 
-`npx open-classify init` also copies editable templates into your `classifiers/` directory as `_<name>/` — inactive because of the underscore prefix. To customize one, keep the matching `classifiers.stock.<name>` value `false`, edit the copy, then turn it on:
+The package-owned prompt is used, and `npm update open-classify` keeps it current.
+
+When you want to take a stock classifier over and edit it:
 
 ```sh
-mv classifiers/_tools classifiers/tools
+npx open-classify eject tools
 ```
 
-Edit `manifest.json` first if you need to (`tools` in particular ships with an opinionated `allowed_tools` list you'll almost certainly want to tailor). The reverse works on any copied/custom classifier: rename `<name>/` → `_<name>/` to deactivate without deleting.
+That copies the stock files into `open-classify/classifiers/tools/`. The runtime transparently switches to your local copy (no config change needed; a local classifier with the same name as a stock classifier always wins). `npm update` won't touch the files. To revert, delete the folder.
 
 ## Targeting the assistant response
 
@@ -156,7 +157,7 @@ The built-in `prompt_injection` ships tagged `"both"` so it runs on both sides.
 
 ## Choosing the classifier model
 
-In `open-classify.config.json`:
+In `open-classify/config.json`:
 
 ```json
 {

@@ -9,7 +9,7 @@ classifiers/
     prompt.md
 ```
 
-Folders whose names start with `_` are skipped by the loader — that's how the scaffolded `_<name>/` templates stay inactive until you drop the underscore.
+Folders whose names start with `_` are skipped by the loader — handy if you want to deactivate a classifier without deleting it.
 
 ## Fields
 

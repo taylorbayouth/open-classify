@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = join(__dirname, "..", "templates");
+const TEMPLATES_DIR = join(__dirname, "..", "templates", "stock");
 
 // Sample valid outputs for each built-in classifier manifest. Reserved fields
 // and custom payload fields sit at the top level alongside `reason` and

@@ -64,18 +64,15 @@ export interface CreateClassifierOptions {
   catalog?: Catalog;
 
   // Extra classifier directories merged into the registry alongside the
-  // built-ins and any directories listed in open-classify.config.json.
+  // built-ins and any directories listed in open-classify/config.json.
   // Each directory is scanned the same way as the bundled classifiers (one
   // folder per classifier, each containing manifest.json + prompt.md).
-  // Folders with a `_` prefix are skipped — that's how a consumer
-  // deactivates a copied/custom classifier without deleting it.
+  // Folders with a `_` prefix are skipped.
   //
   // Name collisions throw — extras cannot override the mandatory built-ins
   // (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`).
-  //
-  // Use this to keep your own classifiers inside your project so they
-  // survive `npm install` / `npm update` of this package. `npx
-  // open-classify init` scaffolds the standard layout for you.
+  // A local classifier with the same name as a stock classifier overrides
+  // the stock version (this is the "eject" pattern).
   extraClassifierDirs?: ReadonlyArray<string>;
 
   // Optional package-owned stock classifiers to load. Config-driven stock
@@ -83,7 +80,7 @@ export interface CreateClassifierOptions {
   stockClassifierNames?: ReadonlyArray<string>;
 
   // Config sources. `config` wins; otherwise `configPath` is loaded; otherwise
-  // `open-classify.config.json` is tried (silently optional).
+  // `open-classify/config.json` is tried (silently optional).
   config?: OpenClassifyConfig;
   configPath?: string;
   catalogPath?: string;

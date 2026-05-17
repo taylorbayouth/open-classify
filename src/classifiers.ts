@@ -31,11 +31,11 @@ export type StockClassifierName = (typeof STOCK_CLASSIFIER_NAMES)[number];
 export const STOCK_CLASSIFIERS_DIR = findStockClassifiersDir();
 
 function findStockClassifiersDir(): string {
-  // Source runs use ../templates; built package runs use ../../templates from
-  // dist/src. Keep both so tests and the published package agree.
+  // Source runs use ../templates/stock; built package runs use ../../templates/stock
+  // from dist/src. Keep both so tests and the published package agree.
   const candidates = [
-    join(__dirname, "..", "templates"),
-    join(__dirname, "..", "..", "templates"),
+    join(__dirname, "..", "templates", "stock"),
+    join(__dirname, "..", "..", "templates", "stock"),
   ];
   return candidates.find((dir) => existsSync(dir)) ?? candidates[0];
 }
@@ -94,23 +94,34 @@ export function loadClassifierRegistry(
 }
 
 // Build a complete classifier registry from the bundled built-ins plus any
-// extra directories supplied by the caller. Sorts by dispatch_order
-// ascending (manifests without dispatch_order sort last). Rejects duplicate
-// names.
+// extras supplied by the caller. Sorted by dispatch_order ascending
+// (manifests without dispatch_order sort last).
 //
-// Mandatory built-ins (preflight, model_tier, model_specialization,
-// prompt_injection) always load. Extras with the same name as a built-in
-// throw — there's no override mechanism. Customise by editing the bundled
-// manifest in your own fork, or replace behaviour entirely with a custom
-// `runClassifier`.
+// Precedence rules:
+//   - Mandatory built-ins (preflight, model_tier, model_specialization,
+//     prompt_injection) always load. A user classifier with the same name
+//     as a built-in throws — to replace behaviour, use a custom RunClassifier.
+//   - User classifiers in `extraDirs` override stock classifiers of the
+//     same name. This is the "eject" pattern: `npx open-classify eject
+//     tools` copies the stock files into your project, and the runtime
+//     transparently switches to your copy.
+//   - Two user classifiers with the same name (across different extraDirs)
+//     throw — ambiguous ownership.
 export function buildClassifierRegistry(
   options: BuildRegistryOptions = {},
 ): ClassifierRegistryBundle {
-  const manifests = [
-    ...loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR),
-    ...(options.stockClassifierNames ?? []).map((name) => loadStockClassifier(name)),
-    ...(options.extraDirs ?? []).flatMap((dir) => loadClassifierRegistry(dir)),
-  ];
+  const builtIns = loadClassifierRegistry(BUILTIN_CLASSIFIERS_DIR);
+  const userClassifiers = (options.extraDirs ?? []).flatMap((dir) =>
+    loadClassifierRegistry(dir),
+  );
+  const userNames = new Set(userClassifiers.map((m) => m.name));
+
+  // Skip any stock classifier the user has ejected (matched by name).
+  const stockManifests = (options.stockClassifierNames ?? [])
+    .filter((name) => !userNames.has(name))
+    .map((name) => loadStockClassifier(name));
+
+  const manifests = [...builtIns, ...stockManifests, ...userClassifiers];
   manifests.sort((a, b) => (a.dispatch_order ?? Infinity) - (b.dispatch_order ?? Infinity));
 
   validateRegistry(manifests);
@@ -180,7 +191,7 @@ function validateRegistry(manifests: ReadonlyArray<RuntimeClassifierManifest>): 
   for (const manifest of manifests) {
     if (names.has(manifest.name)) {
       throw new ClassifierManifestError(
-        `duplicate classifier name: ${manifest.name} — extras cannot override built-ins or other extras. Rename your classifier or run it under a different name.`,
+        `duplicate classifier name: "${manifest.name}". A user classifier cannot override a mandatory built-in (preflight, model_tier, model_specialization, prompt_injection), and no two user classifiers may share a name. To replace a built-in's behaviour, pass a custom RunClassifier.`,
       );
     }
     names.add(manifest.name);

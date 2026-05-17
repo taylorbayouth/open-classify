@@ -19,7 +19,6 @@ normalize + trim classifier context
   ├─► preflight ─────────────► final_reply? / ack_reply?
   ├─► model_tier ────────────► model_tier?
   ├─► model_specialization ──► model_specialization?
-  ├─► tools ─────────────────► tools?
   ├─► prompt_injection ─────► risk_level?
   └─► your own classifiers ──► any JSON-Schema-validated payload
         (all run in parallel, capped by maxConcurrency)
@@ -49,15 +48,21 @@ Prerequisites: Node 18+, [Ollama](https://ollama.com), and the default classifie
 ollama pull gemma4:e4b-it-q4_K_M
 ```
 
-**1. Scaffold (from your project root)**
+**1. Install**
+
+```sh
+npm install open-classify
+```
+
+**2. Scaffold**
 
 ```sh
 npx open-classify init
 ```
 
-If the package isn't installed yet, `init` offers to add it. It writes `open-classify.config.json`, `downstream-models.json`, and a `classifiers/` directory. Re-run safe: existing files are skipped. Verify the install at any time with `npx open-classify doctor`.
+This creates a single `open-classify/` directory in your project root with the config, model catalog, and a place for your own classifiers. Verify the setup at any time with `npx open-classify doctor`.
 
-**2. Use it**
+**3. Use it**
 
 ```ts
 import { createClassifier } from "open-classify";
@@ -73,29 +78,51 @@ else if (result.action === "block") handleBlock(result.block_reason);     // inj
 else callDownstream(result.model_id, result.tools, result.reply?.text);   // route the real request
 ```
 
-`createClassifier()` looks for `open-classify.config.json` in the working directory, so the scaffolded layout works with no further wiring.
+`createClassifier()` finds `open-classify/config.json` in the working directory — no other wiring required.
 
-**3. Enable or customize optional classifiers**
-
-Four mandatory base classifiers (`preflight`, `model_tier`, `model_specialization`, `prompt_injection`) always run from the package. Four more (`tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift`) are optional and default to off.
-
-You have two ways to use the optional ones:
-
-```json
-{ "classifiers": { "stock": { "tools": true } } }
-```
-
-Set the toggle to `true` to run the package-owned version. `npm update open-classify` keeps the prompt current.
-
-Or customize a local copy. `init` scaffolds editable templates in `classifiers/_<name>/` (inactive because of the underscore prefix). To take one over, keep the stock toggle off and rename the folder:
+## Removal
 
 ```sh
-mv classifiers/_tools classifiers/tools
+rm -rf open-classify/
+npm uninstall open-classify
 ```
 
-The same convention works in reverse: rename any active classifier `<name>/` → `_<name>/` to deactivate without deleting.
+That's it. The scaffold lives in one folder; removing it leaves no trace.
 
-To write a new classifier, drop a `<name>/manifest.json` + `<name>/prompt.md` in `classifiers/`. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md).
+## Optional stock classifiers
+
+Open Classify ships four optional stock classifiers: `tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift`. They're off by default. Enable one in `open-classify/config.json`:
+
+```json
+{
+  "classifiers": {
+    "dirs": ["classifiers"],
+    "stock": ["tools"]
+  }
+}
+```
+
+The package-owned prompt is used, and `npm update open-classify` keeps it current.
+
+When you want to take a stock classifier over and edit its prompt:
+
+```sh
+npx open-classify eject tools
+```
+
+That copies the stock files into `open-classify/classifiers/tools/`. You own them from then on — `npm update` won't touch them. To revert, delete the folder; the stock version takes over again.
+
+## Writing your own classifier
+
+Drop a folder into `open-classify/classifiers/` with two files:
+
+```
+open-classify/classifiers/topic_tags/
+├── manifest.json
+└── prompt.md
+```
+
+The folder name must match the manifest's `name`. The runtime picks it up on the next start. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for the full reference.
 
 ### Classifying assistant output
 
@@ -150,17 +177,14 @@ Example result:
     "model_tier": { "model_tier": "frontier_strong", "reason": "...", "certainty": 0.88 },
     "model_specialization": { "model_specialization": "coding", "reason": "...", "certainty": 0.75 },
     "tools": { "tools": ["workspace"], "reason": "...", "certainty": 0.88 },
-    "prompt_injection": { "risk_level": "normal", "reason": "...", "certainty": 0.97 },
-    "memory_retrieval_queries": { "queries": ["user code review preferences"], "reason": "...", "certainty": 0.75 }
+    "prompt_injection": { "risk_level": "normal", "reason": "...", "certainty": 0.97 }
   }
 }
 ```
 
 ## Classifier model
 
-Every classifier — bundled or your own — uses the same two-file shape (`manifest.json` + `prompt.md`) and emits the same envelope: `{ reason, certainty, ...payload }`. Some payload fields are **reserved** (like `model_tier`, `final_reply`, `risk_level`); the aggregator knows how to consume them into the routing decision. Everything else passes through to the caller.
-
-Open Classify ships four mandatory base classifiers and four optional stock classifiers. The mandatory base classifiers always load from the package, can't be turned off, and are updated by `npm update open-classify`. Optional stock classifiers also live in the package, but are enabled by `open-classify.config.json`.
+Open Classify ships four mandatory base classifiers that always run, plus four optional stock classifiers you can enable or eject.
 
 | Name | dispatch_order | Reserved fields | Bundled as | What the aggregator does with it |
 |---|---|---|---|---|
@@ -173,76 +197,7 @@ Open Classify ships four mandatory base classifiers and four optional stock clas
 | `conversation_digest` | 70 | — | optional stock | Passes through |
 | `context_shift` | 80 | — | optional stock | Passes through |
 
-For package-owned stock classifiers, `open-classify.config.json` is the on/off switch:
-
-```json
-{
-  "classifiers": {
-    "stock": {
-      "tools": true,
-      "memory_retrieval_queries": false,
-      "conversation_digest": false,
-      "context_shift": false
-    }
-  }
-}
-```
-
-For copied/custom classifiers in `classifiers/`, the directory-naming convention still applies: `_<name>/` is inactive; `<name>/` runs. Root project files are user-owned, so `init` skips existing config/classifier files unless you pass `--force`.
-
-> Need to customize `preflight`'s prompt or any other mandatory built-in? Use a custom `RunClassifier` (see [Bring your own backend](#bring-your-own-backend)) to intercept it, or fork the package.
-
-## Adding your own classifier
-
-The two files are:
-
-```
-classifiers/topic_tags/
-├── manifest.json
-└── prompt.md
-```
-
-`manifest.json` declares the output shape and a fallback for when the classifier errors:
-
-```json
-{
-  "name": "topic_tags",
-  "version": "1.0.0",
-  "purpose": "Tag the message with a small set of topic labels for analytics.",
-  "dispatch_order": 70,
-  "output_schema": {
-    "required": ["tags"],
-    "properties": {
-      "tags": {
-        "type": "array", "maxItems": 5,
-        "items": { "type": "string", "minLength": 1, "maxLength": 40 }
-      }
-    }
-  },
-  "fallback": {
-    "reason": "Classifier failed; no tags generated.",
-    "certainty": "no_signal",
-    "tags": []
-  }
-}
-```
-
-`prompt.md` is the classification rule in plain language. No need to write JSON examples — the runtime synthesizes one from your schema — and no need to paste enum values for reserved fields:
-
-```markdown
-You are the topic_tags classifier.
-
-`tags` are short single-word topic labels (lowercase, no spaces). Use at most five.
-Return an empty array when no clear topic applies.
-```
-
-Consume:
-
-```ts
-const tags = result.classifier_outputs.topic_tags?.tags ?? [];
-```
-
-Rules: `name` must match the directory name; reserved-field names can't appear in `output_schema.properties` (declare them under `reserved_fields` instead); `fallback` only needs `reason` and `certainty`; name collisions throw at startup. See [docs/adding-a-classifier.md](docs/adding-a-classifier.md) for the full reference.
+To customize a mandatory built-in, use a custom `RunClassifier` (see [Bring your own backend](#bring-your-own-backend)).
 
 ## Using reserved fields in your own classifier
 
@@ -263,52 +218,9 @@ The runtime injects canonical sub-schemas and prompt fragments for each declared
 
 The available reserved fields are: `final_reply`, `ack_reply`, `model_tier`, `model_specialization`, `tools`, `risk_level`. The `tools` field additionally requires an `allowed_tools` array on the manifest listing the tool ids the classifier may pick from.
 
-## Model catalog
-
-Classifiers never emit model ids. They emit constraints; your catalog maps constraints to concrete models.
-
-```json
-{
-  "models": [
-    {
-      "id": "gpt-5.5",
-      "provider": "openai",
-      "runtime": "api",
-      "specializations": [
-        "chat",
-        "writing",
-        "reasoning",
-        "planning",
-        "coding",
-        "tool_use"
-      ],
-      "tier": "frontier_strong",
-      "params_in_billions": null,
-      "context_window": 1050000,
-      "max_output_tokens": 128000,
-      "input_tokens_cpm": 5,
-      "cached_tokens_cpm": 0.5,
-      "output_tokens_cpm": 30
-    }
-  ],
-  "default": "gpt-5.5",
-  "pricing_unit": "USD per 1M tokens"
-}
-```
-
-The resolver picks the cheapest model matching `model_specialization` and `model_tier`, relaxing constraints in order when nothing fits. See [docs/resolver.md](docs/resolver.md) for ranking details.
-
-## Input contract
-
-`classify({ messages })` — that's the whole input.
-
-- `messages` is chronological, oldest to newest, and must end with the user message you want classified.
-- Open Classify keeps whole messages only, drops oldest first to fit a 5,000-char budget, and caps history at 20 messages.
-- Unknown fields are rejected, not passed through.
-
 ## Configuration
 
-`npx open-classify init` writes a working `open-classify.config.json` for you. To customize, edit it directly — the full set of supported fields (with realistic example values) lives in [open-classify.config.example.json](open-classify.config.example.json).
+`open-classify/config.json` supports:
 
 | Field | What it controls |
 |---|---|
@@ -317,9 +229,17 @@ The resolver picks the cheapest model matching `model_specialization` and `model
 | `runner.defaultModel` | Classifier model used when there is no per-classifier override. |
 | `runner.options` | Ollama generation options: `temperature`, `top_p`, `seed`, `num_ctx`. |
 | `runner.models` | Per-classifier model overrides. Flat map keyed by classifier name. |
-| `catalog` | Path to the downstream model catalog (relative to the config file). |
-| `classifiers.dirs` | Directories of user-owned classifiers to load. |
-| `classifiers.stock` | Toggles for package-owned optional stock classifiers. |
+| `catalog` | Path to the downstream model catalog, relative to `open-classify/`. |
+| `classifiers.dirs` | Directories of user-owned classifiers, relative to `open-classify/`. |
+| `classifiers.stock` | Array of stock classifiers to enable. Members of `tools`, `memory_retrieval_queries`, `conversation_digest`, `context_shift`. |
+
+## Input contract
+
+`classify({ messages })` — that's the whole input.
+
+- `messages` is chronological, oldest to newest, and must end with the user message you want classified.
+- Open Classify keeps whole messages only, drops oldest first to fit a 5,000-char budget, and caps history at 20 messages.
+- Unknown fields are rejected, not passed through.
 
 ## Bring your own backend
 
@@ -345,7 +265,35 @@ const runClassifier: RunClassifier = async (name, input, signal) => {
 const { classify, inspect } = createClassifier({ runClassifier });
 ```
 
-For the lowest-level entry points, `classifyOpenClassifyInput(input, { runClassifier, catalog })` and `inspectOpenClassifyInput(input, { runClassifier })` skip the factory entirely.
+For the lowest-level entry points, `classifyOpenClassifyInput(input, { runClassifier, catalog, registry })` and `inspectOpenClassifyInput(input, { runClassifier, registry })` skip the factory entirely.
+
+## Model catalog
+
+Classifiers never emit model ids. They emit constraints; your catalog (`open-classify/downstream-models.json`) maps constraints to concrete models.
+
+```json
+{
+  "models": [
+    {
+      "id": "gpt-5.5",
+      "provider": "openai",
+      "runtime": "api",
+      "specializations": ["chat", "writing", "reasoning", "planning", "coding", "tool_use"],
+      "tier": "frontier_strong",
+      "params_in_billions": null,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "input_tokens_cpm": 5,
+      "cached_tokens_cpm": 0.5,
+      "output_tokens_cpm": 30
+    }
+  ],
+  "default": "gpt-5.5",
+  "pricing_unit": "USD per 1M tokens"
+}
+```
+
+The resolver picks the cheapest model matching `model_specialization` and `model_tier`, relaxing constraints in order when nothing fits. See [docs/resolver.md](docs/resolver.md) for ranking details.
 
 ## Further reading
 

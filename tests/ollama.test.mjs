@@ -227,10 +227,10 @@ test("loadOpenClassifyConfig rejects aggregator field (removed)", () => {
 
 test("loadOpenClassifyConfig rejects unknown stock classifiers", () => {
   assert.throws(
-    () => validateOpenClassifyConfig({ classifiers: { stock: { definitely_not_real: false } } }),
+    () => validateOpenClassifyConfig({ classifiers: { stock: ["definitely_not_real"] } }),
     (error) =>
       error instanceof OpenClassifyConfigError &&
-      /classifiers\.stock\.definitely_not_real is not supported/.test(error.message),
+      /classifiers\.stock\[0\] "definitely_not_real" is not supported/.test(error.message),
   );
 });
 

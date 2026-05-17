@@ -1,6 +1,6 @@
 {
   "name": "open-classify",
-  "version": "0.9.3",
+  "version": "1.0.0",
   "description": "Manifest-driven classifier runtime for routing user messages to downstream AI models",
   "license": "MIT",
   "author": "Taylor Bayouth",
@@ -36,8 +36,6 @@
     "bin",
     "dist/src",
     "docs",
-    "downstream-models.json",
-    "open-classify.config.example.json",
     "templates",
     "LICENSE",
     "README.md"

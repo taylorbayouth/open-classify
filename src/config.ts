@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { STOCK_CLASSIFIER_NAMES, type ClassifierName } from "./classifiers.js";
 import { isRecord } from "./validation.js";
 
-export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify.config.json";
+export const DEFAULT_OPEN_CLASSIFY_CONFIG_PATH = "open-classify/config.json";
 
 export interface OpenClassifyConfig {
   readonly runner?: OllamaRunnerConfig;
@@ -12,7 +12,12 @@ export interface OpenClassifyConfig {
 
 export interface OpenClassifyClassifierConfig {
   readonly dirs?: ReadonlyArray<string>;
-  readonly stock?: Readonly<Record<string, boolean>>;
+  // Names of optional stock classifiers to enable. Members of
+  // STOCK_CLASSIFIER_NAMES only. Stock classifiers are off by default;
+  // listing one here loads the package-owned version. To customize a stock
+  // classifier, run `npx open-classify eject <name>` instead — a local
+  // copy in `classifiers/<name>/` overrides the stock version.
+  readonly stock?: ReadonlyArray<string>;
 }
 
 export interface OllamaRunnerConfig {
@@ -72,9 +77,7 @@ export function classifierDirsFromConfig(
 export function stockClassifierNamesFromConfig(
   config: OpenClassifyConfig | undefined,
 ): ReadonlyArray<string> {
-  return Object.entries(config?.classifiers?.stock ?? {})
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name);
+  return config?.classifiers?.stock ?? [];
 }
 
 export function validateOpenClassifyConfig(
@@ -105,7 +108,7 @@ function validateClassifiers(value: unknown, path: string): OpenClassifyClassifi
     ...(value.dirs === undefined ? {} : { dirs: validateStringArray(value.dirs, path, "classifiers.dirs") }),
     ...(value.stock === undefined
       ? {}
-      : { stock: validateBooleanMap(value.stock, path, "classifiers.stock", STOCK_CLASSIFIER_NAMES) }),
+      : { stock: validateEnumArray(value.stock, path, "classifiers.stock", STOCK_CLASSIFIER_NAMES) }),
   };
 }
 
@@ -175,25 +178,29 @@ function validateStringArray(
   return value.map((item, index) => requireString(item, path, `${field}[${index}]`));
 }
 
-function validateBooleanMap(
+function validateEnumArray(
   value: unknown,
   path: string,
   field: string,
-  allowedKeys?: ReadonlyArray<string>,
-): Readonly<Record<string, boolean>> {
-  if (!isRecord(value)) {
-    throwConfig(path, `${field} must be an object`);
+  allowedValues: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  if (!Array.isArray(value)) {
+    throwConfig(path, `${field} must be an array`);
   }
-  const allowed = allowedKeys === undefined ? undefined : new Set(allowedKeys);
-  const out: Record<string, boolean> = {};
-  for (const [name, enabled] of Object.entries(value)) {
-    if (allowed !== undefined && !allowed.has(name)) {
-      throwConfig(path, `${field}.${name} is not supported (available: ${[...allowed].join(", ")})`);
+  const allowed = new Set(allowedValues);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    const name = requireString(item, path, `${field}[${i}]`);
+    if (!allowed.has(name)) {
+      throwConfig(path, `${field}[${i}] "${name}" is not supported (available: ${[...allowed].join(", ")})`);
     }
-    if (typeof enabled !== "boolean") {
-      throwConfig(path, `${field}.${name} must be a boolean`);
+    if (seen.has(name)) {
+      throwConfig(path, `${field}[${i}] "${name}" is listed more than once`);
     }
-    out[name] = enabled;
+    seen.add(name);
+    out.push(name);
   }
   return out;
 }
