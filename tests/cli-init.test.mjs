@@ -215,3 +215,44 @@ test("uninstall keeps active/custom classifiers unless forced", () => {
   assert.equal(force.status, 0, `stderr: ${force.stderr}`);
   assert.equal(existsSync(join(cwd, "classifiers")), false);
 });
+
+test("uninstall previews package removal when open-classify is a dep", () => {
+  const cwd = freshProject();
+  writeFileSync(
+    join(cwd, "package.json"),
+    JSON.stringify({
+      name: "test-project",
+      version: "1.0.0",
+      dependencies: { "open-classify": "^0.9.0" },
+    }),
+  );
+  runCli(cwd, ["init", "--yes", "--no-install"]);
+
+  const result = runCli(cwd, ["uninstall", "--dry-run"]);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  assert.match(result.stdout, /open-classify \(via npm uninstall\)/);
+  assert.match(result.stdout, /\(dry run/);
+  // Dry run: nothing actually removed.
+  assert.ok(existsSync(join(cwd, "open-classify.config.json")));
+});
+
+test("uninstall --keep-package removes scaffold but leaves the dep alone", () => {
+  const cwd = freshProject();
+  writeFileSync(
+    join(cwd, "package.json"),
+    JSON.stringify({
+      name: "test-project",
+      version: "1.0.0",
+      dependencies: { "open-classify": "^0.9.0" },
+    }),
+  );
+  runCli(cwd, ["init", "--yes", "--no-install"]);
+
+  const result = runCli(cwd, ["uninstall", "--yes", "--keep-package"]);
+  assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+  assert.equal(existsSync(join(cwd, "open-classify.config.json")), false);
+  assert.equal(existsSync(join(cwd, "classifiers")), false);
+  // Dep entry untouched.
+  const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+  assert.equal(pkg.dependencies["open-classify"], "^0.9.0");
+});

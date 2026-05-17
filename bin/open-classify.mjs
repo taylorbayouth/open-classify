@@ -160,6 +160,8 @@ function parseUninstallFlags(args) {
     yes: false,
     dryRun: false,
     force: false,
+    keepPackage: false,
+    packageManager: null,
     classifierDir: "classifiers",
   };
 
@@ -168,6 +170,9 @@ function parseUninstallFlags(args) {
     if (arg === "--yes" || arg === "-y") flags.yes = true;
     else if (arg === "--dry-run") flags.dryRun = true;
     else if (arg === "--force") flags.force = true;
+    else if (arg === "--keep-package") flags.keepPackage = true;
+    else if (arg === "--package-manager" && args[i + 1]) flags.packageManager = args[++i];
+    else if (arg.startsWith("--package-manager=")) flags.packageManager = arg.split("=")[1];
     else if (arg === "--classifier-dir" && args[i + 1]) flags.classifierDir = args[++i];
     else if (arg.startsWith("--classifier-dir=")) flags.classifierDir = arg.split("=")[1];
   }
@@ -182,9 +187,10 @@ Commands:
   init [options]    Scaffold open-classify.config.json and classifiers/ in the
                     current directory. Re-run safe: existing files are skipped.
 
-  uninstall         Remove open-classify scaffold files from the current
-                    directory. Use --force to remove the whole classifiers/
-                    directory, including active/custom classifiers.
+  uninstall         Remove the open-classify scaffold and uninstall the
+                    package. Use --force to also delete active/custom
+                    classifiers, --keep-package to leave the npm dependency
+                    in place.
 
   doctor            Check that the install, config, Ollama, and classifiers are
                     all working. Exits non-zero on failure.
@@ -205,6 +211,8 @@ Options for init:
 Options for uninstall:
   --dry-run              Preview what would be removed; don't delete anything
   --force                Remove the whole classifiers/ directory
+  --keep-package         Don't run the package manager uninstall step
+  --package-manager <m>  npm | pnpm | yarn | bun  (default: auto-detect)
   --classifier-dir <p>   Directory for classifiers  (default: ./classifiers)
   --yes, -y              Accept all prompts (CI mode)
 
@@ -546,12 +554,21 @@ function showDiffs(conflicts, cwd, classifierDir, config = DEFAULT_CONFIG) {
 // uninstall
 // ---------------------------------------------------------------------------
 
-async function runUninstall({ cwd, yes, dryRun, force, classifierDir }) {
+async function runUninstall({ cwd, yes, dryRun, force, keepPackage, packageManager, classifierDir }) {
   const resolvedClassifierDir = resolve(cwd, classifierDir);
   const plan = planUninstall(cwd, { classifierDir: resolvedClassifierDir, force });
 
-  if (plan.toRemove.length === 0) {
-    process.stdout.write("Nothing to remove — no open-classify scaffold found.\n");
+  const pkgPath = join(cwd, "package.json");
+  let pkg = null;
+  if (existsSync(pkgPath)) {
+    try { pkg = JSON.parse(readFileSync(pkgPath, "utf8")); } catch { pkg = null; }
+  }
+  const packageInstalled = pkg !== null && isOpenClassifyDep(pkg);
+  const willRemovePackage = !keepPackage && packageInstalled;
+  const pm = packageManager || detectPackageManager(cwd);
+
+  if (plan.toRemove.length === 0 && !willRemovePackage) {
+    process.stdout.write("Nothing to remove — no open-classify scaffold or dependency found.\n");
     if (plan.toSkip.length > 0) {
       process.stdout.write("\nSkipped active/custom classifier dirs:\n");
       for (const p of plan.toSkip) process.stdout.write(`  ${p}\n`);
@@ -560,13 +577,20 @@ async function runUninstall({ cwd, yes, dryRun, force, classifierDir }) {
     return;
   }
 
-  process.stdout.write(`\nThe following open-classify scaffold will be removed from ${cwd}:\n\n`);
+  process.stdout.write(`\nThe following will be removed from ${cwd}:\n\n`);
   for (const p of plan.toRemove) process.stdout.write(`  ${p}\n`);
+  if (willRemovePackage) {
+    process.stdout.write(`  open-classify (via ${pm} uninstall)\n`);
+  }
 
   if (plan.toSkip.length > 0) {
     process.stdout.write("\nSkipped active/custom classifier dirs:\n");
     for (const p of plan.toSkip) process.stdout.write(`  ${p}\n`);
     process.stdout.write("\nUse --force to remove the whole classifiers/ directory.\n");
+  }
+
+  if (keepPackage && packageInstalled) {
+    process.stdout.write("\nKeeping the open-classify package (--keep-package).\n");
   }
 
   if (dryRun) {
@@ -584,8 +608,19 @@ async function runUninstall({ cwd, yes, dryRun, force, classifierDir }) {
 
   process.stdout.write("\n");
   for (const action of plan.actions) action();
-  process.stdout.write("\n✓ removed open-classify scaffold\n");
-  process.stdout.write("To remove the package dependency too, run: npm uninstall open-classify\n");
+  if (plan.toRemove.length > 0) {
+    process.stdout.write("\n✓ removed open-classify scaffold\n");
+  }
+
+  if (willRemovePackage) {
+    process.stdout.write(`\n  Running: ${pm} uninstall open-classify\n\n`);
+    const result = spawnSync(pm, ["uninstall", "open-classify"], { cwd, stdio: "inherit" });
+    if (result.status !== 0) {
+      process.stderr.write(`\n✖  Package uninstall failed. Run manually: ${pm} uninstall open-classify\n`);
+      process.exit(1);
+    }
+    process.stdout.write("\n✓ removed open-classify package\n");
+  }
 }
 
 function planUninstall(cwd, { classifierDir, force }) {
