@@ -6,6 +6,7 @@
   },
   "catalog": "downstream-models.json",
   "classifiers": {
-    "dirs": ["classifiers"]
+    "dirs": ["classifiers"],
+    "stock": []
   }
 }

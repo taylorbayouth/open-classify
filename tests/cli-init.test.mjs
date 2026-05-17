@@ -60,8 +60,8 @@ test("init scaffolds the open-classify/ directory", () => {
   assert.equal(config.runner.provider, "ollama");
   assert.equal(config.catalog, "downstream-models.json");
   assert.deepEqual(config.classifiers.dirs, ["classifiers"]);
-  // Stock is omitted by default (defaults to empty).
-  assert.equal(config.classifiers.stock, undefined);
+  // Stock list is present but empty — visible so users discover the field.
+  assert.deepEqual(config.classifiers.stock, []);
 
   assert.match(result.stdout, /wrote open-classify\/config\.json/);
   assert.match(result.stdout, /Next steps/);

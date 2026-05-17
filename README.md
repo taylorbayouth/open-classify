@@ -110,7 +110,7 @@ When you want to take a stock classifier over and edit its prompt:
 npx open-classify eject tools
 ```
 
-That copies the stock files into `open-classify/classifiers/tools/`. You own them from then on — `npm update` won't touch them. To revert, delete the folder; the stock version takes over again.
+That copies the stock files into `open-classify/classifiers/tools/`. The runtime transparently prefers your local copy over the package version, so this works whether or not `tools` is also listed in `classifiers.stock` — local always wins on name. To revert: delete the folder. If `tools` is still listed in `classifiers.stock`, the package version takes over; otherwise the classifier stops running.
 
 ## Writing your own classifier
 
@@ -301,6 +301,7 @@ The resolver picks the cheapest model matching `model_specialization` and `model
 - [docs/manifests.md](docs/manifests.md) — manifest reference
 - [docs/resolver.md](docs/resolver.md) — aggregation and model resolution
 - [docs/adding-a-classifier.md](docs/adding-a-classifier.md) — author guide
+- [CHANGELOG.md](CHANGELOG.md) — release notes
 
 ## Contributing
 

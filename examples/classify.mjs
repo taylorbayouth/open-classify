@@ -14,7 +14,7 @@ import { createClassifier, loadCatalog } from "../dist/src/index.js";
 const message = process.argv[2] ?? "Can you review the attached vendor contract for major risks?";
 
 const { classify } = createClassifier({
-  catalog: loadCatalog("downstream-models.json"),
+  catalog: loadCatalog("templates/scaffold/open-classify/downstream-models.json"),
 });
 
 const result = await classify({

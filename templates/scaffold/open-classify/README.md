@@ -38,7 +38,9 @@ npx open-classify eject tools
 ```
 
 That copies the stock files into `classifiers/tools/`. From that point on,
-the runtime uses your local copy and `npm update` leaves it alone.
+the runtime uses your local copy and `npm update` leaves it alone. A local
+classifier always wins on name, so eject works whether or not `tools` is
+listed in `classifiers.stock`. Delete the folder to revert.
 
 See the [author guide](https://github.com/taylorbayouth/open-classify/blob/main/docs/adding-a-classifier.md)
 for writing your own classifier from scratch.

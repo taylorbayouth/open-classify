@@ -37,6 +37,7 @@
     "dist/src",
     "docs",
     "templates",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],

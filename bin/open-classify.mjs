@@ -271,8 +271,9 @@ async function runEject({ cwd, name, yes, force, dryRun }) {
 
 The runtime now uses your local copy at ${destRel}/. Edit prompt.md or
 manifest.json to taste. \`npm update open-classify\` won't touch these
-files. To revert to the package-owned version, delete the folder and
-add "${name}" to classifiers.stock in ${PROJECT_DIRNAME}/config.json.
+files. To revert: delete the folder. If you want the package-owned
+version to take over after that, add "${name}" to classifiers.stock in
+${PROJECT_DIRNAME}/config.json.
 `);
 }
 
