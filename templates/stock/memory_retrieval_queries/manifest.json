@@ -16,7 +16,30 @@
         },
         "uniqueItems": true
       }
-    }
+    },
+    "examples": [
+      {
+        "reason": "User asked about their project deadline and team members — both are worth retrieving.",
+        "certainty": "strong",
+        "queries": [
+          "project deadline schedule milestones",
+          "team members collaborators contacts"
+        ]
+      },
+      {
+        "reason": "User asked how to fix a TypeScript error — past coding patterns and preferred libraries are relevant.",
+        "certainty": "reasonable",
+        "queries": [
+          "TypeScript configuration preferences",
+          "preferred libraries frameworks stack"
+        ]
+      },
+      {
+        "reason": "General greeting with no retrievable context cues.",
+        "certainty": "no_signal",
+        "queries": []
+      }
+    ]
   },
   "fallback": {
     "reason": "Classifier failed; no memory queries generated.",

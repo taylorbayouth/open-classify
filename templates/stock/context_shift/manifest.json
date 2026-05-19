@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "purpose": "Classify whether the latest message continues, branches from, returns to, or starts a conversation thread.",
   "dispatch_order": 80,
+  "applies_to": "both",
   "output_schema": {
     "required": ["decision"],
     "properties": {
@@ -16,7 +17,29 @@
           "ambiguous"
         ]
       }
-    }
+    },
+    "examples": [
+      {
+        "reason": "User continued the same debugging thread from earlier in the conversation.",
+        "certainty": "strong",
+        "decision": "same_active_thread"
+      },
+      {
+        "reason": "User asked a tangentially related question while the main topic is still open.",
+        "certainty": "reasonable",
+        "decision": "related_branch"
+      },
+      {
+        "reason": "User circled back to a topic discussed several messages ago.",
+        "certainty": "strong",
+        "decision": "return_to_prior_thread"
+      },
+      {
+        "reason": "User opened an entirely different subject with no connection to prior messages.",
+        "certainty": "near_certain",
+        "decision": "new_thread"
+      }
+    ]
   },
   "fallback": {
     "reason": "Classifier failed; context relationship is ambiguous.",

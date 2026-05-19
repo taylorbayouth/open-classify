@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0
+
+### Comprehensive scaffold and stock manifests
+
+**`config.json`** now shows all supported fields: `runner.options` (`temperature`, `top_p`, `num_ctx`), `runner.models` (per-classifier model overrides), and annotated inline documentation via the README.
+
+**`open-classify/README.md`** now includes a full `config.json` reference covering every field, default, and sub-option.
+
+**`classifiers/README.md`** is now a complete manifest field reference: all required and optional fields (`dispatch_order`, `applies_to`, `reserved_fields`, `allowed_tools`, `output_schema`, `backend`), the full reserved-field table, a minimal classifier example, and the certainty value table with float mappings.
+
+**Stock manifests** updated:
+- `memory_retrieval_queries` — added `output_schema.examples` with three concrete cases
+- `conversation_digest` — added `output_schema.examples` and `backend.ollama.base_model` to demonstrate per-classifier model override
+- `context_shift` — added `output_schema.examples` and `applies_to: "both"` (topic-shift detection is meaningful on both user and assistant messages)
+
 ## 1.2.0
 
 ### `classifier_certainties` — flat float map on every result

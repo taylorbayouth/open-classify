@@ -488,13 +488,14 @@ test("inspectOpenClassifyInput runs only applies_to=both classifiers on assistan
     },
   );
 
-  assert.deepEqual(seen.sort(), ["prompt_injection"]);
+  assert.deepEqual(seen.sort(), ["context_shift", "prompt_injection"]);
   assert.deepEqual(Object.keys(result).sort(), ["classifier_certainties", "classifier_outputs", "message", "target_message_hash"]);
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.message, { role: "assistant", text: "Here is your draft." });
   assert.equal(result.classifier_outputs.prompt_injection.risk_level, "normal");
   assert.equal(result.classifier_outputs.prompt_injection.certainty, CERTAINTY.near_certain);
   assert.equal(typeof result.classifier_outputs.prompt_injection.reason, "string");
+  assert.equal(typeof result.classifier_outputs.context_shift.decision, "string");
 });
 
 test("inspectOpenClassifyInput requires assistant-final message", async () => {
