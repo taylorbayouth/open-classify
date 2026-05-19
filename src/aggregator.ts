@@ -81,6 +81,7 @@ export function assembleResult(args: AssembleResultArgs): AssembledResult {
     riskLevel?.value !== undefined ? { risk_level: riskLevel.value } : null;
 
   const { avg_certainty, min_certainty } = certaintySummary(registry, results);
+  const classifier_certainties = buildCertaintyMap(registry, results);
   const classifier_outputs = buildPublicOutputs(registry, results);
 
   // Determine action. Priority: prompt_injection > classification_error > reply > route.
@@ -113,6 +114,7 @@ export function assembleResult(args: AssembleResultArgs): AssembledResult {
     prompt_injection,
     avg_certainty,
     min_certainty,
+    classifier_certainties,
     failed_classifiers: failedClassifiers,
     classifier_outputs,
   };
@@ -133,6 +135,19 @@ export function buildPublicOutputs(
       ...rest,
       certainty: scoreCertainty(certainty),
     };
+  }
+  return out;
+}
+
+export function buildCertaintyMap(
+  registry: ClassifierRegistry,
+  results: ClassifierResults,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const manifest of registry) {
+    const result = results[manifest.name];
+    if (result === undefined) continue;
+    out[manifest.name] = scoreCertainty(result.certainty);
   }
   return out;
 }

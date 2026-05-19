@@ -1,4 +1,4 @@
-import { assembleResult, buildPublicOutputs } from "./aggregator.js";
+import { assembleResult, buildCertaintyMap, buildPublicOutputs } from "./aggregator.js";
 import { type RunClassifier } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
@@ -87,6 +87,7 @@ export async function inspectOpenClassifyInput(
   return {
     target_message_hash: request.target_message_hash,
     message: { role: "assistant", text: lastMsg.text },
+    classifier_certainties: buildCertaintyMap(reg, results),
     classifier_outputs: buildPublicOutputs(reg, results),
   };
 }

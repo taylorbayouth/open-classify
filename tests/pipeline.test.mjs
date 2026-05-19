@@ -489,7 +489,7 @@ test("inspectOpenClassifyInput runs only applies_to=both classifiers on assistan
   );
 
   assert.deepEqual(seen.sort(), ["prompt_injection"]);
-  assert.deepEqual(Object.keys(result).sort(), ["classifier_outputs", "message", "target_message_hash"]);
+  assert.deepEqual(Object.keys(result).sort(), ["classifier_certainties", "classifier_outputs", "message", "target_message_hash"]);
   assert.match(result.target_message_hash, /^[a-f0-9]{8}$/);
   assert.deepEqual(result.message, { role: "assistant", text: "Here is your draft." });
   assert.equal(result.classifier_outputs.prompt_injection.risk_level, "normal");

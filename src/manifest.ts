@@ -52,6 +52,8 @@ export interface PipelineResult {
   readonly prompt_injection: { readonly risk_level: PromptInjectionRiskLevel } | null;
   readonly avg_certainty: number;
   readonly min_certainty: number;
+  // Float certainty score per classifier (0–1). Same values as classifier_outputs[name].certainty.
+  readonly classifier_certainties: Record<string, number>;
   // Names of classifiers that errored or timed out (used their fallback).
   readonly failed_classifiers: ReadonlyArray<string>;
   readonly classifier_outputs: ClassifierPublicOutputs;
@@ -64,6 +66,8 @@ export interface InspectResult {
   readonly target_message_hash: string;
   // The raw assistant message that was inspected.
   readonly message: { readonly role: "assistant"; readonly text: string };
+  // Float certainty score per classifier (0–1). Same values as classifier_outputs[name].certainty.
+  readonly classifier_certainties: Record<string, number>;
   readonly classifier_outputs: ClassifierPublicOutputs;
 }
 
