@@ -3,7 +3,6 @@ import { type RunClassifier } from "./classifiers.js";
 import { normalizeOpenClassifyInput, toClassifierInput } from "./input.js";
 import type {
   Catalog,
-  ClassifierPublicOutputs,
   ClassifierRegistry,
   ClassifierResults,
   InspectResult,

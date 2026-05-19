@@ -27,9 +27,16 @@ export interface Catalog {
   readonly default: string;
 }
 
-// Public flat map keyed by classifier name. Each entry includes all payload
-// fields plus `reason` (string) and `certainty` (float 0–1).
-export type ClassifierPublicOutputs = Record<string, Record<string, unknown>>;
+// Public output for a single classifier. certainty is always a float (0–1);
+// reason is always a string. Any reserved or custom payload fields are unknown.
+export interface ClassifierPublicOutput {
+  readonly certainty: number;
+  readonly reason: string;
+  readonly [key: string]: unknown;
+}
+
+// Public flat map keyed by classifier name.
+export type ClassifierPublicOutputs = Record<string, ClassifierPublicOutput>;
 
 export type PipelineAction = "route" | "block" | "reply";
 export type BlockReason = "prompt_injection" | "classification_error";

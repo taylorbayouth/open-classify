@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0
+
+### `classifier_certainties` — flat float map on every result
+
+`PipelineResult` and `InspectResult` now include a `classifier_certainties` field: a flat `Record<string, number>` mapping each classifier name to its certainty float (0–1). Same values as `classifier_outputs[name].certainty`, surfaced without needing to iterate the nested map.
+
+### Typed `ClassifierPublicOutput`
+
+`ClassifierPublicOutputs` is now `Record<string, ClassifierPublicOutput>` where `ClassifierPublicOutput` declares `certainty: number` and `reason: string` explicitly. Previously the value type was `Record<string, unknown>`, so callers had no type-level guarantee that `certainty` was a float.
+
+The internal `Certainty` string enum is unchanged — it stays internal so the LLM understands the labels. The public surface is floats only.
+
+## 1.1.0
+
+### `classifier_certainties` (float map) — first cut
+
+Added `classifier_certainties: Record<string, number>` to `PipelineResult` and `InspectResult`.
+
 ## 1.0.0
 
 A focused rewrite of the consumer-facing surface. The runtime is unchanged; what's new is how a consumer installs, configures, and customizes Open Classify.

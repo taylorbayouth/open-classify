@@ -157,6 +157,7 @@ Every `classify()` call returns a `PipelineResult`:
 | `prompt_injection` | `{ risk_level }` from the injection classifier, or `null` |
 | `avg_certainty` | Arithmetic mean certainty score (float 0–1) across all classifiers |
 | `min_certainty` | Minimum certainty score (float 0–1) across all classifiers |
+| `classifier_certainties` | Flat map of classifier name → certainty float (0–1) |
 | `failed_classifiers` | Names of classifiers that errored or timed out (always present; may be empty) |
 | `classifier_outputs` | Each classifier's payload with `reason` (string) and `certainty` (float) |
 
@@ -172,6 +173,13 @@ Example result:
   "prompt_injection": { "risk_level": "normal" },
   "avg_certainty": 0.84,
   "min_certainty": 0.75,
+  "classifier_certainties": {
+    "preflight": 0.97,
+    "model_tier": 0.88,
+    "model_specialization": 0.75,
+    "tools": 0.88,
+    "prompt_injection": 0.97
+  },
   "failed_classifiers": [],
   "classifier_outputs": {
     "model_tier": { "model_tier": "frontier_strong", "reason": "...", "certainty": 0.88 },

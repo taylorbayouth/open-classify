@@ -106,6 +106,7 @@ There is intentionally no `uninstall` subcommand — `rm -rf open-classify/` + `
   prompt_injection: { risk_level: PromptInjectionRiskLevel } | null;
   avg_certainty: number;
   min_certainty: number;
+  classifier_certainties: Record<string, number>;
   failed_classifiers: ReadonlyArray<string>;
   classifier_outputs: ClassifierPublicOutputs;
 }
@@ -114,7 +115,8 @@ There is intentionally no `uninstall` subcommand — `rm -rf open-classify/` + `
 - `action: "reply"` — `preflight` emitted `final_reply`; return `reply.text` to the user directly.
 - `action: "block"` — either injection risk (`block_reason: "prompt_injection"`) or runtime failure (`block_reason: "classification_error"`). `model_id` and `reply` are still populated when available.
 - `action: "route"` — route to `model_id` with `tools`; show `reply.text` (the ack) while downstream works.
-- `classifier_outputs[name]` includes all payload fields plus `reason` (string) and `certainty` (float).
+- `classifier_certainties` is a flat map of classifier name → float (0–1). Mirrors `classifier_outputs[name].certainty` without needing to dig into the nested map.
+- `classifier_outputs[name]` includes all payload fields plus `reason` (string) and `certainty` (float). `ClassifierPublicOutput` types `certainty` as `number`, not the internal string enum.
 - `tools` is always an array (empty if no classifier emitted it).
 
 ### Block triggers

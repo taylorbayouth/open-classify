@@ -2,6 +2,7 @@ import type {
   BlockReason,
   Catalog,
   CatalogEntry,
+  ClassifierPublicOutput,
   ClassifierPublicOutputs,
   ClassifierRegistry,
   ClassifierResults,
@@ -131,10 +132,11 @@ export function buildPublicOutputs(
     const result = results[manifest.name];
     if (result === undefined) continue;
     const { certainty, ...rest } = result as ClassifierOutput & { certainty: Certainty | undefined };
-    out[manifest.name] = {
+    const entry: ClassifierPublicOutput = {
       ...rest,
       certainty: scoreCertainty(certainty),
     };
+    out[manifest.name] = entry;
   }
   return out;
 }
